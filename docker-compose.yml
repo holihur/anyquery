@@ -1,0 +1,33 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - anyquery-mongo:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_DB: anyquery
+      APP_BASE_URL: http://localhost:8080
+      AUTH_DEV_MODE: "true"
+      SEED_DEMO: "true"
+      # Set a stable base64 key before keeping data across rebuilds:
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  anyquery-mongo:

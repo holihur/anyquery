@@ -1,0 +1,50 @@
+[tools]
+go = "1.27"
+node = "26"
+pnpm = "12"
+
+[env]
+PORT = "8080"
+APP_BASE_URL = "http://localhost:8080"
+AUTH_DEV_MODE = "true"
+MONGODB_URI = "mongodb://localhost:27017"
+MONGODB_DB = "anyquery"
+QUERY_TIMEOUT_SECONDS = "30"
+QUERY_MAX_RESULT_ROWS = "10000"
+
+[tasks.setup]
+description = "Install backend and frontend dependencies"
+run = "cd backend && go mod download && cd ../frontend && pnpm install"
+
+[tasks.mongo]
+description = "Start MongoDB with Docker Compose"
+run = "docker compose up -d mongo"
+
+[tasks.seed]
+description = "Seed the demo workspace (MongoDB + SQLite + saved queries)"
+depends = ["mongo"]
+run = "cd backend && go run ./cmd/seed"
+
+[tasks."dev:backend"]
+description = "Run the Go API server"
+run = "cd backend && go run ./cmd/server"
+
+[tasks."dev:web"]
+description = "Run the Vite dev server (proxies /api)"
+run = "cd frontend && pnpm dev"
+
+[tasks.test]
+description = "Run Go tests and build the frontend"
+run = "cd backend && go test ./... && cd ../frontend && pnpm build"
+
+[tasks.build]
+description = "Build the API binary and production SPA"
+run = "cd backend && go build -trimpath -o anyquery ./cmd/server && go build -trimpath -o anyquery-seed ./cmd/seed && cd ../frontend && pnpm build"
+
+[tasks.fmt]
+description = "Format Go and TypeScript sources"
+run = "cd backend && gofmt -w ./cmd ./internal"
+
+[tasks.vet]
+description = "Run go vet and a TypeScript build"
+run = "cd backend && go vet ./... && cd ../frontend && pnpm build"

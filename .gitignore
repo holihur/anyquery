@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+frontend/node_modules/
+backend/vendor/
+
+# builds
+frontend/dist/
+backend/anyquery
+backend/anyquery-seed
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# env & secrets
+.env
+.env.local
+*.pem
+
+# tooling
+.DS_Store
+*.log
+/tmp/
