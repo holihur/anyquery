@@ -2,20 +2,25 @@ package engine
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/anyquery/anyquery/internal/connector"
 )
 
-type fakeConn struct{ tables map[string][]map[string]any }
+type fakeConn struct {
+	tables  map[string][]map[string]any
+	lastReq *connector.FetchRequest
+}
 
 func (f *fakeConn) Ping(context.Context) error { return nil }
 func (f *fakeConn) Capabilities() connector.Capabilities {
-	return connector.Capabilities{LimitPushdown: true}
+	return connector.Capabilities{LimitPushdown: true, ProjectionPushdown: true, FilterPushdown: true}
 }
 func (f *fakeConn) Close() error                                          { return nil }
 func (f *fakeConn) Introspect(context.Context) ([]connector.Table, error) { return nil, nil }
 func (f *fakeConn) Fetch(_ context.Context, req connector.FetchRequest) (*connector.FetchResult, error) {
+	f.lastReq = &req
 	rows := f.tables[req.Table]
 	if req.Limit > 0 && len(rows) > req.Limit {
 		rows = rows[:req.Limit]
@@ -501,5 +506,92 @@ func TestValuesTable(t *testing.T) {
 	res := run(t, `SELECT id, name FROM (VALUES (2, 'b'), (1, 'a')) AS t(id, name) ORDER BY id`)
 	if res.RowCount != 2 || res.Rows[0]["id"] != int64(1) || res.Rows[0]["name"] != "a" {
 		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestBindParameters(t *testing.T) {
+	e := New(DefaultOptions())
+	res, err := e.ExecuteParams(context.Background(), `SELECT name FROM mongo.customers WHERE id = ? OR id = $2 ORDER BY name`, []any{int64(1), int64(2)}, testCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RowCount != 2 || res.Rows[0]["name"] != "Acme" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	if _, err := e.ExecuteParams(context.Background(), `SELECT ? AS n`, nil, testCatalog()); err == nil {
+		t.Fatal("expected missing parameter error")
+	}
+}
+
+func TestScanPushdownHints(t *testing.T) {
+	cat := testCatalog()
+	conn := cat.conns["mongo"]
+	e := New(DefaultOptions())
+	if _, err := e.Execute(context.Background(), `SELECT region FROM mongo.orders WHERE status = 'paid'`, cat); err != nil {
+		t.Fatal(err)
+	}
+	req := conn.lastReq
+	if req == nil || len(req.Columns) != 2 || !containsString(req.Columns, "region") || !containsString(req.Columns, "status") {
+		t.Fatalf("columns = %+v", req)
+	}
+	if len(req.Predicates) != 1 || req.Predicates[0].Column != "status" || req.Predicates[0].Op != "eq" {
+		t.Fatalf("predicates = %+v", req.Predicates)
+	}
+
+	if _, err := e.Execute(context.Background(), `SELECT * FROM mongo.customers LIMIT 1`, cat); err != nil {
+		t.Fatal(err)
+	}
+	if conn.lastReq.Limit != 2 {
+		t.Fatalf("limit = %d", conn.lastReq.Limit)
+	}
+}
+
+func containsString(list []string, value string) bool {
+	for _, s := range list {
+		if strings.EqualFold(s, value) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRollupAndGrouping(t *testing.T) {
+	res := run(t, `SELECT region, count(*) AS n, grouping(region) AS g
+FROM mongo.orders GROUP BY ROLLUP(region)
+ORDER BY g, region`)
+	if res.RowCount != 3 {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	if res.Rows[0]["region"] != "EU" || res.Rows[0]["n"] != int64(2) || res.Rows[0]["g"] != int64(0) {
+		t.Fatalf("first = %+v", res.Rows[0])
+	}
+	if res.Rows[2]["region"] != nil || res.Rows[2]["n"] != int64(4) || res.Rows[2]["g"] != int64(1) {
+		t.Fatalf("total = %+v", res.Rows[2])
+	}
+}
+
+func TestGroupingSets(t *testing.T) {
+	res := run(t, `SELECT region, status, count(*) AS n
+FROM mongo.orders GROUP BY GROUPING SETS ((region), (status), ())
+ORDER BY region NULLS LAST, status NULLS LAST`)
+	if res.RowCount != 5 {
+		t.Fatalf("rows = %d %+v", res.RowCount, res.Rows)
+	}
+}
+
+func TestTypedCastsAndTimezones(t *testing.T) {
+	res := run(t, `SELECT
+  try_cast('bad' AS INT) AS bad,
+  cast('2024-01-02' AS DATE) AS d,
+  date '2024-01-03' AS d2,
+  cast('2024-01-02 03:04:05' AS TIMESTAMP) AS ts,
+  to_timestamp(0) AS epoch,
+  timezone('UTC', '2024-01-01T00:00:00Z') AS z`)
+	row := res.Rows[0]
+	if row["bad"] != nil || row["d"] != "2024-01-02" || row["d2"] != "2024-01-03" {
+		t.Fatalf("row = %+v", row)
+	}
+	if row["ts"] != "2024-01-02T03:04:05Z" || row["epoch"] != "1970-01-01T00:00:00Z" || row["z"] != "2024-01-01T00:00:00Z" {
+		t.Fatalf("row = %+v", row)
 	}
 }

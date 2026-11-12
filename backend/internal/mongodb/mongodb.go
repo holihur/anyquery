@@ -77,7 +77,7 @@ func (c *Conn) Ping(ctx context.Context) error {
 }
 
 func (c *Conn) Capabilities() connector.Capabilities {
-	return connector.Capabilities{LimitPushdown: true, ProjectionPushdown: true}
+	return connector.Capabilities{LimitPushdown: true, ProjectionPushdown: true, FilterPushdown: true}
 }
 
 func (c *Conn) Close() error {
@@ -152,7 +152,8 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 		}
 		opts.SetProjection(projection)
 	}
-	cur, err := c.db.Collection(req.Table).Find(ctx, bson.M{}, opts)
+	filter := mongoFilter(req.Predicates)
+	cur, err := c.db.Collection(req.Table).Find(ctx, filter, opts)
 	if err != nil {
 		return nil, fmt.Errorf("find %s: %w", req.Table, err)
 	}
@@ -185,6 +186,41 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 		result.Truncated = true
 	}
 	return result, nil
+}
+
+func mongoFilter(preds []connector.Predicate) bson.M {
+	var and []bson.M
+	for _, p := range preds {
+		if p.Value == nil || strings.EqualFold(p.Column, "_id") {
+			continue
+		}
+		op := ""
+		switch p.Op {
+		case "eq":
+			op = "$eq"
+		case "ne":
+			op = "$ne"
+		case "lt":
+			op = "$lt"
+		case "lte":
+			op = "$lte"
+		case "gt":
+			op = "$gt"
+		case "gte":
+			op = "$gte"
+		default:
+			continue
+		}
+		and = append(and, bson.M{p.Column: bson.M{op: p.Value}})
+	}
+	switch len(and) {
+	case 0:
+		return bson.M{}
+	case 1:
+		return and[0]
+	default:
+		return bson.M{"$and": and}
+	}
 }
 
 func normalizeDocument(v any) any {

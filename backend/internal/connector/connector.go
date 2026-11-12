@@ -112,9 +112,19 @@ type Capabilities struct {
 // FetchRequest asks a connector for rows. Limit is a hard safety cap; the
 // engine may apply a smaller final limit itself.
 type FetchRequest struct {
-	Table   string
-	Columns []string
-	Limit   int
+	Table      string
+	Columns    []string
+	Limit      int
+	Predicates []Predicate
+}
+
+// Predicate is a simple column comparison that a connector may push to the
+// source. The engine always re-evaluates the original predicate, so connectors
+// may ignore unsupported predicates without changing correctness.
+type Predicate struct {
+	Column string
+	Op     string // eq, ne, lt, lte, gt, gte, like
+	Value  any
 }
 
 // FetchResult is a materialized batch of rows. Values must be JSON-friendly:

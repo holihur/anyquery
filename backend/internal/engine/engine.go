@@ -130,8 +130,14 @@ func (ec *execCtx) datasetCtx(d *dataset, row map[string]any) *evalCtx {
 	return &evalCtx{aliases: aliases, outer: ec.outerEval, exec: ec}
 }
 
-// Execute parses and runs one statement.
+// Execute parses and runs one statement without bind parameters.
 func (e *Engine) Execute(ctx context.Context, query string, cat Catalog) (*Result, error) {
+	return e.ExecuteParams(ctx, query, nil, cat)
+}
+
+// ExecuteParams parses and runs one statement with positional bind parameters.
+// Parameters are 1-based for both ? and $n placeholders.
+func (e *Engine) ExecuteParams(ctx context.Context, query string, params []any, cat Catalog) (*Result, error) {
 	start := time.Now()
 	if e.Opts.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -149,6 +155,7 @@ func (e *Engine) Execute(ctx context.Context, query string, cat Catalog) (*Resul
 		opened:   map[string]connector.Connector{},
 		ctes:     map[string]*dataset{},
 		warnings: []string{},
+		params:   params,
 	}
 	defer ec.close()
 
@@ -186,6 +193,8 @@ type execCtx struct {
 	stats     []SourceStat
 	stageLog  []string
 	outerEval *evalCtx
+	params    []any
+	scanHints map[*sql.TableRef]*scanHint
 }
 
 func (ec *execCtx) close() {

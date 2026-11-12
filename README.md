@@ -330,8 +330,10 @@ PAT 在 **Settings → API keys** 创建，raw token 只显示一次。
 - `UNION [ALL]`、`INTERSECT [ALL]`、`EXCEPT [ALL]`（INTERSECT 优先级更高）
 - 标量、`IN`、`EXISTS`、`ANY`/`SOME`/`ALL` 子查询，支持相关子查询
 - 窗口函数：`row_number / rank / dense_rank / lag / lead / sum / avg / count … OVER (PARTITION BY … ORDER BY …)`，支持分组聚合后再开窗
+- `ROLLUP` / `CUBE` / `GROUPING SETS` / `GROUPING()`，支持小计与总计
+- 位置参数 `?` / `$n`，API、MCP 与 Query Studio Params 对话框可直接传参
 - 聚合：`count / sum / avg / min / max / count(distinct) / group_concat / array_agg / bool_and / bool_or / stddev / variance`，支持 `FILTER (WHERE …)`
-- 常用标量函数：字符串、数学、日期（`extract / date_part / date_add / date_diff`）、JSON、哈希等
+- 常用标量函数：字符串、数学、日期（`extract / date_part / date_add / date_diff / to_timestamp / timezone`）、`TRY_CAST`、JSON、哈希等
 - 运算符：算术、比较、`LIKE / ILIKE / REGEXP`、`IN`、`BETWEEN`、`IS [NOT] DISTINCT FROM`、`CASE`、`CAST`、`::`
 - Pipeline stages：`WHERE`、`SELECT`、`AGGREGATE … GROUP BY`、`ORDER BY`、`LIMIT`、`DISTINCT`、`JOIN`
 
@@ -339,7 +341,7 @@ PAT 在 **Settings → API keys** 创建，raw token 只显示一次。
 
 **保存查询上限**：每个 workspace 100 条；超出时返回 `409 saved_query_limit`，UI 会提示删除旧查询。查询历史最多展示最近 100 条。
 
-**安全护栏**：MVP 将源数据按上限拉入引擎后执行 JOIN/聚合，所有过滤在内存中完成；已实现 LIMIT 下推。谓词下推、列裁剪和更细粒度并行在 roadmap 中。
+**安全护栏**：MVP 将源数据按上限拉入引擎后执行 JOIN/聚合。扫描规划器会按连接器能力下推列裁剪、简单谓词和 LIMIT；引擎始终重新校验谓词。Hash Join 对 INNER JOIN 选择较小侧构建哈希表；代价模型与 JOIN 重排仍在 roadmap 中。
 
 ---
 
@@ -435,7 +437,7 @@ cd backend && go test ./...
 - 谓词/投影下推、源端聚合、并发扫描、流式结果。
 - 每租户独立 OIDC / SCIM、审计导出、查询排队与并发配额。
 - 邮件发送（邀请/告警）目前只生成链接；密码找回由管理员重置，后续接 SMTP 自助重置。
-- 参数化查询、物化视图、`GROUPING SETS`/`ROLLUP`/`CUBE` 和更多窗口 frame 语义。
+- 代价模型与 JOIN 重排、物化视图、完整 Interval/Array 类型和更多窗口 frame 语义。
 - 更多连接器：BigQuery、Athena、DuckDB、Google Sheets、Kafka 等。
 
 ---

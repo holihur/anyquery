@@ -243,8 +243,9 @@ func (s *Server) callMCPTool(r *http.Request, name string, rawArgs json.RawMessa
 		return toolText(mustJSON(map[string]any{"sources": out})), nil
 	case "execute_sql":
 		var args struct {
-			SQL   string `json:"sql"`
-			Limit int    `json:"limit"`
+			SQL    string `json:"sql"`
+			Limit  int    `json:"limit"`
+			Params []any  `json:"params"`
 		}
 		if err := json.Unmarshal(rawArgs, &args); err != nil {
 			return nil, fmt.Errorf("invalid arguments: %w", err)
@@ -256,7 +257,7 @@ func (s *Server) callMCPTool(r *http.Request, name string, rawArgs json.RawMessa
 		if len(sqlText) > 200_000 {
 			return nil, fmt.Errorf("query text is too long")
 		}
-		res, run, err := s.executeForAPI(r.Context(), tenant, user.ID, sqlText)
+		res, run, err := s.executeForAPI(r.Context(), tenant, user.ID, sqlText, args.Params)
 		if err != nil {
 			return nil, err
 		}
@@ -289,10 +290,10 @@ func (s *Server) callMCPTool(r *http.Request, name string, rawArgs json.RawMessa
 	}
 }
 
-func (s *Server) executeForAPI(ctx context.Context, tenant *model.Tenant, userID, sqlText string) (*engine.Result, *model.QueryRun, error) {
+func (s *Server) executeForAPI(ctx context.Context, tenant *model.Tenant, userID, sqlText string, params []any) (*engine.Result, *model.QueryRun, error) {
 	cat := &tenantCatalog{server: s, tenantID: tenant.ID, opened: map[string]connector.Connector{}}
 	defer cat.Close()
-	res, execErr := s.engine.Execute(ctx, sqlText, cat)
+	res, execErr := s.engine.ExecuteParams(ctx, sqlText, params, cat)
 	run := &model.QueryRun{
 		ID: store.NewID(), TenantID: tenant.ID, UserID: userID, SQL: sqlText,
 		CreatedAt: store.Now(), Sources: []string{},

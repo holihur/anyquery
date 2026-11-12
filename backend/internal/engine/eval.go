@@ -17,13 +17,15 @@ import (
 )
 
 type evalCtx struct {
-	rel     *relation
-	row     map[string]any
-	aliases map[string]any
-	group   []map[string]any
-	outer   *evalCtx
-	exec    *execCtx
-	windows map[string]any
+	rel      *relation
+	row      map[string]any
+	aliases  map[string]any
+	group    []map[string]any
+	outer    *evalCtx
+	exec     *execCtx
+	windows  map[string]any
+	omit     map[string]bool
+	grouping map[string]bool
 }
 
 func (c *evalCtx) resolve(ref *sql.ColumnRef) (any, error) {
@@ -74,9 +76,20 @@ func (c *evalCtx) resolve(ref *sql.ColumnRef) (any, error) {
 }
 
 func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
+	if ctx.omit != nil && ctx.omit[e.String()] {
+		return nil, nil
+	}
 	switch x := e.(type) {
 	case *sql.Literal:
 		return x.Value, nil
+	case *sql.Parameter:
+		if ctx.exec == nil {
+			return nil, errf("parameter_error", "bind parameters are not available")
+		}
+		if x.Index < 1 || x.Index > len(ctx.exec.params) {
+			return nil, errf("parameter_error", "missing value for parameter %d", x.Index)
+		}
+		return ctx.exec.params[x.Index-1], nil
 	case *sql.ColumnRef:
 		return ctx.resolve(x)
 	case *sql.StarExpr:
@@ -223,7 +236,11 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return castValue(v, x.Type)
+		out, err := castValue(v, x.Type)
+		if err != nil && x.Safe {
+			return nil, nil
+		}
+		return out, err
 	case *sql.ExistsExpr:
 		ds, err := evalSubquery(ctx, x.Query)
 		if err != nil {
@@ -837,6 +854,43 @@ func evalFunction(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 		return hex.EncodeToString(h[:]), nil
 	case "random", "rand":
 		return math.Mod(float64(time.Now().UnixNano())/1e9, 1), nil
+	case "timezone":
+		if len(args) != 2 || arg(0) == nil || arg(1) == nil {
+			return nil, nil
+		}
+		tm, ok := toTime(arg(1))
+		if !ok {
+			return nil, errf("type_error", "TIMEZONE expects a timestamp")
+		}
+		loc, err := time.LoadLocation(fmt.Sprint(arg(0)))
+		if err != nil {
+			return nil, errf("invalid_arguments", "unknown time zone %q", fmt.Sprint(arg(0)))
+		}
+		return tm.In(loc).Format(time.RFC3339Nano), nil
+	case "to_timestamp":
+		if len(args) != 1 || arg(0) == nil {
+			return nil, nil
+		}
+		if s, ok := arg(0).(string); ok {
+			if tm, ok := toTime(s); ok {
+				return tm.UTC().Format(time.RFC3339Nano), nil
+			}
+		}
+		if f, ok := toFloat(arg(0)); ok {
+			return time.Unix(int64(f), 0).UTC().Format(time.RFC3339Nano), nil
+		}
+		return nil, errf("type_error", "TO_TIMESTAMP expects a timestamp string or epoch")
+	case "grouping", "grouping_id":
+		if len(args) == 0 {
+			return nil, errf("invalid_arguments", "%s expects at least one argument", strings.ToUpper(name))
+		}
+		result := int64(0)
+		for i, a := range f.Args {
+			if ctx.grouping[a.String()] {
+				result |= 1 << uint(len(f.Args)-1-i)
+			}
+		}
+		return result, nil
 	case "json_extract", "json_extract_scalar":
 		return jsonExtract(arg(0), arg(1), name == "json_extract_scalar")
 	case "extract", "date_part":
@@ -1656,6 +1710,12 @@ func castValue(v any, typ string) (any, error) {
 			return nil, errf("cast_error", "cannot cast %v to date", v)
 		}
 		return tm.UTC().Format("2006-01-02"), nil
+	case strings.HasPrefix(t, "time"):
+		tm, ok := toTime(v)
+		if !ok {
+			return nil, errf("cast_error", "cannot cast %v to time", v)
+		}
+		return tm.UTC().Format("15:04:05"), nil
 	case strings.HasPrefix(t, "text"), strings.HasPrefix(t, "varchar"), strings.HasPrefix(t, "char"), strings.HasPrefix(t, "string"):
 		return fmt.Sprint(v), nil
 	default:

@@ -9,11 +9,12 @@ import (
 // Parser parses AnyQuery SQL. It is a hand-written recursive descent + Pratt
 // parser so new statements/stages/operators are a local change.
 type Parser struct {
-	tokens []Token
-	pos    int
-	cur    Token
-	peek   Token
-	src    string
+	tokens     []Token
+	pos        int
+	cur        Token
+	peek       Token
+	src        string
+	paramCount int
 }
 
 // Parse parses one statement.
@@ -205,7 +206,11 @@ func (p *Parser) parseSelectClauses(s *SelectStmt) error {
 		if err := p.expectKeyword("BY"); err != nil {
 			return err
 		}
-		if s.GroupBy, err = p.parseExprList(); err != nil {
+		if p.cur.IsKeyword("ROLLUP") || p.cur.IsKeyword("CUBE") || p.cur.IsKeyword("GROUPING") {
+			if s.GroupingSets, err = p.parseGroupingSets(); err != nil {
+				return err
+			}
+		} else if s.GroupBy, err = p.parseExprList(); err != nil {
 			return err
 		}
 	}
@@ -920,6 +925,89 @@ func (p *Parser) parseIdentList() ([]string, error) {
 	return out, nil
 }
 
+func (p *Parser) parseGroupingSets() ([][]Expr, error) {
+	if p.cur.IsKeyword("GROUPING") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		if err := p.expectKeyword("SETS"); err != nil {
+			return nil, err
+		}
+		if err := p.expectPunct("("); err != nil {
+			return nil, err
+		}
+		var sets [][]Expr
+		for {
+			if err := p.expectPunct("("); err != nil {
+				return nil, err
+			}
+			var set []Expr
+			if !p.cur.IsPunct(")") {
+				var err error
+				if set, err = p.parseExprList(); err != nil {
+					return nil, err
+				}
+			}
+			if err := p.expectPunct(")"); err != nil {
+				return nil, err
+			}
+			sets = append(sets, set)
+			if !p.cur.IsPunct(",") {
+				break
+			}
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		}
+		if err := p.expectPunct(")"); err != nil {
+			return nil, err
+		}
+		return sets, nil
+	}
+	kind := strings.ToUpper(p.cur.Value)
+	if err := p.advance(); err != nil {
+		return nil, err
+	}
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+	var exprs []Expr
+	if !p.cur.IsPunct(")") {
+		var err error
+		if exprs, err = p.parseExprList(); err != nil {
+			return nil, err
+		}
+	}
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	if kind == "ROLLUP" {
+		sets := make([][]Expr, 0, len(exprs)+1)
+		for i := len(exprs); i >= 0; i-- {
+			sets = append(sets, append([]Expr{}, exprs[:i]...))
+		}
+		return sets, nil
+	}
+	if kind == "CUBE" {
+		n := len(exprs)
+		if n > 8 {
+			return nil, p.errf("CUBE supports at most 8 expressions")
+		}
+		sets := make([][]Expr, 0, 1<<n)
+		for mask := (1 << n) - 1; mask >= 0; mask-- {
+			set := make([]Expr, 0, n)
+			for i := 0; i < n; i++ {
+				if mask&(1<<i) != 0 {
+					set = append(set, exprs[i])
+				}
+			}
+			sets = append(sets, set)
+		}
+		return sets, nil
+	}
+	return nil, p.errf("expected ROLLUP, CUBE or GROUPING SETS")
+}
+
 func (p *Parser) parseExprList() ([]Expr, error) {
 	var out []Expr
 	for {
@@ -1404,10 +1492,43 @@ func (p *Parser) parsePrimary() (Expr, error) {
 			return p.parseSubstring()
 		}
 		return nil, p.errf("expected '(' after %s", strings.ToUpper(t.Value))
+	case t.IsPunct("?"):
+		p.paramCount++
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		return &Parameter{Index: p.paramCount, Style: "?"}, nil
+
+	case t.IsPunct("$"):
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		if p.cur.Kind != TokNumber {
+			return nil, p.errf("expected a parameter number after $")
+		}
+		n, err := strconv.Atoi(p.cur.Value)
+		if err != nil || n <= 0 {
+			return nil, p.errf("invalid parameter number %q", p.cur.Value)
+		}
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		return &Parameter{Index: n, Style: "$"}, nil
+
+	case (t.IsKeyword("DATE") || t.IsKeyword("TIME") || t.IsKeyword("TIMESTAMP") || t.IsKeyword("TIMESTAMPTZ") || t.IsKeyword("DATETIME")) && p.peek.Kind == TokString:
+		typ := strings.ToLower(t.Value)
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		lit := &Literal{Kind: LitString, Value: p.cur.Value}
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		return &CastExpr{Expr: lit, Type: typ}, nil
 	case t.IsKeyword("CASE"):
 		return p.parseCase()
 
-	case t.IsKeyword("CAST"):
+	case t.IsKeyword("CAST"), t.IsKeyword("TRY_CAST"):
 		return p.parseCast()
 
 	case t.IsKeyword("EXISTS"):
@@ -1822,7 +1943,8 @@ func (p *Parser) parseCase() (Expr, error) {
 }
 
 func (p *Parser) parseCast() (Expr, error) {
-	if err := p.advance(); err != nil { // CAST
+	safe := strings.EqualFold(p.cur.Value, "TRY_CAST")
+	if err := p.advance(); err != nil { // CAST / TRY_CAST
 		return nil, err
 	}
 	if err := p.expectPunct("("); err != nil {
@@ -1842,7 +1964,7 @@ func (p *Parser) parseCast() (Expr, error) {
 	if err := p.expectPunct(")"); err != nil {
 		return nil, err
 	}
-	return &CastExpr{Expr: e, Type: typ}, nil
+	return &CastExpr{Expr: e, Type: typ, Safe: safe}, nil
 }
 
 func (p *Parser) parseTypeName() (string, error) {
@@ -2036,7 +2158,7 @@ func isClauseKeyword(s string) bool {
 	case "FROM", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT",
 		"JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "ON", "USING",
 		"AND", "OR", "NOT", "IS", "IN", "LIKE", "ILIKE", "BETWEEN", "WHEN", "THEN", "ELSE", "END",
-		"ASC", "DESC", "NULLS", "FIRST", "LAST", "AS", "BY", "SELECT", "DISTINCT", "ALL", "AGGREGATE", "FILTER", "OVER", "PARTITION", "ROWS", "RANGE", "UNBOUNDED", "PRECEDING", "FOLLOWING", "CURRENT", "ROW", "FETCH", "ONLY", "RECURSIVE", "ANY", "SOME", "PIPE":
+		"ASC", "DESC", "NULLS", "FIRST", "LAST", "AS", "BY", "SELECT", "DISTINCT", "ALL", "AGGREGATE", "FILTER", "OVER", "PARTITION", "ROWS", "RANGE", "UNBOUNDED", "PRECEDING", "FOLLOWING", "CURRENT", "ROW", "FETCH", "ONLY", "RECURSIVE", "ANY", "SOME", "ROLLUP", "CUBE", "GROUPING", "SETS", "TRY_CAST", "PIPE":
 		return true
 	}
 	return false

@@ -7,6 +7,7 @@ import { keymap } from "@codemirror/view"
 import { format as formatSQL } from "sql-formatter"
 import {
   Bookmark,
+  Braces,
   CheckCircle2,
   ChevronDown,
   CircleAlert,
@@ -43,7 +44,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { SchemaExplorer, type CatalogSource } from "@/components/query/SchemaExplorer"
 import { ResultsTable } from "@/components/query/ResultsTable"
@@ -88,6 +89,8 @@ export function QueryPage() {
   const [errorHint, setErrorHint] = useState<string | null>(null)
   const [saveOpen, setSaveOpen] = useState(false)
   const [schemaOpen, setSchemaOpen] = useState(false)
+  const [paramsOpen, setParamsOpen] = useState(false)
+  const [paramText, setParamText] = useState(() => localStorage.getItem(`aq-params-${tenant.id}`) || "")
   const [tab, setTab] = useState("results")
   const [historyPage, setHistoryPage] = useState(0)
   const [schemaCollapsed, setSchemaCollapsed] = useState(() => localStorage.getItem("aq-schema-collapsed") === "1")
@@ -122,6 +125,10 @@ export function QueryPage() {
   useEffect(() => {
     localStorage.setItem("aq-auto-refresh-ms", String(autoRefreshMs))
   }, [autoRefreshMs])
+
+  useEffect(() => {
+    localStorage.setItem(`aq-params-${tenant.id}`, paramText)
+  }, [paramText, tenant.id])
 
   useEffect(() => {
     if (!autoRefreshMs) return
@@ -184,8 +191,22 @@ export function QueryPage() {
     setErrorHint(null)
     setLastRun(null)
     setTab("results")
+    let bindParams: unknown[] = []
+    if (paramText.trim()) {
+      try {
+        const parsed = JSON.parse(paramText)
+        if (!Array.isArray(parsed)) throw new Error("Parameters must be a JSON array")
+        bindParams = parsed
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Invalid parameter JSON")
+        setErrorCode("parameter_error")
+        setErrorHint("Enter a JSON array, for example [42, \"paid\"]")
+        setRunning(false)
+        return
+      }
+    }
     try {
-      const payload: ExecuteResponse = await api.execute(tenant.slug, text, currentSaved?.id)
+      const payload: ExecuteResponse = await api.execute(tenant.slug, text, currentSaved?.id, bindParams)
       if (payload.error) {
         setError(payload.error.message)
         setErrorCode(payload.error.code)
@@ -370,6 +391,9 @@ export function QueryPage() {
               <Save className="size-3.5" /> <span className="hidden sm:inline">{currentSaved ? "Update" : "Save"}</span>
             </Button>
           )}
+          <Button variant="outline" size="sm" onClick={() => setParamsOpen(true)}>
+            <Braces className="size-3.5" /> <span className="hidden sm:inline">Params</span>
+          </Button>
           <Button size="sm" onClick={() => void runQuery()} disabled={running || !sqlText.trim()} className="min-w-[82px]">
             {running ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5 fill-current" />}
             {running ? "Running" : "Run"}
@@ -518,6 +542,29 @@ export function QueryPage() {
           </div>
         </div>
       </div>
+
+      <Dialog open={paramsOpen} onOpenChange={setParamsOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Bind parameters</DialogTitle>
+            <DialogDescription>
+              Positional values for <code className="font-mono text-[11px]">?</code> or <code className="font-mono text-[11px]">$1</code> placeholders. Enter a JSON array.
+            </DialogDescription>
+          </DialogHeader>
+          <textarea
+            value={paramText}
+            onChange={(e) => setParamText(e.target.value)}
+            spellCheck={false}
+            rows={7}
+            placeholder={'[42, "paid", "2024-01-01T00:00:00Z"]'}
+            className="w-full resize-y rounded-lg border bg-muted/20 px-3 py-2 font-mono text-[12px] outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setParamText("")}>Clear</Button>
+            <Button onClick={() => setParamsOpen(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <SaveQueryDialog
         open={saveOpen}

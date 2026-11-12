@@ -131,8 +131,23 @@ func (ec *execCtx) relationForTableRef(ref *sql.TableRef) (*relation, error) {
 		return nil, err
 	}
 	fetchLimit := ec.engine.Opts.MaxSourceRows + 1
+	req := connector.FetchRequest{Table: tm.Name, Limit: fetchLimit}
+	pushedLimit := false
+	caps := c.Capabilities()
+	if hint := ec.scanHintFor(ref); hint != nil {
+		if caps.ProjectionPushdown && len(hint.columns) > 0 {
+			req.Columns = hint.columns
+		}
+		if caps.FilterPushdown && len(hint.predicates) > 0 {
+			req.Predicates = hint.predicates
+		}
+		if caps.LimitPushdown && hint.limit > 0 && hint.limit < req.Limit {
+			req.Limit = hint.limit
+			pushedLimit = true
+		}
+	}
 	start := time.Now()
-	fr, err := c.Fetch(ec.ctx, connector.FetchRequest{Table: tm.Name, Limit: fetchLimit})
+	fr, err := c.Fetch(ec.ctx, req)
 	if err != nil {
 		return nil, &Error{Code: "source_query_error", Message: fmt.Sprintf("read %s.%s: %v", ref.Source, tm.Name, err)}
 	}
@@ -144,7 +159,7 @@ func (ec *execCtx) relationForTableRef(ref *sql.TableRef) (*relation, error) {
 		truncated = true
 	}
 	ec.stats = append(ec.stats, SourceStat{Source: ref.Source, Table: tm.Name, Rows: len(rows), DurationMS: elapsed})
-	if truncated {
+	if truncated && !pushedLimit {
 		ec.warnings = append(ec.warnings, fmt.Sprintf("source %s.%s was truncated at %d rows; add filters or a LIMIT", ref.Source, tm.Name, ec.engine.Opts.MaxSourceRows))
 	}
 
@@ -409,7 +424,8 @@ func (ec *execCtx) joinRelations(left, right *relation, typ sql.JoinType, on sql
 		joinPairs = equiPairs(on, left, right)
 	}
 	if len(joinPairs) > 0 {
-		if err := ec.hashJoin(combined, left, right, typ, on, joinPairs, leftMatched, rightMatched); err != nil {
+		buildLeft := typ == sql.JoinInner && len(left.rows) < len(right.rows)
+		if err := ec.hashJoin(combined, left, right, typ, on, joinPairs, leftMatched, rightMatched, buildLeft); err != nil {
 			return nil, err
 		}
 	} else {
@@ -494,32 +510,82 @@ func mergeRows(left, right map[string]any, fields []field) map[string]any {
 	return row
 }
 
-func (ec *execCtx) hashJoin(combined, left, right *relation, typ sql.JoinType, on sql.Expr, pairs [][2]field, leftMatched, rightMatched []bool) error {
-	index := make(map[string][]int, len(right.rows))
-	for ri, rr := range right.rows {
-		vals := make([]any, len(pairs))
-		for i, p := range pairs {
-			vals[i] = rr[p[1].Key]
+func naturalJoinColumns(left, right *relation) []string {
+	leftNames := map[string]bool{}
+	for _, f := range left.fields {
+		leftNames[strings.ToLower(f.Name)] = true
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, f := range right.fields {
+		name := strings.ToLower(f.Name)
+		if leftNames[name] && !seen[name] {
+			seen[name] = true
+			out = append(out, f.Name)
 		}
-		key, ok := joinKey(vals)
-		if !ok {
-			continue
+	}
+	return out
+}
+
+func (ec *execCtx) hashJoin(combined, left, right *relation, typ sql.JoinType, on sql.Expr, pairs [][2]field, leftMatched, rightMatched []bool, buildLeft bool) error {
+	index := make(map[string][]int)
+	if buildLeft {
+		for li, lr := range left.rows {
+			vals := make([]any, len(pairs))
+			for i, p := range pairs {
+				vals[i] = lr[p[0].Key]
+			}
+			key, ok := joinKey(vals)
+			if !ok {
+				continue
+			}
+			index[key] = append(index[key], li)
 		}
-		index[key] = append(index[key], ri)
+	} else {
+		for ri, rr := range right.rows {
+			vals := make([]any, len(pairs))
+			for i, p := range pairs {
+				vals[i] = rr[p[1].Key]
+			}
+			key, ok := joinKey(vals)
+			if !ok {
+				continue
+			}
+			index[key] = append(index[key], ri)
+		}
 	}
 
-	for li, lr := range left.rows {
-		vals := make([]any, len(pairs))
-		for i, p := range pairs {
-			vals[i] = lr[p[0].Key]
+	probeCount := len(right.rows)
+	if buildLeft {
+		probeCount = len(right.rows)
+	} else {
+		probeCount = len(left.rows)
+	}
+	for pos := 0; pos < probeCount; pos++ {
+		var vals []any
+		if buildLeft {
+			rr := right.rows[pos]
+			vals = make([]any, len(pairs))
+			for i, p := range pairs {
+				vals[i] = rr[p[1].Key]
+			}
+		} else {
+			lr := left.rows[pos]
+			vals = make([]any, len(pairs))
+			for i, p := range pairs {
+				vals[i] = lr[p[0].Key]
+			}
 		}
 		key, ok := joinKey(vals)
 		if !ok {
 			continue
 		}
-		for _, ri := range index[key] {
-			rr := right.rows[ri]
-			row := mergeRows(lr, rr, combined.fields)
+		for _, idx := range index[key] {
+			li, ri := idx, pos
+			if !buildLeft {
+				li, ri = pos, idx
+			}
+			row := mergeRows(left.rows[li], right.rows[ri], combined.fields)
 			if on != nil {
 				ctx := &evalCtx{rel: combined, row: row, outer: ec.outerEval, exec: ec}
 				v, err := evalExpr(ctx, on)
@@ -539,23 +605,6 @@ func (ec *execCtx) hashJoin(combined, left, right *relation, typ sql.JoinType, o
 		}
 	}
 	return nil
-}
-
-func naturalJoinColumns(left, right *relation) []string {
-	leftNames := map[string]bool{}
-	for _, f := range left.fields {
-		leftNames[strings.ToLower(f.Name)] = true
-	}
-	var out []string
-	seen := map[string]bool{}
-	for _, f := range right.fields {
-		name := strings.ToLower(f.Name)
-		if leftNames[name] && !seen[name] {
-			seen[name] = true
-			out = append(out, f.Name)
-		}
-	}
-	return out
 }
 
 // splitAnd flattens AND expressions for equi-key detection.

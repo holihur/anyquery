@@ -18,18 +18,19 @@ type Statement interface {
 // SelectStmt is a SELECT query. Pipe stages are applied after the base
 // SELECT (or after FROM when using FROM-first pipeline syntax).
 type SelectStmt struct {
-	CTEs        []*CTE
-	Distinct    bool
-	Projections []SelectItem
-	From        []TableExpr
-	Where       Expr
-	GroupBy     []Expr
-	Having      Expr
-	OrderBy     []OrderItem
-	Limit       *int
-	Offset      *int
-	SetOps      []SetOperation
-	Pipes       []PipeStage
+	CTEs         []*CTE
+	Distinct     bool
+	Projections  []SelectItem
+	From         []TableExpr
+	Where        Expr
+	GroupBy      []Expr
+	GroupingSets [][]Expr
+	Having       Expr
+	OrderBy      []OrderItem
+	Limit        *int
+	Offset       *int
+	SetOps       []SetOperation
+	Pipes        []PipeStage
 }
 
 func (*SelectStmt) stmtNode() {}
@@ -204,6 +205,14 @@ type Literal struct {
 	Value any
 }
 
+// Parameter is a positional bind parameter. Index is 1-based for both ? and $n.
+type Parameter struct {
+	Index int
+	Style string // ? or $
+}
+
+func (*Parameter) exprNode() {}
+
 type LiteralKind string
 
 const (
@@ -328,6 +337,7 @@ func (*CaseExpr) exprNode() {}
 type CastExpr struct {
 	Expr Expr
 	Type string
+	Safe bool // TRY_CAST returns NULL instead of an error
 }
 
 func (*CastExpr) exprNode() {}
@@ -367,6 +377,13 @@ func FormatTableRef(t *TableRef) string {
 		parts = append(parts, FormatIdent(t.Table))
 	}
 	return strings.Join(parts, ".")
+}
+
+func (p *Parameter) String() string {
+	if p.Style == "?" {
+		return "?"
+	}
+	return "$" + fmt.Sprint(p.Index)
 }
 
 func (l *Literal) String() string {
@@ -554,7 +571,11 @@ func (c *CaseExpr) String() string {
 }
 
 func (c *CastExpr) String() string {
-	return "CAST(" + c.Expr.String() + " AS " + c.Type + ")"
+	name := "CAST"
+	if c.Safe {
+		name = "TRY_CAST"
+	}
+	return name + "(" + c.Expr.String() + " AS " + c.Type + ")"
 }
 
 func (e *ExistsExpr) String() string { return "EXISTS(" + FormatSelect(e.Query) + ")" }
@@ -633,7 +654,22 @@ func FormatSelect(s *SelectStmt) string {
 	if s.Where != nil {
 		sb.WriteString(" WHERE " + s.Where.String())
 	}
-	if len(s.GroupBy) > 0 {
+	if len(s.GroupingSets) > 0 {
+		sb.WriteString(" GROUP BY GROUPING SETS (")
+		for i, set := range s.GroupingSets {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString("(")
+			parts := make([]string, len(set))
+			for j, g := range set {
+				parts[j] = g.String()
+			}
+			sb.WriteString(strings.Join(parts, ", "))
+			sb.WriteString(")")
+		}
+		sb.WriteString(")")
+	} else if len(s.GroupBy) > 0 {
 		parts := make([]string, len(s.GroupBy))
 		for i, g := range s.GroupBy {
 			parts[i] = g.String()

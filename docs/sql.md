@@ -45,6 +45,20 @@ SELECT region FROM orders EXCEPT SELECT region FROM customers;
 - parentheses can group set terms
 - output columns come from the left term; both sides must have the same column count
 
+### Grouping sets
+
+```sql
+SELECT region, category, sum(total) AS revenue
+FROM mongo.orders
+GROUP BY ROLLUP(region, category);
+
+SELECT region, count(*) AS n, grouping(region) AS g
+FROM mongo.orders
+GROUP BY GROUPING SETS ((region), ());
+```
+
+`ROLLUP`, `CUBE` and explicit `GROUPING SETS` are supported, along with `GROUPING()` / `GROUPING_ID()`. Omitted grouping columns are returned as `NULL`. `CUBE` accepts at most 8 expressions.
+
 ### Recursive CTEs
 
 ```sql
@@ -84,6 +98,26 @@ SELECT id, name FROM (VALUES (1, 'a'), (2, 'b')) AS t(id, name);
 ```
 
 Subqueries can be correlated with the outer query. Correlated subqueries are executed per outer row, so keep their filters selective.
+
+### Bind parameters
+
+Positional parameters use `?` or `$n`:
+
+```sql
+SELECT * FROM mongo.orders
+WHERE status = ? AND total > $2;
+```
+
+API request:
+
+```json
+{
+  "sql": "SELECT * FROM mongo.orders WHERE status = ? AND total > $2",
+  "params": ["paid", 100]
+}
+```
+
+The Query Studio has a **Params** dialog that accepts a JSON array. MCP `execute_sql` accepts the same `params` array. Parameters are evaluated by the engine, not interpolated into source SQL.
 
 ### Quantified comparisons
 
@@ -134,7 +168,9 @@ GROUP BY region;
 - arithmetic: `+ - * / %`, `||` (concatenation), `& | ~`
 - comparisons: `= != <> < <= > >=`, `LIKE`, `ILIKE`, `REGEXP`
 - `IN (...)`, `ANY`/`SOME`/`ALL`, `BETWEEN`, `IS [NOT] NULL/TRUE/FALSE`, `IS [NOT] DISTINCT FROM`
-- `CASE`, `CAST`, `::`, `EXISTS`, scalar subqueries
+- `CASE`, `CAST`, `TRY_CAST`, `::`, `EXISTS`, scalar subqueries
+- typed literals: `DATE '2024-01-01'`, `TIMESTAMP '2024-01-01 12:00:00'`, `TIMESTAMPTZ '...'`
+- bind parameters: `?`, `$1`
 - `CURRENT_DATE`, `CURRENT_TIMESTAMP`, `NOW()`
 
 ## Functions
@@ -144,7 +180,7 @@ GROUP BY region;
 | Strings | `lower`, `upper`, `length`, `trim`, `ltrim`, `rtrim`, `substring`/`substr`, `concat`, `concat_ws`, `replace`, `split_part`, `left`, `right`, `reverse`, `repeat`, `position`/`strpos`/`instr`, `starts_with`, `ends_with`, `contains`, `initcap`, `lpad`, `rpad`, `regexp_replace`, `regexp_extract` |
 | Nulls / conditionals | `coalesce`, `ifnull`, `nvl`, `nullif`, `if`/`iff` |
 | Math | `abs`, `ceil`/`ceiling`, `floor`, `round`, `sqrt`, `power`/`pow`, `mod`, `greatest`, `least` |
-| Date / time | `now`, `current_date`, `current_timestamp`, `date_trunc`, `extract`, `date_part`, `date_add`/`dateadd`, `date_sub`/`datesub`, `date_diff`/`datediff` |
+| Date / time | `now`, `current_date`, `current_timestamp`, `date_trunc`, `extract`, `date_part`, `date_add`/`dateadd`, `date_sub`/`datesub`, `date_diff`/`datediff`, `to_timestamp`, `timezone` |
 | JSON / hashing | `json_extract`, `json_extract_scalar`, `md5`, `sha256` |
 | Random | `random`/`rand` |
 
@@ -180,13 +216,14 @@ The engine materializes source rows and executes joins/aggregations in memory. D
 - 2,000,000 intermediate join rows
 - 30 second query timeout
 
-Use filters early. LIMIT pushdown is performed where the connector supports it.
+Use filters early. The scan planner performs capability-gated projection, filter and limit pushdown; the engine always re-evaluates filters, so connectors may ignore unsupported pushdown. Hash joins build the smaller side for inner joins. There is no cost-based join reordering yet.
 
 ## Known limitations
 
 - No DML/DDL or transactions.
-- No parameter placeholders yet (`?`, `$1`); interpolate values as literals carefully.
-- No `GROUPING SETS`, `ROLLUP`, `CUBE`, `PIVOT`, or named window definitions.
+- No `PIVOT` or named window definitions.
+- No full interval/array/map type system; typed date/time values are represented as normalized strings.
+- No cost-based join reordering; joins follow the written order and choose the smaller inner-join build side.
 - Window functions are not available inside `|>` pipeline stages.
 - Recursive CTEs require a single `UNION`/`UNION ALL` term and have the documented iteration/row guards.
 - Set-operation type coercion is minimal; values are compared with AnyQuery's cross-source numeric normalization.

@@ -69,10 +69,13 @@ Runs AnyQuery SQL, including cross-source joins. `limit` controls how many rows 
 
 ```json
 {
-  "sql": "SELECT p.category, sum(o.total) AS revenue FROM mongo.orders o JOIN shop.products p ON o.product_id = p.id WHERE o.status = 'paid' GROUP BY p.category",
+  "sql": "SELECT p.category, sum(o.total) AS revenue FROM mongo.orders o JOIN shop.products p ON o.product_id = p.id WHERE o.status = ? GROUP BY p.category",
+  "params": ["paid"],
   "limit": 100
 }
 ```
+
+`params` is a positional JSON array for `?` or `$n` placeholders.
 
 Every MCP execution is recorded in query history. Query timeouts and source row guards apply.
 

@@ -96,6 +96,11 @@ func (l *Lexer) Next() (Token, error) {
 	startLine, startCol := l.line, l.col
 	r, size := utf8.DecodeRuneInString(l.src[l.pos:])
 
+	if r == '$' && l.pos+1 < len(l.src) && isDigitByte(l.src[l.pos+1]) {
+		l.advance(r, size)
+		return Token{Kind: TokPunct, Value: "$", Line: startLine, Col: startCol}, nil
+	}
+
 	if isIdentStart(r) {
 		start := l.pos
 		for l.pos < len(l.src) {
@@ -135,7 +140,7 @@ func (l *Lexer) Next() (Token, error) {
 		return Token{Kind: TokPunct, Value: two, Line: startLine, Col: startCol}, nil
 	}
 
-	if strings.ContainsRune("()[],.;+*/%<>=|&~!-^", r) {
+	if strings.ContainsRune("()[],.;+*/%<>=|&~!-^?$", r) {
 		l.advance(r, size)
 		return Token{Kind: TokPunct, Value: string(r), Line: startLine, Col: startCol}, nil
 	}

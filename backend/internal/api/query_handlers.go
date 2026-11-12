@@ -83,6 +83,7 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		SQL          string `json:"sql"`
 		SavedQueryID string `json:"savedQueryId"`
+		Params       []any  `json:"params"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", err.Error())
@@ -114,7 +115,7 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	cat := &tenantCatalog{server: s, tenantID: t.ID, opened: map[string]connector.Connector{}}
 	defer cat.Close()
 	start := time.Now()
-	res, execErr := s.engine.Execute(r.Context(), sqlText, cat)
+	res, execErr := s.engine.ExecuteParams(r.Context(), sqlText, body.Params, cat)
 	duration := time.Since(start).Milliseconds()
 	run := &model.QueryRun{
 		ID: store.NewID(), TenantID: t.ID, UserID: currentUser(r).ID,

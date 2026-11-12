@@ -145,12 +145,12 @@ export const api = {
       `/tenants/${slug}/catalog`,
     ),
 
-  execute: async (slug: string, sql: string, savedQueryId?: string): Promise<ExecuteResponse> => {
+  execute: async (slug: string, sql: string, savedQueryId?: string, params?: unknown[]): Promise<ExecuteResponse> => {
     const res = await fetch(`${BASE}/tenants/${slug}/queries/execute`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sql, savedQueryId }),
+      body: JSON.stringify({ sql, savedQueryId, params }),
     })
     const text = await res.text()
     const payload = text ? JSON.parse(text) : {}

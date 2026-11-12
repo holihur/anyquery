@@ -108,7 +108,7 @@ func (c *Conn) Ping(ctx context.Context) error {
 }
 
 func (c *Conn) Capabilities() connector.Capabilities {
-	return connector.Capabilities{LimitPushdown: true, ProjectionPushdown: true}
+	return connector.Capabilities{LimitPushdown: true, ProjectionPushdown: true, FilterPushdown: true}
 }
 
 func (c *Conn) Close() error { return c.db.Close() }
@@ -138,14 +138,15 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 		}
 		cols = strings.Join(quoted, ", ")
 	}
+	where, args := c.buildWhere(req.Predicates)
 	var q string
 	if strings.EqualFold(c.dialect.Type, "sqlserver") {
-		q = fmt.Sprintf("SELECT TOP (%d) %s FROM %s", req.Limit, cols, qualified)
+		q = fmt.Sprintf("SELECT TOP (%d) %s FROM %s%s", req.Limit, cols, qualified, where)
 	} else {
-		q = fmt.Sprintf("SELECT %s FROM %s%s", cols, qualified, c.dialect.LimitSQL(req.Limit))
+		q = fmt.Sprintf("SELECT %s FROM %s%s%s", cols, qualified, where, c.dialect.LimitSQL(req.Limit))
 	}
 
-	rows, err := c.db.QueryContext(ctx, q)
+	rows, err := c.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query %s: %w", req.Table, err)
 	}
@@ -191,6 +192,57 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 		result.Truncated = true
 	}
 	return result, nil
+}
+
+func (c *Conn) buildWhere(preds []connector.Predicate) (string, []any) {
+	if len(preds) == 0 {
+		return "", nil
+	}
+	parts := make([]string, 0, len(preds))
+	args := make([]any, 0, len(preds))
+	for _, p := range preds {
+		op := ""
+		switch p.Op {
+		case "eq":
+			op = "="
+		case "ne":
+			op = "!="
+		case "lt":
+			op = "<"
+		case "lte":
+			op = "<="
+		case "gt":
+			op = ">"
+		case "gte":
+			op = ">="
+		case "like":
+			op = "LIKE"
+		default:
+			continue
+		}
+		if p.Value == nil {
+			continue
+		}
+		args = append(args, p.Value)
+		parts = append(parts, fmt.Sprintf("%s %s %s", c.dialect.Quote(p.Column), op, c.placeholder(len(args))))
+	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return " WHERE " + strings.Join(parts, " AND "), args
+}
+
+func (c *Conn) placeholder(n int) string {
+	switch strings.ToLower(c.dialect.Type) {
+	case "postgres", "cockroachdb", "redshift", "timescaledb", "yugabytedb":
+		return fmt.Sprintf("$%d", n)
+	case "sqlserver":
+		return fmt.Sprintf("@p%d", n)
+	case "oracle":
+		return fmt.Sprintf(":%d", n)
+	default:
+		return "?"
+	}
 }
 
 func normalizeScan(v any, typ string) any {
