@@ -595,3 +595,10 @@ func TestTypedCastsAndTimezones(t *testing.T) {
 		t.Fatalf("row = %+v", row)
 	}
 }
+
+func TestGlobalAggregateOverEmptySubquery(t *testing.T) {
+	res := run(t, `SELECT (SELECT count(*) FROM mongo.orders WHERE id = 999) AS n`)
+	if res.Rows[0]["n"] != int64(0) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}

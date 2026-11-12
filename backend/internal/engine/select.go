@@ -216,7 +216,7 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 			if len(groupBy) == 0 && len(rel.rows) == 0 {
 				// A global aggregate always produces one row, even over no input.
 				order = append(order, "")
-				groups[""] = nil
+				groups[""] = []map[string]any{}
 			}
 			for _, key := range order {
 				groupRows := groups[key]
@@ -904,7 +904,7 @@ func (ec *execCtx) pipeAggregate(ds *dataset, p *sql.PipeAggregate) (*dataset, e
 	}
 	if len(p.GroupBy) == 0 && len(ds.rows) == 0 {
 		order = append(order, "")
-		groups[""] = nil
+		groups[""] = []map[string]any{}
 	}
 	out := &dataset{columns: plan.cols}
 	for _, k := range order {

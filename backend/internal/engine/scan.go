@@ -77,6 +77,29 @@ func (ec *execCtx) buildScanHints(s *sql.SelectStmt) map[*sql.TableRef]*scanHint
 		hints[t.ref] = &scanHint{}
 	}
 	pruneSafe := true
+	checkSubquery := func(e sql.Expr) {
+		found := false
+		sql.WalkExpr(e, func(x sql.Expr) bool {
+			switch v := x.(type) {
+			case *sql.SubqueryExpr:
+				found = true
+			case *sql.ExistsExpr:
+				found = true
+			case *sql.InExpr:
+				if v.Subquery != nil {
+					found = true
+				}
+			case *sql.QuantifiedExpr:
+				if v.Subquery != nil {
+					found = true
+				}
+			}
+			return !found
+		})
+		if found {
+			pruneSafe = false
+		}
+	}
 	findTable := func(qualifier string) *scanTable {
 		q := strings.ToLower(qualifier)
 		for _, t := range tables {
@@ -157,14 +180,25 @@ func (ec *execCtx) buildScanHints(s *sql.SelectStmt) map[*sql.TableRef]*scanHint
 		}
 	}
 	for _, item := range s.Projections {
+		checkSubquery(item.Expr)
 		walkExpr(item.Expr)
 	}
+	checkSubquery(s.Where)
 	walkExpr(s.Where)
 	for _, g := range s.GroupBy {
+		checkSubquery(g)
 		walkExpr(g)
 	}
+	for _, set := range s.GroupingSets {
+		for _, g := range set {
+			checkSubquery(g)
+			walkExpr(g)
+		}
+	}
+	checkSubquery(s.Having)
 	walkExpr(s.Having)
 	for _, o := range s.OrderBy {
+		checkSubquery(o.Expr)
 		walkExpr(o.Expr)
 	}
 
