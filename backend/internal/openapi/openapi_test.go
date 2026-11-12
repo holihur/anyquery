@@ -1,6 +1,7 @@
 package openapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -131,5 +132,84 @@ paths:
 	}
 	if res.Columns[0].Name != "id" {
 		t.Fatalf("columns = %+v", res.Columns)
+	}
+}
+
+func TestOpenAPIPostBodyAndLinkPagination(t *testing.T) {
+	var gotMethod, gotBody string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		if r.URL.Path == "/search" {
+			buf := new(bytes.Buffer)
+			_, _ = buf.ReadFrom(r.Body)
+			gotBody = buf.String()
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": 1}})
+			return
+		}
+		if r.URL.Path == "/items" {
+			if r.URL.Query().Get("after") == "" {
+				w.Header().Set("Link", "</items?after=1>; rel=\"next\"")
+				_ = json.NewEncoder(w).Encode([]map[string]any{{"id": 1}})
+			} else {
+				_ = json.NewEncoder(w).Encode([]map[string]any{{"id": 2}})
+			}
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer api.Close()
+	spec := `openapi: 3.0.0
+servers: [{url: "` + api.URL + `"}]
+paths:
+  /search:
+    post:
+      operationId: search
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: {type: integer}
+  /items:
+    get:
+      operationId: listItems
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: {type: integer}
+`
+	path := filepath.Join(t.TempDir(), "openapi.yaml")
+	if err := os.WriteFile(path, []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := (Provider{}).Open(context.Background(), map[string]string{
+		"spec": path, "allow_methods": "POST,GET", "body_template": `{"query":"{term}"}`, "query_params": `{"term":"pets"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := c.Fetch(context.Background(), connectorFetch("search", 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != "POST" || gotBody != `{"query":"pets"}` || len(res.Rows) != 1 {
+		t.Fatalf("method=%s body=%s rows=%+v", gotMethod, gotBody, res.Rows)
+	}
+	res, err = c.Fetch(context.Background(), connectorFetch("listitems", 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Rows) != 2 || res.Rows[0]["id"] != float64(1) || res.Rows[1]["id"] != float64(2) {
+		t.Fatalf("paginated rows = %+v", res.Rows)
 	}
 }

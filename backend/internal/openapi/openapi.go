@@ -3,6 +3,7 @@
 package openapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -33,8 +34,11 @@ func (Provider) Spec() connector.TypeSpec {
 		Maturity:    "native",
 		Fields: []connector.ConfigField{
 			{Key: "spec", Label: "Spec URL or file", Kind: connector.FieldTextarea, Required: true, Placeholder: "https://api.example.com/openapi.yaml", Help: "OpenAPI 3 / Swagger 2 JSON or YAML. Local paths are also supported."},
+			{Key: "spec_headers", Label: "Spec request headers (JSON)", Kind: connector.FieldTextarea, Secret: true, Placeholder: `{"Authorization":"Bearer ..."}`, Help: "Optional headers for fetching a protected spec URL."},
 			{Key: "base_url", Label: "Base URL override", Kind: connector.FieldText, Placeholder: "https://api.example.com/v1", Help: "Optional. Defaults to servers[0].url or host/basePath."},
 			{Key: "headers", Label: "API headers (JSON)", Kind: connector.FieldTextarea, Secret: true, Placeholder: `{"Authorization":"Bearer ..."}`},
+			{Key: "allow_methods", Label: "Allowed methods", Kind: connector.FieldText, Default: "GET", Help: "Comma-separated methods, e.g. GET,POST. Non-GET calls are opt-in because they may mutate data."},
+			{Key: "body_template", Label: "Request body template (JSON)", Kind: connector.FieldTextarea, Placeholder: `{"query":"{param}"}`, Help: "Optional JSON body for POST/PUT/PATCH operations. Path/query/header values replace {name} placeholders."},
 			{Key: "path_params", Label: "Path params (JSON)", Kind: connector.FieldTextarea, Placeholder: `{"owner":"acme","repo":"data"}`},
 			{Key: "query_params", Label: "Query params (JSON)", Kind: connector.FieldTextarea, Placeholder: `{"limit":100}`},
 			{Key: "include_tags", Label: "Include tags (comma separated)", Kind: connector.FieldText, Help: "Only expose operations with at least one of these tags."},
@@ -48,7 +52,11 @@ func (Provider) Spec() connector.TypeSpec {
 }
 
 func (Provider) Open(ctx context.Context, cfg map[string]string) (connector.Connector, error) {
-	raw, err := readSpec(ctx, cfg["spec"], cfg["headers"])
+	specHeaders := cfg["spec_headers"]
+	if strings.TrimSpace(specHeaders) == "" {
+		specHeaders = cfg["headers"]
+	}
+	raw, err := readSpec(ctx, cfg["spec"], specHeaders)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +88,8 @@ func (Provider) Open(ctx context.Context, cfg map[string]string) (connector.Conn
 		client:       &http.Client{Timeout: 60 * time.Second},
 		includeTags:  csvSet(cfg["include_tags"]),
 		excludeTags:  csvSet(cfg["exclude_tags"]),
+		allowMethods: csvSetDefault(cfg["allow_methods"], "get"),
+		bodyTemplate: cfg["body_template"],
 		maxOps:       intValue(cfg["max_operations"], 500),
 		autoPaginate: boolValue(cfg["auto_paginate"], true),
 		pageSize:     intValue(cfg["page_size"], 100),
@@ -111,11 +121,14 @@ type Conn struct {
 	excludeTags  map[string]bool
 	maxOps       int
 	autoPaginate bool
+	allowMethods map[string]bool
+	bodyTemplate string
 	pageSize     int
 	maxPages     int
 }
 
 type operation struct {
+	method        string
 	path          string
 	recordsPath   string
 	columns       []connector.Column
@@ -167,7 +180,7 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 		if nextURL != "" {
 			requestURL = nextURL
 		}
-		root, err := c.fetchJSON(ctx, requestURL)
+		root, headers, err := c.fetchJSON(ctx, requestURL, &op)
 		if err != nil {
 			return nil, err
 		}
@@ -204,7 +217,7 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 			}
 			break
 		}
-		nextURL, cursor, page, offset, more = c.nextPage(root, &op, page, offset, cursor, requestURL, len(records))
+		nextURL, cursor, page, offset, more = c.nextPage(root, &op, page, offset, cursor, requestURL, len(records), headers.Get("Link"))
 		if !more {
 			break
 		}
@@ -221,32 +234,119 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 	return &connector.FetchResult{Columns: columns, Rows: rows, Truncated: truncated}, nil
 }
 
-func (c *Conn) fetchJSON(ctx context.Context, requestURL string) (any, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
-	if err != nil {
-		return nil, err
+func (c *Conn) fetchJSON(ctx context.Context, requestURL string, op *operation) (any, http.Header, error) {
+	method := strings.ToUpper(op.method)
+	if method == "" {
+		method = http.MethodGet
 	}
-	httpReq.Header.Set("Accept", "application/json, application/*+json, */*")
-	for k, v := range c.headers {
-		httpReq.Header.Set(k, fmt.Sprint(v))
+	var body io.Reader
+	if method != http.MethodGet && method != http.MethodHead && strings.TrimSpace(c.bodyTemplate) != "" {
+		payload, err := c.renderBody()
+		if err != nil {
+			return nil, nil, err
+		}
+		body = bytes.NewReader(payload)
 	}
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return nil, err
+	for attempt := 0; attempt < 3; attempt++ {
+		httpReq, err := http.NewRequestWithContext(ctx, method, requestURL, body)
+		if err != nil {
+			return nil, nil, err
+		}
+		httpReq.Header.Set("Accept", "application/json, application/*+json, */*")
+		if body != nil {
+			httpReq.Header.Set("Content-Type", "application/json")
+		}
+		for k, v := range c.headers {
+			httpReq.Header.Set(k, fmt.Sprint(v))
+		}
+		resp, err := c.client.Do(httpReq)
+		if err != nil {
+			return nil, nil, err
+		}
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, nil, readErr
+		}
+		if (resp.StatusCode == 429 || resp.StatusCode == 502 || resp.StatusCode == 503 || resp.StatusCode == 504) && attempt < 2 {
+			wait := time.Duration(500*(attempt+1)) * time.Millisecond
+			if retry := resp.Header.Get("Retry-After"); retry != "" {
+				if seconds, err := strconv.Atoi(strings.TrimSpace(retry)); err == nil && seconds > 0 && seconds <= 10 {
+					wait = time.Duration(seconds) * time.Second
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return nil, nil, ctx.Err()
+			case <-time.After(wait):
+			}
+			if body != nil {
+				if _, err := body.(*bytes.Reader).Seek(0, io.SeekStart); err != nil {
+					return nil, nil, err
+				}
+			}
+			continue
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, nil, fmt.Errorf("OpenAPI HTTP %d: %s", resp.StatusCode, snippet(bodyBytes))
+		}
+		var root any
+		if err := json.Unmarshal(bodyBytes, &root); err != nil {
+			return nil, nil, fmt.Errorf("response is not valid JSON: %w", err)
+		}
+		return root, resp.Header, nil
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("OpenAPI HTTP %d: %s", resp.StatusCode, snippet(body))
-	}
+	return nil, nil, fmt.Errorf("OpenAPI request failed after retries")
+}
+
+func (c *Conn) renderBody() ([]byte, error) {
 	var root any
-	if err := json.Unmarshal(body, &root); err != nil {
-		return nil, fmt.Errorf("response is not valid JSON: %w", err)
+	if err := json.Unmarshal([]byte(c.bodyTemplate), &root); err != nil {
+		return nil, fmt.Errorf("body_template must be valid JSON: %w", err)
 	}
-	return root, nil
+	root = replaceTemplate(root, c.templateValues())
+	return json.Marshal(root)
+}
+
+func (c *Conn) templateValues() map[string]any {
+	out := map[string]any{}
+	for k, v := range c.pathParams {
+		out[k] = v
+	}
+	for k, v := range c.queryParams {
+		out[k] = v
+	}
+	for k, v := range c.headers {
+		out[k] = v
+	}
+	return out
+}
+
+func replaceTemplate(v any, values map[string]any) any {
+	switch x := v.(type) {
+	case string:
+		if strings.HasPrefix(x, "{") && strings.HasSuffix(x, "}") && strings.Count(x, "{") == 1 {
+			if val, ok := values[strings.TrimSuffix(strings.TrimPrefix(x, "{"), "}")]; ok {
+				return val
+			}
+		}
+		for key, val := range values {
+			x = strings.ReplaceAll(x, "{"+key+"}", fmt.Sprint(val))
+		}
+		return x
+	case map[string]any:
+		for k, val := range x {
+			x[k] = replaceTemplate(val, values)
+		}
+		return x
+	case []any:
+		for i, val := range x {
+			x[i] = replaceTemplate(val, values)
+		}
+		return x
+	default:
+		return v
+	}
 }
 
 func (c *Conn) operationURL(op *operation, page, offset int, cursor string, limit int) (string, error) {
@@ -296,15 +396,16 @@ func (c *Conn) operationURL(op *operation, page, offset int, cursor string, limi
 	return u.String(), nil
 }
 
-func (c *Conn) nextPage(root any, op *operation, page, offset int, cursor, currentURL string, count int) (string, string, int, int, bool) {
+func (c *Conn) nextPage(root any, op *operation, page, offset int, cursor, currentURL string, count int, linkHeader string) (string, string, int, int, bool) {
+	if next := parseLinkNext(linkHeader); next != "" {
+		resolved := resolveLink(currentURL, next)
+		if sameOrigin(c.baseURL, resolved) {
+			return resolved, "", page, offset, true
+		}
+	}
 	if next, ok := extractNext(root); ok {
-		if strings.HasPrefix(next, "http://") || strings.HasPrefix(next, "https://") || strings.HasPrefix(next, "/") {
-			resolved := next
-			if strings.HasPrefix(next, "/") {
-				if u, err := url.Parse(currentURL); err == nil {
-					resolved = u.Scheme + "://" + u.Host + next
-				}
-			}
+		if strings.HasPrefix(next, "http://") || strings.HasPrefix(next, "https://") || strings.HasPrefix(next, "/") || strings.HasPrefix(next, "?") {
+			resolved := resolveLink(currentURL, next)
 			if sameOrigin(c.baseURL, resolved) {
 				return resolved, "", page, offset, true
 			}
@@ -324,6 +425,32 @@ func (c *Conn) nextPage(root any, op *operation, page, offset int, cursor, curre
 		return "", "", page, offset + count, true
 	}
 	return "", "", page, offset, false
+}
+
+func parseLinkNext(header string) string {
+	for _, part := range strings.Split(header, ",") {
+		if !strings.Contains(strings.ToLower(part), `rel="next"`) && !strings.Contains(strings.ToLower(part), "rel=next") {
+			continue
+		}
+		start := strings.Index(part, "<")
+		end := strings.Index(part, ">")
+		if start >= 0 && end > start {
+			return part[start+1 : end]
+		}
+	}
+	return ""
+}
+
+func resolveLink(current, next string) string {
+	u, err := url.Parse(current)
+	if err != nil {
+		return next
+	}
+	ref, err := url.Parse(next)
+	if err != nil {
+		return next
+	}
+	return u.ResolveReference(ref).String()
 }
 
 func sameOrigin(base, target string) bool {
@@ -348,40 +475,45 @@ func (c *Conn) introspect() {
 		if !ok {
 			continue
 		}
-		op, ok := item["get"].(map[string]any)
-		if !ok {
-			continue
-		}
-		params := parametersFor(c.spec, item["parameters"], op["parameters"])
-		p := detectPagination(params)
-		if !matchesTags(op, c.includeTags, c.excludeTags) {
-			continue
-		}
-		if !requiredSatisfied(path, params, c.pathParams, c.queryParams, p) {
-			continue
-		}
-		name := operationName(op, path)
-		if n := seen[name]; n > 0 {
-			seen[name] = n + 1
-			name = fmt.Sprintf("%s_%d", name, n+1)
-		} else {
-			seen[name] = 1
-		}
-		cols, recordsPath := responseColumns(c.spec, op)
-		display := stringValue(op["summary"])
-		if display == "" {
-			display = stringValue(op["operationId"])
-		}
-		if display == "" {
-			display = "GET " + path
-		}
-		c.ops[name] = operation{
-			path: path, recordsPath: recordsPath, columns: cols,
-			pageSizeParam: p.pageSize, pageParam: p.page, offsetParam: p.offset, cursorParam: p.cursor,
-		}
-		c.tables = append(c.tables, connector.Table{Name: name, DisplayName: display, Kind: "api", Columns: cols})
-		if len(c.tables) >= c.maxOps {
-			break
+		for _, method := range []string{"get", "post", "put", "patch", "delete", "head", "options"} {
+			if !c.allowMethods[method] {
+				continue
+			}
+			op, ok := item[method].(map[string]any)
+			if !ok {
+				continue
+			}
+			params := parametersFor(c.spec, item["parameters"], op["parameters"])
+			p := detectPagination(params)
+			if !matchesTags(op, c.includeTags, c.excludeTags) {
+				continue
+			}
+			if !requiredSatisfied(path, params, c.pathParams, c.queryParams, c.headers, p) {
+				continue
+			}
+			name := operationName(op, path, method)
+			if n := seen[name]; n > 0 {
+				seen[name] = n + 1
+				name = fmt.Sprintf("%s_%d", name, n+1)
+			} else {
+				seen[name] = 1
+			}
+			cols, recordsPath := responseColumns(c.spec, op)
+			display := stringValue(op["summary"])
+			if display == "" {
+				display = stringValue(op["operationId"])
+			}
+			if display == "" {
+				display = strings.ToUpper(method) + " " + path
+			}
+			c.ops[name] = operation{
+				method: method, path: path, recordsPath: recordsPath, columns: cols,
+				pageSizeParam: p.pageSize, pageParam: p.page, offsetParam: p.offset, cursorParam: p.cursor,
+			}
+			c.tables = append(c.tables, connector.Table{Name: name, DisplayName: display, Kind: "api", Columns: cols})
+			if len(c.tables) >= c.maxOps {
+				return
+			}
 		}
 	}
 }
@@ -453,7 +585,7 @@ func detectPagination(params []map[string]any) pageParams {
 	return p
 }
 
-func requiredSatisfied(path string, params []map[string]any, pathValues, queryValues map[string]any, p pageParams) bool {
+func requiredSatisfied(path string, params []map[string]any, pathValues, queryValues, headerValues map[string]any, p pageParams) bool {
 	for _, m := range params {
 		name := stringValue(m["name"])
 		required := false
@@ -480,6 +612,10 @@ func requiredSatisfied(path string, params []map[string]any, pathValues, queryVa
 				continue
 			}
 			return false
+		case "header":
+			if !headerExists(headerValues, name) {
+				return false
+			}
 		}
 	}
 	for _, part := range strings.Split(path, "/") {
@@ -521,7 +657,7 @@ func sortedKeys(m map[string]any) []string {
 	return keys
 }
 
-func operationName(op map[string]any, path string) string {
+func operationName(op map[string]any, path, method string) string {
 	if id := sanitize(stringValue(op["operationId"])); id != "" {
 		return id
 	}
@@ -531,7 +667,7 @@ func operationName(op map[string]any, path string) string {
 	if p == "" {
 		p = "root"
 	}
-	return "get_" + strings.ToLower(p)
+	return strings.ToLower(method) + "_" + strings.ToLower(p)
 }
 
 func sanitize(s string) string {
@@ -997,6 +1133,22 @@ func intFromAny(v any) (int, bool) {
 		return n, err == nil
 	}
 	return 0, false
+}
+
+func headerExists(headers map[string]any, name string) bool {
+	for key := range headers {
+		if strings.EqualFold(key, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func csvSetDefault(raw, def string) map[string]bool {
+	if strings.TrimSpace(raw) == "" {
+		raw = def
+	}
+	return csvSet(raw)
 }
 
 func csvSet(raw string) map[string]bool {
