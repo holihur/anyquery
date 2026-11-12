@@ -300,8 +300,10 @@ func (s *Server) handleTenantGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tenant": t, "role": currentRole(r),
 		"limits": map[string]any{
-			"maxResultRows": s.cfg.MaxResultRows, "queryTimeoutSeconds": int(s.cfg.QueryTimeout.Seconds()),
-			"maxSavedQueries": model.MaxSavedQueriesPerWorkspace,
+			"maxResultRows": s.cfg.MaxResultRows, "maxSourceRows": s.cfg.MaxSourceRows,
+			"maxJoinRows": s.cfg.MaxJoinRows, "maxHistoryRuns": s.cfg.MaxHistoryRuns,
+			"queryTimeoutSeconds": int(s.cfg.QueryTimeout.Seconds()),
+			"maxSavedQueries":     s.cfg.MaxSavedQueries,
 		},
 		"usage": map[string]any{"savedQueries": savedCount},
 	})

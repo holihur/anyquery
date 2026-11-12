@@ -73,7 +73,7 @@ export function QueryPage() {
 
   const { data: runsData } = useQuery({
     queryKey: ["runs", tenant.slug, "studio"],
-    queryFn: () => api.runs(tenant.slug, 100),
+    queryFn: () => api.runs(tenant.slug, 500),
   })
   const { data: saved } = useQuery({
     queryKey: ["saved-query", tenant.slug, savedId],

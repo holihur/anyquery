@@ -64,7 +64,7 @@ FROM mongo.orders
 - **103 种注册数据源类型**：34 个原生连接器、37 个 SQL 兼容预设、32 个 REST/文件模板；完整目录见 [docs/data-sources-top100.md](docs/data-sources-top100.md)。
 - **多租户**：`workspace` 隔离数据源、查询、成员、审计与 API Key；所有资源都带 `tenantId`。
 - **团队协作**：owner / admin / member / viewer 角色，邮件邀请链接、共享/私有保存查询、最近 100 条查询历史、审计日志。
-- **保存查询上限**：每个 workspace 最多 100 条保存查询，达到上限后 API 返回明确错误。
+- **保存查询上限**：默认每个 workspace 500 条（可配置），达到上限后 API 返回明确错误。
 - **账号密码登录**：本地邮箱 + 密码账号，bcrypt 哈希、登录限流、管理员重置；邀请链接可直接设置密码。
 - **OIDC 登录**：任意标准 OIDC Provider（Auth0、Keycloak、Okta、Entra ID、Google 等），可与密码登录共存。
 - **安全**：数据源凭据 AES-256-GCM 加密；会话 token 仅存 SHA-256；HttpOnly Cookie；Origin 校验；API Key 只显示一次。
@@ -72,7 +72,7 @@ FROM mongo.orders
 - **创建前测试连接**：任何数据源在保存前都可以直接 Test，错误会即时显示。
 - **MCP**：内置 Streamable HTTP MCP Server（`/mcp`），MCP 工具严格使用 PAT 的权限域，只暴露被允许的工具；支持 catalog、执行、保存查询和执行计划。
 - **查询护栏**：超时、单源行数上限、结果行数上限、JOIN 中间结果上限、截断警示。
-- **Top 100**：查询历史展示最近 100 条；保存查询库每个工作区最多 100 条。
+- **历史与配额**：查询历史默认最近 500 条，保存查询默认 500 条；均可通过环境变量调整。
 - **i18n**：10 种语言（英/简中/西/印地/阿/葡/俄/日/德/法），自动检测、持久化与 RTL 布局。
 - **加载性能**：路由级按需加载、CodeMirror/sql-formatter 延迟加载、静态资源 gzip + immutable 缓存。
 - **深色/浅色主题**、响应式布局、可折叠导航、可拖拽 schema 宽度与 SQL/结果分栏、SQL 自动补全、schema 浏览器、结果排序/分页/CSV 导出。
@@ -261,6 +261,9 @@ AUTH_DEV_MODE=false
 | `QUERY_TIMEOUT_SECONDS` | `30` | 单次查询超时 |
 | `QUERY_MAX_SOURCE_ROWS` | `100000` | 每个源表最多拉取行数 |
 | `QUERY_MAX_RESULT_ROWS` | `10000` | 返回给前端的结果行数上限 |
+| `QUERY_MAX_JOIN_ROWS` | `2000000` | JOIN 中间结果行数上限 |
+| `MAX_SAVED_QUERIES` | `500` | 每个 workspace 保存查询上限 |
+| `MAX_HISTORY_RUNS` | `500` | 查询历史单次返回上限 |
 | `COOKIE_SECURE` | 由 https 推导 | 强制 Secure Cookie |
 | `OIDC_*` | — | 见上节 |
 | `SEED_DEMO` | `false` | 容器入口是否自动 seed |
@@ -343,7 +346,7 @@ PAT 在 **Settings → API keys** 创建，raw token 只显示一次。
 
 完整语法、函数列表和限制见 **[docs/sql.md](docs/sql.md)**。查询中的表名格式为 `` `source`.`table` ``（schema 可包含在 table 内，例如 `` `pg`.`public.users` ``）。执行器对表名做 catalog 校验并逐方言安全引用。
 
-**保存查询上限**：每个 workspace 100 条；超出时返回 `409 saved_query_limit`，UI 会提示删除旧查询。查询历史最多展示最近 100 条。
+**保存查询上限**：默认每个 workspace 500 条（`MAX_SAVED_QUERIES`）；超出时返回 `409 saved_query_limit`，UI 会提示删除旧查询。查询历史接口单次最多返回最近 500 条（`MAX_HISTORY_RUNS`）。
 
 **安全护栏**：MVP 将源数据按上限拉入引擎后执行 JOIN/聚合。扫描规划器会按连接器能力下推列裁剪、简单谓词和 LIMIT；引擎始终重新校验谓词。Hash Join 对 INNER JOIN 选择较小侧构建哈希表；代价模型与 JOIN 重排仍在 roadmap 中。
 

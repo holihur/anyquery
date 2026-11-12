@@ -17,7 +17,7 @@ export function ActivityPage() {
   const isAdmin = role === "owner" || role === "admin"
   const [tab, setTab] = useState("history")
 
-  const { data: runs, isLoading: runsLoading } = useQuery({ queryKey: ["runs", tenant.slug, "activity"], queryFn: () => api.runs(tenant.slug, 100) })
+  const { data: runs, isLoading: runsLoading } = useQuery({ queryKey: ["runs", tenant.slug, "activity"], queryFn: () => api.runs(tenant.slug, 500) })
   const { data: members } = useQuery({ queryKey: ["members", tenant.slug], queryFn: () => api.members(tenant.slug) })
   const { data: audit, isLoading: auditLoading } = useQuery({ queryKey: ["audit", tenant.slug], queryFn: () => api.audit(tenant.slug, 150), enabled: isAdmin })
   const memberById = new Map(members?.members.map((m) => [m.user.id, m.user]) ?? [])

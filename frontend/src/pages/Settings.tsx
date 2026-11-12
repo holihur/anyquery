@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { api } from "@/lib/api"
 import { useAuth } from "@/providers/auth"
 import { useTenant } from "@/providers/tenant"
-import { formatDateTime, relativeTime } from "@/lib/utils"
+import { formatDateTime, formatNumber, relativeTime } from "@/lib/utils"
 import { Page, PageBody, PageHeader, RoleBadge, CopyButton, InlineCode } from "@/components/shared"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,6 +31,8 @@ export function SettingsPage() {
   const [revokeKey, setRevokeKey] = useState<{ id: string; name: string } | null>(null)
 
   const { data: keys, isLoading: keysLoading } = useQuery({ queryKey: ["apikeys", tenant.slug], queryFn: () => api.apiKeys(tenant.slug), enabled: canAdmin })
+  const { data: tenantInfo } = useQuery({ queryKey: ["tenant", tenant.slug], queryFn: () => api.tenant(tenant.slug) })
+  const limits = tenantInfo?.limits
   const keyMutation = useMutation({
     mutationFn: (id: string) => api.revokeApiKey(tenant.slug, id),
     onSuccess: () => {
@@ -108,10 +110,12 @@ export function SettingsPage() {
                 <div className="surface p-5">
                   <div className="flex items-center gap-2 text-sm font-semibold"><Workflow className="size-4 text-primary" /> Query limits</div>
                   <div className="mt-4 space-y-3 text-[12px]">
-                    <LimitRow label="Query timeout" value="30 seconds" />
-                    <LimitRow label="Result rows" value="10,000" />
-                    <LimitRow label="Source rows" value="100,000 per table" />
-                    <LimitRow label="Join guard" value="2,000,000 rows" />
+                    <LimitRow label="Query timeout" value={`${limits?.queryTimeoutSeconds ?? 30} seconds`} />
+                    <LimitRow label="Result rows" value={formatNumber(limits?.maxResultRows ?? 10000)} />
+                    <LimitRow label="Source rows" value={`${formatNumber(limits?.maxSourceRows ?? 100000)} per table`} />
+                    <LimitRow label="Join guard" value={`${formatNumber(limits?.maxJoinRows ?? 2000000)} rows`} />
+                    <LimitRow label="Saved queries" value={formatNumber(limits?.maxSavedQueries ?? 500)} />
+                    <LimitRow label="History" value={`${formatNumber(limits?.maxHistoryRuns ?? 500)} recent runs`} />
                   </div>
                   <p className="mt-4 text-[10.5px] leading-relaxed text-muted-foreground">Configured by the server administrator. Add filters and LIMIT clauses for large tables.</p>
                 </div>

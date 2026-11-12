@@ -39,7 +39,7 @@ func New(cfg config.Config, st *store.Store, authSvc *auth.Service) (*Server, er
 		engine: engine.New(engine.Options{
 			MaxSourceRows: cfg.MaxSourceRows,
 			MaxResultRows: cfg.MaxResultRows,
-			MaxJoinRows:   2_000_000,
+			MaxJoinRows:   cfg.MaxJoinRows,
 			Timeout:       cfg.QueryTimeout,
 		}),
 	}, nil

@@ -10,7 +10,7 @@ import (
 
 // MaxSavedQueriesPerWorkspace caps the shared query library. The API returns a
 // clear conflict when the limit is reached.
-const MaxSavedQueriesPerWorkspace = 100
+const MaxSavedQueriesPerWorkspace = 500
 
 type Role string
 

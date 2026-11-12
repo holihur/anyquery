@@ -60,7 +60,7 @@ export function SavedQueriesPage() {
   }, [data, query, filter])
 
   const savedCount = tenantInfo?.usage?.savedQueries ?? data?.queries.length ?? 0
-  const savedLimit = tenantInfo?.limits?.maxSavedQueries ?? 100
+  const savedLimit = tenantInfo?.limits?.maxSavedQueries ?? 500
   const atLimit = savedCount >= savedLimit
 
   return (

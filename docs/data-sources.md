@@ -191,7 +191,7 @@ GROUP BY c.name, p.category
 ## 通用限制
 
 - 每个源最多拉取 `QUERY_MAX_SOURCE_ROWS`（默认 100,000）行；结果最多 `QUERY_MAX_RESULT_ROWS`（默认 10,000）行。
-- 每个 workspace 最多保存 100 条查询；查询历史展示最近 100 条。
+- 每个 workspace 默认最多保存 500 条查询，查询历史默认展示最近 500 条；分别由 `MAX_SAVED_QUERIES` / `MAX_HISTORY_RUNS` 配置。
 - 查询超时默认 30 秒；JOIN 中间结果超过上限会报错。
 - Truncated 结果会在 UI 与响应 warnings 中提示，不会静默丢弃。
 - 所有凭据 AES-256-GCM 加密；连接器只返回脱敏配置。

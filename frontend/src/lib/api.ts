@@ -92,7 +92,7 @@ export const api = {
   createTenant: (name: string, slug?: string) =>
     request<TenantRole>("/tenants", { method: "POST", body: JSON.stringify({ name, slug }) }),
   tenant: (slug: string) =>
-    request<{ tenant: Tenant; role: Role; limits: { maxResultRows: number; queryTimeoutSeconds: number; maxSavedQueries: number }; usage: { savedQueries: number } }>(`/tenants/${slug}`),
+    request<{ tenant: Tenant; role: Role; limits: { maxResultRows: number; maxSourceRows: number; maxJoinRows: number; maxHistoryRuns: number; queryTimeoutSeconds: number; maxSavedQueries: number }; usage: { savedQueries: number } }>(`/tenants/${slug}`),
   updateTenant: (slug: string, name: string) =>
     request<Tenant>(`/tenants/${slug}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   overview: (slug: string) => request<Overview>(`/tenants/${slug}/overview`),

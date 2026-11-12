@@ -13,21 +13,24 @@ import (
 
 // Config is the server configuration, loaded from environment variables.
 type Config struct {
-	Addr           string
-	BaseURL        string
-	WebDir         string
-	MongoURI       string
-	MongoDatabase  string
-	DevAuth        bool
-	PasswordAuth   bool
-	DemoPassword   string
-	SessionTTL     time.Duration
-	QueryTimeout   time.Duration
-	MaxSourceRows  int
-	MaxResultRows  int
-	EncryptionKey  []byte
-	AllowedOrigins []string
-	CookieSecure   bool
+	Addr            string
+	BaseURL         string
+	WebDir          string
+	MongoURI        string
+	MongoDatabase   string
+	DevAuth         bool
+	PasswordAuth    bool
+	DemoPassword    string
+	SessionTTL      time.Duration
+	QueryTimeout    time.Duration
+	MaxSourceRows   int
+	MaxResultRows   int
+	MaxJoinRows     int
+	MaxSavedQueries int
+	MaxHistoryRuns  int
+	EncryptionKey   []byte
+	AllowedOrigins  []string
+	CookieSecure    bool
 
 	OIDCIssuer       string
 	OIDCClientID     string
@@ -55,6 +58,9 @@ func Load() (Config, error) {
 		QueryTimeout:     time.Duration(envInt("QUERY_TIMEOUT_SECONDS", 30)) * time.Second,
 		MaxSourceRows:    envInt("QUERY_MAX_SOURCE_ROWS", 100000),
 		MaxResultRows:    envInt("QUERY_MAX_RESULT_ROWS", 10000),
+		MaxJoinRows:      envInt("QUERY_MAX_JOIN_ROWS", 2_000_000),
+		MaxSavedQueries:  envInt("MAX_SAVED_QUERIES", 500),
+		MaxHistoryRuns:   envInt("MAX_HISTORY_RUNS", 500),
 		OIDCIssuer:       strings.TrimRight(os.Getenv("OIDC_ISSUER"), "/"),
 		OIDCClientID:     os.Getenv("OIDC_CLIENT_ID"),
 		OIDCClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
@@ -71,6 +77,15 @@ func Load() (Config, error) {
 		if c.WebDir == "" {
 			c.WebDir = "frontend/dist"
 		}
+	}
+	if c.MaxJoinRows <= 0 {
+		c.MaxJoinRows = 2_000_000
+	}
+	if c.MaxSavedQueries <= 0 {
+		c.MaxSavedQueries = 500
+	}
+	if c.MaxHistoryRuns <= 0 {
+		c.MaxHistoryRuns = 500
 	}
 	if c.Addr != "" && !strings.Contains(c.Addr, ":") {
 		c.Addr = ":" + c.Addr

@@ -254,11 +254,11 @@ func (s *Server) handleSavedQueryCreate(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	if count >= model.MaxSavedQueriesPerWorkspace {
+	if count >= int64(s.cfg.MaxSavedQueries) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": apiError{
 			Code:    "saved_query_limit",
-			Message: fmt.Sprintf("This workspace has reached its limit of %d saved queries", model.MaxSavedQueriesPerWorkspace),
-			Hint:    "Delete an older saved query to free a slot.",
+			Message: fmt.Sprintf("This workspace has reached its limit of %d saved queries", s.cfg.MaxSavedQueries),
+			Hint:    "Delete an older saved query to free a slot, or raise MAX_SAVED_QUERIES on the server.",
 		}})
 		return
 	}
@@ -368,7 +368,11 @@ func (s *Server) handleRunsList(w http.ResponseWriter, r *http.Request) {
 	if !requireScope(w, r, model.ScopeQueryRead) {
 		return
 	}
-	runs, err := s.store.ListRuns(r.Context(), currentTenant(r).ID, parseLimit(r, 50))
+	limit := parseLimit(r, 50)
+	if limit > int64(s.cfg.MaxHistoryRuns) {
+		limit = int64(s.cfg.MaxHistoryRuns)
+	}
+	runs, err := s.store.ListRuns(r.Context(), currentTenant(r).ID, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
