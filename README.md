@@ -9,7 +9,7 @@
 - 工具链：**mise**
 - 认证：**OIDC**（Authorization Code + PKCE），开发模式提供本地登录
 
-![AnyQuery](https://img.shields.io/badge/status-MVP-6366f1) ![Go](https://img.shields.io/badge/Go-1.27-00ADD8) ![React](https://img.shields.io/badge/React-19-61DAFB) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
+[![CI](https://github.com/holihur/anyquery/actions/workflows/ci.yml/badge.svg)](https://github.com/holihur/anyquery/actions/workflows/ci.yml) ![AnyQuery](https://img.shields.io/badge/status-MVP-6366f1) ![Go](https://img.shields.io/badge/Go-1.27-00ADD8) ![React](https://img.shields.io/badge/React-19-61DAFB) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 
 ## 界面速览
@@ -117,7 +117,7 @@ docker compose up --build
 
 ## 内置数据源（23）
 
-> 每个连接器的详细验证进度、限制与 CI 状态见 **[docs/data-sources.md](docs/data-sources.md)**。
+> 每个连接器的详细验证进度、限制与 CI 状态见 **[docs/data-sources.md](docs/data-sources.md)**。CI 覆盖 MongoDB + SQLite、Redis、JSONL 与 PostgreSQL 的真实跨源 JOIN。
 
 | 类别 | 数据源 | 连接方式 |
 | --- | --- | --- |

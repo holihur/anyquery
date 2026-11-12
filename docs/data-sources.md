@@ -11,13 +11,15 @@
 | 🟡 | 已实现，共享代码路径已测试，但尚未用真实账号验证 |
 | ⚪ | 规划中 |
 
+> CI 状态：GitHub Actions 已通过 backend/frontend/Docker 构建，以及 MongoDB + SQLite + Redis + JSONL + PostgreSQL 的端到端查询与跨源 JOIN 测试。
+>
 > 当前 MVP 的联邦策略：连接器负责 **连接 / Schema 探测 / 有界取数**，跨源 JOIN、过滤、聚合、排序由 Go 查询引擎完成。已支持 LIMIT 下推；**谓词/投影下推仍在 roadmap**，所以表格中的“查询下推”统一为 LIMIT。
 
 ## 总览
 
 | # | 数据源 | 类型 | 状态 | Schema 探测 | 认证 | 过滤下推 | 验证方式 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | PostgreSQL | SQL | 🧪 | `information_schema` | 用户名/密码、SSL、DSN | LIMIT | 本地 PostgreSQL 16 + CI 跨源 JOIN |
+| 1 | PostgreSQL | SQL | ✅ | `information_schema` | 用户名/密码、SSL、DSN | LIMIT | 本地 PostgreSQL 16 + CI 跨源 JOIN |
 | 2 | CockroachDB | SQL | 🟡 | `information_schema` | 用户名/密码、SSL | LIMIT | 编译 + 共享 SQL 测试 |
 | 3 | Amazon Redshift | SQL | 🟡 | `information_schema` | 用户名/密码、SSL | LIMIT | 编译 + 共享 SQL 测试 |
 | 4 | TimescaleDB | SQL | 🟡 | `information_schema` | 用户名/密码、SSL | LIMIT | 编译 + 共享 SQL 测试 |
@@ -39,7 +41,7 @@
 | 20 | OpenSearch | Search | 🟡 | `_mapping` | Basic / ApiKey | size | 编译 + HTTP 路径测试 |
 | 21 | REST / JSON | API | ✅ | 响应采样推断 | Header（Bearer 等） | 客户端行数上限 | 本地端到端 + CI |
 | 22 | CSV / TSV URL | File | ✅ | Header + 类型推断 | Header | 下载后限制 | 本地端到端 |
-| 23 | JSON Lines / NDJSON | File | 🧪 | 逐行采样推断 | Header | 逐行读取限制 | CI + Mongo JOIN |
+| 23 | JSON Lines / NDJSON | File | ✅ | 逐行采样推断 | Header | 逐行读取限制 | CI + Mongo JOIN |
 
 ## 分项说明
 
