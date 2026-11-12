@@ -48,6 +48,15 @@ func Seed(ctx context.Context, cfg config.Config, st *store.Store, key *cryptox.
 	if err != nil {
 		return err
 	}
+	if cfg.PasswordAuth && cfg.DemoPassword != "" {
+		hash, err := cryptox.HashPassword(cfg.DemoPassword)
+		if err != nil {
+			return err
+		}
+		if err := st.SetUserPassword(ctx, admin.ID, hash); err != nil {
+			return err
+		}
+	}
 	tenant, err := ensureTenant(ctx, st, admin.ID)
 	if err != nil {
 		return err
@@ -117,7 +126,11 @@ LIMIT 20`,
 		}
 	}
 	fmt.Printf("\nDemo workspace ready\n")
-	fmt.Printf("  Sign in (dev): admin@anyquery.dev\n")
+	if cfg.PasswordAuth && cfg.DemoPassword != "" {
+		fmt.Printf("  Sign in:       admin@anyquery.dev / %s\n", cfg.DemoPassword)
+	} else {
+		fmt.Printf("  Sign in (dev): admin@anyquery.dev\n")
+	}
 	fmt.Printf("  Workspace:     %s (%s)\n", tenant.Name, tenant.Slug)
 	fmt.Printf("  Sources:       mongo.orders, mongo.customers, shop.products\n")
 	fmt.Printf("  Data file:     %s\n\n", sqlitePath)

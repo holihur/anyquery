@@ -9,6 +9,7 @@ interface AuthContextValue {
   error: string | null
   refresh: () => Promise<AuthMe | null>
   loginDev: (email: string, name?: string) => Promise<void>
+  loginPassword: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   tenantFor: (slug: string) => TenantRole | undefined
 }
@@ -61,6 +62,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await refresh()
   }, [refresh])
 
+  const loginPassword = useCallback(async (email: string, password: string) => {
+    await api.passwordLogin(email, password)
+    await refresh()
+  }, [refresh])
+
   const logout = useCallback(async () => {
     try {
       await api.logout()
@@ -75,8 +81,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   )
 
   const value = useMemo<AuthContextValue>(
-    () => ({ config, me, loading, error, refresh, loginDev, logout, tenantFor }),
-    [config, me, loading, error, refresh, loginDev, logout, tenantFor],
+    () => ({ config, me, loading, error, refresh, loginDev, loginPassword, logout, tenantFor }),
+    [config, me, loading, error, refresh, loginDev, loginPassword, logout, tenantFor],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

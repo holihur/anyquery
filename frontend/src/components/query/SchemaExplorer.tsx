@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ChevronRight, Columns3, Database, PanelLeftClose, Plus, RefreshCw, Search, Table2, TriangleAlert } from "lucide-react"
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { cn } from "@/lib/utils"
 import { SourceIcon } from "@/components/shared"
 import { Button } from "@/components/ui/button"
@@ -36,6 +37,35 @@ export function SchemaExplorer({
   const [query, setQuery] = useState("")
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [openTables, setOpenTables] = useState<Record<string, boolean>>({})
+  const clickTimers = useRef<Record<string, number>>({})
+
+  useEffect(() => () => {
+    for (const timer of Object.values(clickTimers.current)) window.clearTimeout(timer)
+  }, [])
+
+  function toggleTable(key: string) {
+    setOpenTables((o) => ({ ...o, [key]: !o[key] }))
+  }
+
+  function handleTableClick(key: string) {
+    if (clickTimers.current[key]) {
+      window.clearTimeout(clickTimers.current[key])
+      delete clickTimers.current[key]
+      return
+    }
+    clickTimers.current[key] = window.setTimeout(() => {
+      delete clickTimers.current[key]
+      toggleTable(key)
+    }, 180)
+  }
+
+  function insertTable(source: string, table: string, key: string) {
+    if (clickTimers.current[key]) {
+      window.clearTimeout(clickTimers.current[key])
+      delete clickTimers.current[key]
+    }
+    onInsert(tableRef(source, table))
+  }
 
   const filtered = useMemo(() => {
     const normalized = sources.map((s) => ({ ...s, tables: s.tables ?? [] }))
@@ -125,36 +155,60 @@ export function SchemaExplorer({
                       const key = `${source.name}.${table.name}`
                       const open = openTables[key] || Boolean(query)
                       return (
-                        <div key={key} className="group">
-                          <button
-                            className="group flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left transition-colors hover:bg-accent/60"
-                            onClick={() => setOpenTables((o) => ({ ...o, [key]: !o[key] }))}
-                            title={`Insert ${tableRef(source.name, table.name)}`}
-                          >
-                            <ChevronRight className={cn("size-2.5 shrink-0 text-muted-foreground/70 transition-transform", open && "rotate-90")} />
-                            {table.kind === "collection" ? <Database className="size-3 shrink-0 text-muted-foreground" /> : <Table2 className="size-3 shrink-0 text-muted-foreground" />}
-                            <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{table.name}</span>
-                            <span className="text-[9px] text-muted-foreground">{table.columns.length}</span>
-                          </button>
-                          <button
-                            className="mb-1 ml-5 rounded bg-primary/8 px-1.5 py-0.5 text-[9.5px] font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-                            onClick={() => onInsert(tableRef(source.name, table.name))}
-                          >
-                            insert table
-                          </button>
+                        <div key={key} className="group/row">
+                          <ContextMenu>
+                            <ContextMenuTrigger asChild>
+                              <button
+                                className="flex w-full items-center gap-1.5 rounded py-1 pr-1.5 pl-1.5 text-left transition-colors hover:bg-accent/60"
+                                onClick={() => handleTableClick(key)}
+                                onDoubleClick={() => insertTable(source.name, table.name, key)}
+                                title={`Double-click to insert ${tableRef(source.name, table.name)}`}
+                              >
+                                <ChevronRight className={cn("size-2.5 shrink-0 text-muted-foreground/70 transition-transform", open && "rotate-90")} />
+                                {table.kind === "collection" ? <Database className="size-3 shrink-0 text-muted-foreground" /> : <Table2 className="size-3 shrink-0 text-muted-foreground" />}
+                                <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{table.name}</span>
+                                <span className="text-[9px] text-muted-foreground">{table.columns.length}</span>
+                              </button>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                              <ContextMenuLabel>{table.name}</ContextMenuLabel>
+                              <ContextMenuItem onSelect={() => onInsert(tableRef(source.name, table.name))}>
+                                <Plus /> Insert table reference
+                              </ContextMenuItem>
+                              <ContextMenuItem onSelect={() => toggleTable(key)}>
+                                <ChevronRight /> {open ? "Hide columns" : "Show columns"}
+                              </ContextMenuItem>
+                              <ContextMenuSeparator />
+                              <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(tableRef(source.name, table.name))}>
+                                Copy qualified name
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
                           {open && (
                             <div className="mb-1 ml-3 border-l pl-2">
                               {table.columns.map((col) => (
-                                <button
-                                  key={col.name}
-                                  onClick={() => onInsert(col.name)}
-                                  className="flex w-full items-center gap-1.5 rounded px-1.5 py-[3px] text-left transition-colors hover:bg-accent/60"
-                                  title={`Insert ${col.name} (${col.type})`}
-                                >
-                                  <Columns3 className="size-2.5 shrink-0 text-muted-foreground/50" />
-                                  <span className="min-w-0 flex-1 truncate font-mono text-[10.5px]">{col.name}</span>
-                                  <span className="text-[8.5px] text-muted-foreground/70">{col.type}</span>
-                                </button>
+                                <ContextMenu key={col.name}>
+                                  <ContextMenuTrigger asChild>
+                                    <button
+                                      onDoubleClick={() => onInsert(col.name)}
+                                      className="flex w-full items-center gap-1.5 rounded px-1.5 py-[3px] text-left transition-colors hover:bg-accent/60"
+                                      title={`Double-click to insert ${col.name} (${col.type})`}
+                                    >
+                                      <Columns3 className="size-2.5 shrink-0 text-muted-foreground/50" />
+                                      <span className="min-w-0 flex-1 truncate font-mono text-[10.5px]">{col.name}</span>
+                                      <span className="text-[8.5px] text-muted-foreground/70">{col.type}</span>
+                                    </button>
+                                  </ContextMenuTrigger>
+                                  <ContextMenuContent>
+                                    <ContextMenuLabel>{table.name}.{col.name}</ContextMenuLabel>
+                                    <ContextMenuItem onSelect={() => onInsert(col.name)}>
+                                      <Plus /> Insert column
+                                    </ContextMenuItem>
+                                    <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(col.name)}>
+                                      Copy column name
+                                    </ContextMenuItem>
+                                  </ContextMenuContent>
+                                </ContextMenu>
                               ))}
                             </div>
                           )}
@@ -169,6 +223,7 @@ export function SchemaExplorer({
         )}
       </div>
       <div className="border-t border-border/45 px-3 py-3">
+        <div className="mb-2 px-1 text-[9.5px] text-muted-foreground/65">Double-click to insert · right-click for actions</div>
         <Button variant="ghost" size="xs" className="w-full justify-between text-muted-foreground" onClick={onManage}>
           Manage sources <Badge variant="muted" className="text-[9px]">{sources.length}</Badge>
         </Button>

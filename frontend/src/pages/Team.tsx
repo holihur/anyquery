@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, Copy, Loader2, MailPlus, MoreHorizontal, ShieldCheck, UserMinus, UserPlus, Users, X } from "lucide-react"
+import { Check, Copy, KeyRound, Loader2, MailPlus, MoreHorizontal, ShieldCheck, UserMinus, UserPlus, Users, X } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/lib/api"
 import { useAuth } from "@/providers/auth"
@@ -36,12 +36,14 @@ import {
 
 export function TeamPage() {
   const { tenant, role } = useTenant()
-  const { me, refresh } = useAuth()
+  const { me, refresh, config } = useAuth()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const canAdmin = role === "owner" || role === "admin"
   const [inviteOpen, setInviteOpen] = useState(false)
   const [removing, setRemoving] = useState<Member | null>(null)
+  const [resetTarget, setResetTarget] = useState<Member | null>(null)
+  const [generatedPassword, setGeneratedPassword] = useState<{ member: Member; password: string } | null>(null)
 
   const { data, isLoading } = useQuery({ queryKey: ["members", tenant.slug], queryFn: () => api.members(tenant.slug) })
 
@@ -71,6 +73,16 @@ export function TeamPage() {
       }
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not remove member"),
+  })
+
+  const resetMutation = useMutation({
+    mutationFn: (member: Member) => api.resetMemberPassword(tenant.slug, member.user.id),
+    onSuccess: (res, member) => {
+      setResetTarget(null)
+      setGeneratedPassword({ member, password: res.password })
+      toast.success("Password reset")
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not reset password"),
   })
 
   const revokeMutation = useMutation({
@@ -147,6 +159,11 @@ export function TeamPage() {
                           <Button variant="ghost" size="icon-sm" className="text-muted-foreground"><MoreHorizontal className="size-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          {config?.passwordAuthEnabled && canAdmin && (
+                            <DropdownMenuItem onSelect={() => setResetTarget(member)}>
+                              <KeyRound className="size-4" /> Reset password
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem disabled={!canAdmin || (member.role === "owner" && role !== "owner")} variant="destructive" onSelect={() => setRemoving(member)}>
                             <UserMinus className="size-4" /> Remove from workspace
                           </DropdownMenuItem>
@@ -221,6 +238,43 @@ export function TeamPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={Boolean(resetTarget)} onOpenChange={(open) => !open && setResetTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset password for {resetTarget?.user.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A new temporary password will be generated and the current password will stop working immediately.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => resetTarget && resetMutation.mutate(resetTarget)}>
+              {resetMutation.isPending ? "Resetting…" : "Reset password"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={Boolean(generatedPassword)} onOpenChange={(open) => !open && setGeneratedPassword(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Password reset</DialogTitle>
+            <DialogDescription>
+              Share this temporary password with {generatedPassword?.member.user.name}. It is shown only once.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 rounded-lg bg-muted/45 px-3 py-3">
+            <code className="block break-all font-mono text-[13px]">{generatedPassword?.password}</code>
+          </div>
+          <div className="mt-2 flex justify-end">
+            <CopyButton value={generatedPassword?.password ?? ""} label="Copy password" />
+          </div>
+          <DialogFooter className="mt-4">
+            <Button onClick={() => setGeneratedPassword(null)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Page>
   )
 }

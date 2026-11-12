@@ -1,6 +1,6 @@
 # AnyQuery
 
-**一个自托管的联邦查询平台**：用一套 SQL（以及可组合的 Query Pipeline）把 MongoDB、Redis、PostgreSQL、MySQL、SQLite、Snowflake、Databricks、REST API、CSV、JSONL 等 20+ 数据源连在一起查询。面向团队：多租户工作区、成员角色、邀请、共享查询、审计日志、API Key 与 OIDC 登录。
+**一个自托管的联邦查询平台**：用一套 SQL（以及可组合的 Query Pipeline）把 MongoDB、Redis、PostgreSQL、MySQL、SQLite、Snowflake、Databricks、REST API、CSV、JSONL、InfluxDB、SLS 等 27 数据源连在一起查询。面向团队：多租户工作区、成员角色、邀请、共享查询、审计日志、API Key 与 OIDC 登录。
 
 - 后端：**Go**（标准库 `net/http` + 自研 SQL 解析器 / 执行引擎）
 - 存储：**MongoDB**
@@ -21,6 +21,8 @@
 | ![Login](docs/screenshots/login.png) | ![Dark overview](docs/screenshots/overview-dark.png) |
 | **共享查询库** | **团队与权限** |
 | ![Saved queries](docs/screenshots/saved-queries.png) | ![Team](docs/screenshots/team.png) |
+| **数据源连接测试** | **查询历史 / 自动刷新** |
+| ![Data source test](docs/screenshots/data-source-test.png) | ![Query studio](docs/screenshots/query-studio.png) |
 
 > 截图来自本地演示工作区（MongoDB + SQLite 联邦查询）。
 
@@ -59,13 +61,15 @@ FROM mongo.orders
 
 - **联邦查询**：跨数据源 JOIN（inner / left / right / full / cross），CTE、FROM 子查询等常用查询能力。
 - **自研 SQL 解析器**：没有依赖过时的第三方 MySQL parser；表达式、函数、语句和 pipe stage 都可以本地扩展。
-- **23 种内置连接器**（见下表），连接器完全抽象，新增数据源只需实现接口并注册。
+- **27 种内置连接器**（见下表），连接器完全抽象，新增数据源只需实现接口并注册。
 - **多租户**：`workspace` 隔离数据源、查询、成员、审计与 API Key；所有资源都带 `tenantId`。
 - **团队协作**：owner / admin / member / viewer 角色，邮件邀请链接、共享/私有保存查询、最近 100 条查询历史、审计日志。
 - **保存查询上限**：每个 workspace 最多 100 条保存查询，达到上限后 API 返回明确错误。
-- **OIDC 登录**：任意标准 OIDC Provider（Auth0、Keycloak、Okta、Entra ID、Google 等）。
+- **账号密码登录**：本地邮箱 + 密码账号，bcrypt 哈希、登录限流、管理员重置；邀请链接可直接设置密码。
+- **OIDC 登录**：任意标准 OIDC Provider（Auth0、Keycloak、Okta、Entra ID、Google 等），可与密码登录共存。
 - **安全**：数据源凭据 AES-256-GCM 加密；会话 token 仅存 SHA-256；HttpOnly Cookie；Origin 校验；API Key 只显示一次。
 - **团队 API**：工作区级 API Key 可直接调用执行接口。
+- **创建前测试连接**：任何数据源在保存前都可以直接 Test，错误会即时显示。
 - **查询护栏**：超时、单源行数上限、结果行数上限、JOIN 中间结果上限、截断警示。
 - **Top 100**：查询历史展示最近 100 条；保存查询库每个工作区最多 100 条。
 - **深色/浅色主题**、响应式布局、可折叠导航、可拖拽 schema 宽度与 SQL/结果分栏、SQL 自动补全、schema 浏览器、结果排序/分页/CSV 导出。
@@ -93,10 +97,11 @@ mise run dev:backend   # http://localhost:8080
 mise run dev:web       # http://localhost:5173
 ```
 
-打开 **http://localhost:5173**，使用开发登录：
+打开 **http://localhost:5173**，使用本地账号登录：
 
 ```
-admin@anyquery.dev
+Email:    admin@anyquery.dev
+Password: anyquery-demo
 ```
 
 演示工作区 `acme` 自带：
@@ -112,13 +117,13 @@ admin@anyquery.dev
 docker compose up --build
 ```
 
-打开 **http://localhost:8080**，同样使用 `admin@anyquery.dev` 登录。容器会启动 MongoDB、构建前端并由 Go 服务托管 SPA，并自动执行一次 seed。
+打开 **http://localhost:8080**，使用 `admin@anyquery.dev` / `anyquery-demo` 登录。容器会启动 MongoDB、构建前端并由 Go 服务托管 SPA，并自动执行一次 seed。
 
 > 生产环境请设置 `AUTH_DEV_MODE=false`、`SEED_DEMO=false`、`APP_BASE_URL=https://your.domain` 和固定的 `DATA_ENCRYPTION_KEY`。
 
 ---
 
-## 内置数据源（23）
+## 内置数据源（27）
 
 > 每个连接器的详细验证进度、限制与 CI 状态见 **[docs/data-sources.md](docs/data-sources.md)**。CI 覆盖 MongoDB + SQLite、Redis、JSONL 与 PostgreSQL 的真实跨源 JOIN。
 
@@ -136,9 +141,13 @@ docker compose up --build
 | NoSQL | MongoDB | 官方 Go driver |
 | NoSQL | Redis | `redigo`，Hash/JSON 展开为列 |
 | Search | Elasticsearch、OpenSearch | HTTP search API |
+| 日志 | Alibaba Cloud SLS | 官方 SDK，SQL / Search 模式 |
 | API | REST / JSON | 通用 HTTP + JSON path |
 | File | CSV / TSV URL | 通用 HTTP + `encoding/csv` |
 | File | JSON Lines / NDJSON | 通用 HTTP + 逐行解析 |
+| 时序 | InfluxDB | InfluxQL HTTP（1.x / 2.x 兼容） |
+| 时序 | QuestDB | PostgreSQL wire |
+| 时序 | GreptimeDB | PostgreSQL wire |
 
 Slack/Google Sheets 等系统可以通过 **REST** 连接器接入；只要 HTTP 能返回 JSON 数组，就能成为一张表。新增专用连接器见 [docs/connectors.md](docs/connectors.md)。
 
@@ -196,7 +205,18 @@ User ──< Membership >── Workspace ──< DataSource
 
 ---
 
-## OIDC 配置
+## 登录方式
+
+### 本地账号密码
+
+- 默认启用（`AUTH_PASSWORD_MODE=true`）。
+- Seed 会为演示管理员设置 `DEMO_ADMIN_PASSWORD`（默认 `anyquery-demo`）。
+- 收到邀请的用户可以通过邀请链接直接设置密码并加入 workspace。
+- 管理员可在 Team 菜单为成员重置密码，临时密码只显示一次。
+- 密码使用 bcrypt 哈希；同一邮箱/IP 15 分钟内失败 5 次会被暂时限流。
+- 生产环境请修改演示密码，或关闭 seed、使用邀请流程创建账号。
+
+### OIDC 配置
 
 ```bash
 OIDC_ISSUER=https://your-tenant.us.auth0.com/
@@ -225,7 +245,9 @@ AUTH_DEV_MODE=false
 | `WEB_DIR` | 自动探测 | 构建后的 SPA 目录，默认 `frontend/dist` / `../frontend/dist` |
 | `MONGODB_URI` | `mongodb://localhost:27017` | MongoDB 连接串 |
 | `MONGODB_DB` | `anyquery` | MongoDB 数据库 |
-| `AUTH_DEV_MODE` | `true` | 本地邮箱登录；生产必须关闭 |
+| `AUTH_PASSWORD_MODE` | `true` | 本地邮箱 + 密码登录 |
+| `DEMO_ADMIN_PASSWORD` | `anyquery-demo` | seed 管理员密码；生产不要使用默认值 |
+| `AUTH_DEV_MODE` | `true` | 邮箱直登（仅开发）；生产必须关闭 |
 | `SESSION_TTL_HOURS` | `168` | 会话有效期 |
 | `DATA_ENCRYPTION_KEY` | dev fallback | 32 字节 base64，生产必填：`openssl rand -base64 32` |
 | `APP_ALLOWED_ORIGINS` | 同源 + dev localhost | 允许的跨域来源（逗号分隔） |
@@ -255,6 +277,7 @@ curl -X POST http://localhost:8080/api/v1/tenants/acme/queries/execute \
 GET    /api/v1/auth/config
 GET    /api/v1/auth/oidc/login
 GET    /api/v1/auth/oidc/callback
+POST   /api/v1/auth/password-login
 POST   /api/v1/auth/dev-login
 GET    /api/v1/auth/me
 POST   /api/v1/auth/logout
@@ -262,6 +285,7 @@ POST   /api/v1/auth/logout
 GET    /api/v1/datasource-types
 GET    /api/v1/tenants/{tenant}/datasources
 POST   /api/v1/tenants/{tenant}/datasources
+POST   /api/v1/tenants/{tenant}/datasources/test
 PATCH  /api/v1/tenants/{tenant}/datasources/{id}
 DELETE /api/v1/tenants/{tenant}/datasources/{id}
 POST   /api/v1/tenants/{tenant}/datasources/{id}/test
@@ -277,6 +301,7 @@ GET    /api/v1/tenants/{tenant}/audit
 GET    /api/v1/tenants/{tenant}/members
 POST   /api/v1/tenants/{tenant}/invites
 POST   /api/v1/invites/accept
+POST   /api/v1/invites/accept-password
 GET    /api/v1/tenants/{tenant}/apikeys
 ```
 
@@ -315,6 +340,8 @@ GET    /api/v1/tenants/{tenant}/apikeys
 │       ├── sqlconn           # generic database/sql connectors
 │       ├── mongodb           # MongoDB connector
 │       ├── redisdb           # Redis keyspace connector
+│       ├── influxdb          # InfluxQL HTTP connector
+│       ├── sls               # Alibaba Cloud Log Service connector
 │       ├── httpjson          # REST & CSV connectors
 │       ├── elasticsearch     # Elasticsearch / OpenSearch
 │       ├── cloudsql          # Snowflake / Databricks HTTP APIs
@@ -364,6 +391,7 @@ cd backend && go test ./...
 ## 安全说明
 
 - 数据源凭据在 MongoDB 中加密存储；API 仅返回脱敏后的配置。更新时 `••••••••` 会保留旧密钥。
+- 本地密码使用 bcrypt 哈希；登录失败按邮箱 + IP 限流。
 - 会话使用随机 token，仅存 SHA-256 哈希；Cookie 为 HttpOnly / SameSite=Lax，HTTPS 下自动 Secure。
 - 浏览器发起的写请求会校验 `Origin`；`APP_ALLOWED_ORIGINS` 控制额外来源。
 - 数据源和邀请只能由 admin/owner 操作；查询执行对所有成员开放（viewer 只读）。
@@ -379,7 +407,7 @@ cd backend && go test ./...
 - 当前 Query Pipeline 是查询管道；**定时 ETL pipeline**（查询 → 调度 → 写入目标）尚未实现，可复用现有执行计划扩展。
 - 谓词/投影下推、源端聚合、并发扫描、流式结果。
 - 每租户独立 OIDC / SCIM、审计导出、查询排队与并发配额。
-- 邮件发送（邀请/告警）目前只生成链接。
+- 邮件发送（邀请/告警）目前只生成链接；密码找回由管理员重置，后续接 SMTP 自助重置。
 - 更完整的 SQL：窗口函数、UNION/INTERSECT、参数化查询、物化视图。
 - 更多连接器：BigQuery、Athena、DuckDB、Google Sheets、Kafka 等。
 

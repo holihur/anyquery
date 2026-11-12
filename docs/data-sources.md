@@ -1,6 +1,6 @@
 # 数据源支持进度
 
-> 版本：MVP · 2026-11 · 共 **23** 个内置连接器
+> 版本：MVP · 2026-11 · 共 **27** 个内置连接器
 
 ## 状态图例
 
@@ -42,8 +42,18 @@
 | 21 | REST / JSON | API | ✅ | 响应采样推断 | Header（Bearer 等） | 客户端行数上限 | 本地端到端 + CI |
 | 22 | CSV / TSV URL | File | ✅ | Header + 类型推断 | Header | 下载后限制 | 本地端到端 |
 | 23 | JSON Lines / NDJSON | File | ✅ | 逐行采样推断 | Header | 逐行读取限制 | CI + Mongo JOIN |
+| 24 | InfluxDB | 时序 | 🧪 | `SHOW MEASUREMENTS/FIELD KEYS` | Basic / Token | LIMIT + lookback | CI（InfluxDB 1.8） |
+| 25 | QuestDB | 时序 | 🟡 | `information_schema` | 用户名/密码 | LIMIT | 编译 + 共享 SQL 测试 |
+| 26 | GreptimeDB | 时序 | 🟡 | `information_schema` | 用户名/密码 | LIMIT | 编译 + 共享 SQL 测试 |
+| 27 | Alibaba Cloud SLS | 日志 | 🟡 | GetIndex + logstore | AccessKey / STS | SQL LIMIT / search 100 | 编译 + 类型单测 |
 
 ## 分项说明
+
+### 时序 / 日志（24–27）
+
+- **InfluxDB**：InfluxQL HTTP 接口；measurement 即表，tag 变普通列。默认只查询最近 60 分钟，可通过 `lookback_minutes` 调整。2.x 需要开启 InfluxQL 兼容映射并配置 `org`。
+- **QuestDB / GreptimeDB**：复用 PostgreSQL wire 与 `information_schema` 探测，支持 SQL、跨源 JOIN；适合本地/云端时序分析。
+- **SLS**：使用阿里云官方 SDK，logstore 即表；有索引时走 `* | SELECT * LIMIT n`，无索引可切换 search 模式（单次最多 100 行）。建议使用只读 AccessKey 或 STS。
 
 ### SQL 家族（1–14）
 

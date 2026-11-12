@@ -234,6 +234,69 @@ func (s *Server) handleDataSourceDelete(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleDataSourceTestConfig(w http.ResponseWriter, r *http.Request) {
+	t := currentTenant(r)
+	if !currentRole(r).CanAdmin() {
+		writeError(w, http.StatusForbidden, "forbidden", "Only admins can test data sources")
+		return
+	}
+	var body struct {
+		Type         string            `json:"type"`
+		Config       map[string]string `json:"config"`
+		DataSourceID string            `json:"datasourceId"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	if body.Config == nil {
+		body.Config = map[string]string{}
+	}
+	typ := body.Type
+	if body.DataSourceID != "" {
+		ds, err := s.store.GetDataSource(r.Context(), t.ID, body.DataSourceID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "not_found", "Data source not found")
+			return
+		}
+		typ = ds.Type
+		oldCfg, err := s.decryptConfig(ds)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not decrypt stored credentials")
+			return
+		}
+		spec, ok := connector.Get(typ)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "unknown_type", "Connector type is no longer available")
+			return
+		}
+		body.Config = connector.MergeSecrets(spec.Spec(), oldCfg, body.Config)
+	}
+	spec, ok := connector.Get(typ)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "unknown_type", "Unknown data source type")
+		return
+	}
+	if err := connector.ValidateConfig(spec.Spec(), body.Config); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_config", err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	start := time.Now()
+	c, err := connector.Open(ctx, typ, body.Config)
+	if err == nil {
+		err = c.Ping(ctx)
+		_ = c.Close()
+	}
+	latency := time.Since(start).Milliseconds()
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error(), "latencyMs": latency})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "latencyMs": latency})
+}
+
 func (s *Server) handleDataSourceTest(w http.ResponseWriter, r *http.Request) {
 	t := currentTenant(r)
 	if !currentRole(r).CanAdmin() {

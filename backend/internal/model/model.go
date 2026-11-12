@@ -41,14 +41,15 @@ func ValidRole(r Role) bool {
 }
 
 type User struct {
-	ID          string    `bson:"_id" json:"id"`
-	Email       string    `bson:"email" json:"email"`
-	Name        string    `bson:"name" json:"name"`
-	AvatarURL   string    `bson:"avatarUrl,omitempty" json:"avatarUrl,omitempty"`
-	OIDCIssuer  string    `bson:"oidcIssuer,omitempty" json:"-"`
-	OIDCSubject string    `bson:"oidcSubject,omitempty" json:"-"`
-	CreatedAt   time.Time `bson:"createdAt" json:"createdAt"`
-	LastLoginAt time.Time `bson:"lastLoginAt" json:"lastLoginAt"`
+	ID           string    `bson:"_id" json:"id"`
+	Email        string    `bson:"email" json:"email"`
+	Name         string    `bson:"name" json:"name"`
+	AvatarURL    string    `bson:"avatarUrl,omitempty" json:"avatarUrl,omitempty"`
+	OIDCIssuer   string    `bson:"oidcIssuer,omitempty" json:"-"`
+	OIDCSubject  string    `bson:"oidcSubject,omitempty" json:"-"`
+	PasswordHash string    `bson:"passwordHash,omitempty" json:"-"`
+	CreatedAt    time.Time `bson:"createdAt" json:"createdAt"`
+	LastLoginAt  time.Time `bson:"lastLoginAt" json:"lastLoginAt"`
 }
 
 type Tenant struct {

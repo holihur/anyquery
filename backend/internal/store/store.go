@@ -15,7 +15,10 @@ import (
 	"github.com/anyquery/anyquery/internal/model"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound    = errors.New("not found")
+	ErrEmailExists = errors.New("email already exists")
+)
 
 // Store wraps MongoDB.
 type Store struct {
@@ -153,6 +156,42 @@ func (s *Store) GetUsers(ctx context.Context, ids []string) ([]model.User, error
 		return nil, err
 	}
 	return out, nil
+}
+
+// SetUserPassword updates the bcrypt hash for local password login.
+func (s *Store) SetUserPassword(ctx context.Context, userID, hash string) error {
+	res, err := s.Users().UpdateOne(ctx, bson.M{"_id": userID}, bson.M{"$set": bson.M{"passwordHash": hash}})
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// CreateLocalUser creates a password-based account. Invitations are required
+// to reach this path in the product flow.
+func (s *Store) CreateLocalUser(ctx context.Context, email, name, hash string) (*model.User, error) {
+	email = normalizeEmail(email)
+	if email == "" {
+		return nil, fmt.Errorf("email is required")
+	}
+	if name == "" {
+		name = strings.Split(email, "@")[0]
+	}
+	now := Now()
+	u := model.User{
+		ID: NewID(), Email: email, Name: name, PasswordHash: hash,
+		CreatedAt: now, LastLoginAt: now,
+	}
+	if _, err := s.Users().InsertOne(ctx, u); err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return nil, ErrEmailExists
+		}
+		return nil, err
+	}
+	return &u, nil
 }
 
 // UpsertDevUser creates or updates a development-mode user.

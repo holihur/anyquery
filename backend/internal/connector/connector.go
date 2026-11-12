@@ -21,13 +21,14 @@ import (
 type Category string
 
 const (
-	CategorySQL     Category = "sql"
-	CategoryNoSQL   Category = "nosql"
-	CategorySearch  Category = "search"
-	CategoryAPI     Category = "api"
-	CategoryFile    Category = "file"
-	CategoryOther   Category = "other"
-	CategoryAll              = ""
+	CategorySQL        Category = "sql"
+	CategoryTimeSeries Category = "timeseries"
+	CategoryNoSQL      Category = "nosql"
+	CategorySearch     Category = "search"
+	CategoryAPI        Category = "api"
+	CategoryFile       Category = "file"
+	CategoryOther      Category = "other"
+	CategoryAll                 = ""
 )
 
 // FieldKind controls the form input rendered by the frontend.
@@ -51,15 +52,15 @@ type Option struct {
 // ConfigField describes one configurable connection property. The same
 // metadata powers the generic connection form and secret redaction.
 type ConfigField struct {
-	Key         string     `json:"key"`
-	Label       string     `json:"label"`
-	Kind        FieldKind  `json:"kind"`
-	Required    bool       `json:"required"`
-	Secret      bool       `json:"secret"`
-	Placeholder string     `json:"placeholder,omitempty"`
-	Help        string     `json:"help,omitempty"`
-	Default     string     `json:"default,omitempty"`
-	Options     []Option   `json:"options,omitempty"`
+	Key         string    `json:"key"`
+	Label       string    `json:"label"`
+	Kind        FieldKind `json:"kind"`
+	Required    bool      `json:"required"`
+	Secret      bool      `json:"secret"`
+	Placeholder string    `json:"placeholder,omitempty"`
+	Help        string    `json:"help,omitempty"`
+	Default     string    `json:"default,omitempty"`
+	Options     []Option  `json:"options,omitempty"`
 }
 
 // TypeSpec is the static description of a connector type.

@@ -72,6 +72,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, name }),
     }),
+  passwordLogin: (email: string, password: string) =>
+    request<{ user: AuthMe["user"] }>("/auth/password-login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  resetMemberPassword: (slug: string, userId: string) =>
+    request<{ password: string }>(`/tenants/${slug}/members/${userId}/password`, { method: "POST" }),
+  acceptInvitePassword: (token: string, name: string, password: string) =>
+    request<{ tenant: Tenant; role: Role; user: AuthMe["user"] }>("/invites/accept-password", {
+      method: "POST",
+      body: JSON.stringify({ token, name, password }),
+    }),
   logout: () => request<void>("/auth/logout", { method: "POST" }),
   oidcLoginUrl: (returnTo?: string) =>
     `${BASE}/auth/oidc/login${returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : ""}`,
@@ -120,6 +132,11 @@ export const api = {
   testDataSource: (slug: string, id: string) =>
     request<{ ok: boolean; latencyMs?: number; error?: string }>(`/tenants/${slug}/datasources/${id}/test`, {
       method: "POST",
+    }),
+  testDataSourceConfig: (slug: string, type: string, config: Record<string, string>, datasourceId?: string) =>
+    request<{ ok: boolean; latencyMs?: number; error?: string }>(`/tenants/${slug}/datasources/test`, {
+      method: "POST",
+      body: JSON.stringify({ type, config, datasourceId }),
     }),
   refreshDataSource: (slug: string, id: string) =>
     request<DataSource>(`/tenants/${slug}/datasources/${id}/refresh`, { method: "POST" }),

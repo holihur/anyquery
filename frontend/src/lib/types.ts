@@ -24,6 +24,7 @@ export interface TenantRole extends Tenant {
 
 export interface AuthConfig {
   oidcEnabled: boolean
+  passwordAuthEnabled: boolean
   devAuthEnabled: boolean
   appName: string
   issuer?: string

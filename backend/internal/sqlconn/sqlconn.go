@@ -516,7 +516,17 @@ func trinoFields() []connector.ConfigField {
 	}
 }
 
-// Dialects returns the 16 built-in SQL dialects.
+func timeSeriesPGFields(port string) []connector.ConfigField {
+	f := hostFields(port)
+	for i := range f {
+		if f[i].Key == "database" {
+			f[i].Placeholder = "postgres"
+		}
+	}
+	return f
+}
+
+// Dialects returns the built-in SQL dialects.
 func Dialects() []Dialect {
 	return []Dialect{
 		{
@@ -563,7 +573,7 @@ func Dialects() []Dialect {
 		},
 		{
 			Type: "timescaledb", Name: "TimescaleDB", Driver: "pgx", Icon: "timescaledb", DefaultPort: "5432",
-			Description: "Time-series extension for PostgreSQL", Category: connector.CategorySQL,
+			Description: "Time-series extension for PostgreSQL", Category: connector.CategoryTimeSeries,
 			BuildDSN: pgDSN, Quote: quoteDouble, LimitSQL: limitStandard,
 			Introspect: func(ctx context.Context, db *sql.DB, _ map[string]string) ([]connector.Table, error) {
 				return introspectInformationSchema(ctx, db,
@@ -649,7 +659,7 @@ func Dialects() []Dialect {
 		},
 		{
 			Type: "clickhouse", Name: "ClickHouse", Driver: "clickhouse", Icon: "clickhouse", DefaultPort: "9000",
-			Description: "ClickHouse analytics database", Category: connector.CategorySQL,
+			Description: "ClickHouse analytics database", Category: connector.CategoryTimeSeries,
 			BuildDSN: clickhouseDSN, Quote: quoteBacktick, LimitSQL: limitStandard,
 			Fields: []connector.ConfigField{
 				{Key: "host", Label: "Host", Kind: connector.FieldText, Required: true},
@@ -684,6 +694,32 @@ func Dialects() []Dialect {
 					 WHERE table_schema NOT IN ('information_schema','sys') ORDER BY table_schema, table_name LIMIT 500`,
 					`SELECT table_schema, table_name, column_name, data_type, is_nullable FROM information_schema.columns
 					 WHERE table_schema NOT IN ('information_schema','sys') ORDER BY table_schema, table_name, ordinal_position LIMIT 5000`)
+			},
+		},
+		{
+			Type: "questdb", Name: "QuestDB", Driver: "pgx", Icon: "questdb", DefaultPort: "8812",
+			Description: "QuestDB time-series SQL over the PostgreSQL wire protocol", Category: connector.CategoryTimeSeries,
+			BuildDSN: pgDSN, Quote: quoteDouble, LimitSQL: limitStandard,
+			Fields: timeSeriesPGFields("8812"),
+			Introspect: func(ctx context.Context, db *sql.DB, _ map[string]string) ([]connector.Table, error) {
+				return introspectInformationSchema(ctx, db,
+					`SELECT table_schema, table_name, table_type FROM information_schema.tables
+					 WHERE table_schema NOT IN ('pg_catalog','information_schema','sys') ORDER BY table_schema, table_name`,
+					`SELECT table_schema, table_name, column_name, data_type, is_nullable FROM information_schema.columns
+					 WHERE table_schema NOT IN ('pg_catalog','information_schema','sys') ORDER BY table_schema, table_name, ordinal_position`)
+			},
+		},
+		{
+			Type: "greptimedb", Name: "GreptimeDB", Driver: "pgx", Icon: "greptimedb", DefaultPort: "4003",
+			Description: "GreptimeDB time-series database over the PostgreSQL wire protocol", Category: connector.CategoryTimeSeries,
+			BuildDSN: pgDSN, Quote: quoteDouble, LimitSQL: limitStandard,
+			Fields: timeSeriesPGFields("4003"),
+			Introspect: func(ctx context.Context, db *sql.DB, _ map[string]string) ([]connector.Table, error) {
+				return introspectInformationSchema(ctx, db,
+					`SELECT table_schema, table_name, table_type FROM information_schema.tables
+					 WHERE table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_schema, table_name`,
+					`SELECT table_schema, table_name, column_name, data_type, is_nullable FROM information_schema.columns
+					 WHERE table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_schema, table_name, ordinal_position`)
 			},
 		},
 		{

@@ -1,4 +1,4 @@
-import { Braces, Copy, Database, FileSpreadsheet, Globe2, Layers, Loader2, Network, Search, Snowflake, Boxes, Zap, type LucideIcon } from "lucide-react"
+import { Activity, Braces, Cloud, Copy, Database, FileSpreadsheet, Globe2, Layers, Loader2, Network, Search, Snowflake, Boxes, Zap, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import type { Role } from "@/lib/types"
@@ -11,7 +11,11 @@ const typeMeta: Record<string, { icon: LucideIcon; color: string; bg: string; la
   postgres: { icon: Database, color: "text-sky-600 dark:text-sky-400", bg: "bg-sky-500/10", label: "PostgreSQL" },
   cockroachdb: { icon: Database, color: "text-indigo-600 dark:text-indigo-400", bg: "bg-indigo-500/10", label: "CockroachDB" },
   redshift: { icon: Database, color: "text-rose-600 dark:text-rose-400", bg: "bg-rose-500/10", label: "Redshift" },
-  timescaledb: { icon: Database, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10", label: "TimescaleDB" },
+  timescaledb: { icon: Activity, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10", label: "TimescaleDB" },
+  influxdb: { icon: Activity, color: "text-pink-600 dark:text-pink-400", bg: "bg-pink-500/10", label: "InfluxDB" },
+  questdb: { icon: Activity, color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10", label: "QuestDB" },
+  greptimedb: { icon: Activity, color: "text-lime-600 dark:text-lime-400", bg: "bg-lime-500/10", label: "GreptimeDB" },
+  sls: { icon: Cloud, color: "text-sky-600 dark:text-sky-400", bg: "bg-sky-500/10", label: "Alibaba Cloud SLS" },
   yugabytedb: { icon: Database, color: "text-lime-600 dark:text-lime-400", bg: "bg-lime-500/10", label: "YugabyteDB" },
   mysql: { icon: Database, color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10", label: "MySQL" },
   mariadb: { icon: Database, color: "text-teal-600 dark:text-teal-400", bg: "bg-teal-500/10", label: "MariaDB" },

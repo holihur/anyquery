@@ -19,6 +19,8 @@ type Config struct {
 	MongoURI       string
 	MongoDatabase  string
 	DevAuth        bool
+	PasswordAuth   bool
+	DemoPassword   string
 	SessionTTL     time.Duration
 	QueryTimeout   time.Duration
 	MaxSourceRows  int
@@ -47,6 +49,8 @@ func Load() (Config, error) {
 		MongoURI:         env("MONGODB_URI", "mongodb://localhost:27017"),
 		MongoDatabase:    env("MONGODB_DB", "anyquery"),
 		DevAuth:          envBool("AUTH_DEV_MODE", true),
+		PasswordAuth:     envBool("AUTH_PASSWORD_MODE", true),
+		DemoPassword:     env("DEMO_ADMIN_PASSWORD", "anyquery-demo"),
 		SessionTTL:       time.Duration(envInt("SESSION_TTL_HOURS", 168)) * time.Hour,
 		QueryTimeout:     time.Duration(envInt("QUERY_TIMEOUT_SECONDS", 30)) * time.Second,
 		MaxSourceRows:    envInt("QUERY_MAX_SOURCE_ROWS", 100000),

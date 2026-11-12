@@ -94,6 +94,40 @@ func (s *Server) handleMemberUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func (s *Server) handleMemberPasswordReset(w http.ResponseWriter, r *http.Request) {
+	if isAPIKey(r) || !currentRole(r).CanAdmin() {
+		writeError(w, http.StatusForbidden, "forbidden", "Only admins can reset member passwords")
+		return
+	}
+	if !s.cfg.PasswordAuth {
+		writeError(w, http.StatusNotFound, "password_auth_disabled", "Password login is disabled")
+		return
+	}
+	t := currentTenant(r)
+	targetID := r.PathValue("userID")
+	if _, err := s.store.GetMembership(r.Context(), t.ID, targetID); err != nil {
+		writeError(w, http.StatusNotFound, "not_found", "Member not found")
+		return
+	}
+	password, err := cryptox.RandomToken(12)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	hash, err := cryptox.HashPassword(password)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if err := s.store.SetUserPassword(r.Context(), targetID, hash); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	u := currentUser(r)
+	s.store.Audit(r.Context(), model.AuditLog{TenantID: t.ID, ActorID: u.ID, ActorName: u.Name, Action: "member.password_reset", TargetType: "user", TargetID: targetID, IP: clientIP(r)})
+	writeJSON(w, http.StatusOK, map[string]any{"password": password})
+}
+
 func (s *Server) handleMemberDelete(w http.ResponseWriter, r *http.Request) {
 	t := currentTenant(r)
 	if !currentRole(r).CanAdmin() {

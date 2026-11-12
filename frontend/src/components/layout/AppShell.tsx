@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react"
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
+import { useQuery } from "@tanstack/react-query"
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import {
   Activity,
   Bookmark,
+  ChevronDown,
   ChevronsUpDown,
   Database,
   LayoutDashboard,
@@ -33,7 +35,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -70,12 +77,27 @@ const navGroups = [
 export function AppShell() {
   const { me, logout } = useAuth()
   const { tenant, role } = useTenant()
-  const { theme, setTheme, resolvedTheme } = useTheme()
+  const { theme, setTheme } = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("aq-sidebar-collapsed") === "1")
+  const [savedExpanded, setSavedExpanded] = useState(() => localStorage.getItem("aq-saved-nav-expanded") === "1")
+  const { data: savedQueries } = useQuery({
+    queryKey: ["saved-queries", tenant.slug],
+    queryFn: () => api.savedQueries(tenant.slug),
+  })
+
+  useEffect(() => {
+    localStorage.setItem("aq-saved-nav-expanded", savedExpanded ? "1" : "0")
+  }, [savedExpanded])
+
+  useEffect(() => {
+    if (location.pathname.endsWith("/saved") || new URLSearchParams(location.search).has("saved")) {
+      setSavedExpanded(true)
+    }
+  }, [location.pathname, location.search])
 
   useEffect(() => {
     localStorage.setItem("aq-sidebar-collapsed", collapsed ? "1" : "0")
@@ -174,6 +196,75 @@ export function AppShell() {
             <div className="space-y-0.5">
               {group.items.map((item) => {
                 const href = item.to ? `/w/${tenant.slug}/${item.to}` : `/w/${tenant.slug}`
+                if (item.to === "saved" && !compact) {
+                  const queries = savedQueries?.queries ?? []
+                  const preview = queries.slice(0, 5)
+                  return (
+                    <div key="saved">
+                      <div className="group relative flex items-center">
+                        <NavLink
+                          to={href}
+                          onClick={() => setMobileOpen(false)}
+                          className={({ isActive }) =>
+                            cn(
+                              "group relative flex h-9 flex-1 items-center gap-2.5 rounded-lg px-2.5 pr-8 text-[13px] font-medium transition-colors",
+                              isActive
+                                ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-xs"
+                                : "text-sidebar-foreground/75 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground",
+                            )
+                          }
+                        >
+                          {({ isActive }) => (
+                            <>
+                              <span className={cn("absolute left-0 h-4 w-0.5 rounded-full bg-primary transition-opacity", isActive ? "opacity-100" : "opacity-0")} />
+                              <item.icon className="size-4 shrink-0 opacity-80" />
+                              <span className="truncate">{item.label}</span>
+                            </>
+                          )}
+                        </NavLink>
+                        <button
+                          type="button"
+                          aria-label={savedExpanded ? "Collapse saved queries" : "Expand saved queries"}
+                          onClick={() => setSavedExpanded((value) => !value)}
+                          className="absolute right-1 grid size-6 place-items-center rounded text-muted-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-foreground"
+                        >
+                          <ChevronDown className={cn("size-3.5 transition-transform", savedExpanded && "rotate-180")} />
+                        </button>
+                      </div>
+                      {savedExpanded && (
+                        <div className="mt-1 ml-4 space-y-0.5 border-l border-border/50 pl-2">
+                          {preview.map((saved) => {
+                            const active = new URLSearchParams(location.search).get("saved") === saved.id
+                            return (
+                              <Link
+                                key={saved.id}
+                                to={`/w/${tenant.slug}/query?saved=${saved.id}`}
+                                onClick={() => setMobileOpen(false)}
+                                className={cn(
+                                  "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11.5px] transition-colors",
+                                  active
+                                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                    : "text-sidebar-foreground/60 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground",
+                                )}
+                              >
+                                <Bookmark className="size-3 shrink-0 opacity-55" />
+                                <span className="truncate">{saved.name}</span>
+                              </Link>
+                            )
+                          })}
+                          {queries.length === 0 && <div className="px-2 py-1 text-[10.5px] text-muted-foreground/70">No saved queries</div>}
+                          <Link
+                            to={`/w/${tenant.slug}/saved`}
+                            onClick={() => setMobileOpen(false)}
+                            className="block rounded-md px-2 py-1.5 text-[10.5px] font-medium text-primary/80 hover:bg-sidebar-accent/55 hover:text-primary"
+                          >
+                            {queries.length > 5 ? `View all ${queries.length}` : "Open library"}
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
                 return (
                   <NavLink
                     key={item.to || "overview"}
@@ -208,16 +299,6 @@ export function AppShell() {
       </nav>
 
       <div className={compact ? "p-2" : "p-4"}>
-        {!compact && (
-          <div className="mb-2 flex items-center justify-between px-1">
-            <span className="text-[11px] text-muted-foreground">Appearance</span>
-            <div className="flex items-center rounded-md border bg-background p-0.5">
-              <ThemeButton value="light" current={theme} onSelect={setTheme} label="Light"><Sun className="size-3" /></ThemeButton>
-              <ThemeButton value="dark" current={theme} onSelect={setTheme} label="Dark"><Moon className="size-3" /></ThemeButton>
-              <ThemeButton value="system" current={theme} onSelect={setTheme} label="System"><Monitor className="size-3" /></ThemeButton>
-            </div>
-          </div>
-        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             {compact ? (
@@ -253,10 +334,18 @@ export function AppShell() {
             <DropdownMenuItem onSelect={() => navigate(`/w/${tenant.slug}/settings`)}>
               <Settings className="size-4" /> Workspace settings
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
-              {resolvedTheme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
-              {resolvedTheme === "dark" ? "Light theme" : "Dark theme"}
-            </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Sun className="size-4" /> Theme
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value as "light" | "dark" | "system")}>
+                  <DropdownMenuRadioItem value="light"><Sun className="size-4" /> Light</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="dark"><Moon className="size-4" /> Dark</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="system"><Monitor className="size-4" /> System</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onSelect={() => void signOut()}>
               <LogOut className="size-4" /> Sign out
@@ -326,34 +415,6 @@ function TenantMenuItem({ tenant, current, onSelect }: { tenant: TenantRole; cur
   )
 }
 
-function ThemeButton({
-  value,
-  current,
-  onSelect,
-  label,
-  children,
-}: {
-  value: "light" | "dark" | "system"
-  current: string
-  onSelect: (value: "light" | "dark" | "system") => void
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={() => onSelect(value)}
-      className={cn(
-        "grid size-6 place-items-center rounded text-muted-foreground transition-colors",
-        current === value && "bg-accent text-accent-foreground shadow-xs",
-      )}
-    >
-      {children}
-    </button>
-  )
-}
 
 export function CreateWorkspaceDialog({
   open,

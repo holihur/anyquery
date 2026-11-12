@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Key is an AES-256 key.
@@ -102,4 +104,21 @@ func RandomToken(nBytes int) (string, error) {
 func HashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+// HashPassword creates a bcrypt hash suitable for local password login.
+func HashPassword(password string) (string, error) {
+	if len(password) < 8 {
+		return "", fmt.Errorf("password must be at least 8 characters")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+// CheckPassword verifies a bcrypt hash in constant time.
+func CheckPassword(hash, password string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }

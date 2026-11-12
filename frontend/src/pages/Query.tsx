@@ -19,6 +19,7 @@ import {
   Loader2,
   PanelLeft,
   Play,
+  RefreshCw,
   Save,
   Sparkles,
   SquareTerminal,
@@ -34,6 +35,14 @@ import type { ExecuteResponse, QueryRun, QueryResult, SavedQuery } from "@/lib/t
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { SchemaExplorer, type CatalogSource } from "@/components/query/SchemaExplorer"
@@ -49,7 +58,7 @@ export function QueryPage() {
   const [params, setParams] = useSearchParams()
   const savedId = params.get("saved") || ""
   const editorRef = useRef<ReactCodeMirrorRef>(null)
-  const runRef = useRef<() => void>(() => {})
+  const runRef = useRef<(background?: boolean) => void>(() => {})
   const canEdit = role === "owner" || role === "admin" || role === "member"
 
   const { data: catalog, refetch: refetchCatalog, isLoading: catalogLoading } = useQuery({
@@ -80,6 +89,7 @@ export function QueryPage() {
   const [saveOpen, setSaveOpen] = useState(false)
   const [schemaOpen, setSchemaOpen] = useState(false)
   const [tab, setTab] = useState("results")
+  const [historyPage, setHistoryPage] = useState(0)
   const [schemaCollapsed, setSchemaCollapsed] = useState(() => localStorage.getItem("aq-schema-collapsed") === "1")
   const [schemaWidth, setSchemaWidth] = useState(() => {
     const saved = Number(localStorage.getItem("aq-schema-width"))
@@ -89,6 +99,12 @@ export function QueryPage() {
     const saved = Number(localStorage.getItem("aq-editor-ratio"))
     return Number.isFinite(saved) && saved >= 0.25 && saved <= 0.78 ? saved : 0.43
   })
+  const [autoRefreshMs, setAutoRefreshMs] = useState(() => {
+    const saved = Number(localStorage.getItem("aq-auto-refresh-ms"))
+    return [0, 15000, 30000, 60000, 300000].includes(saved) ? saved : 0
+  })
+  const runningRef = useRef(false)
+  runningRef.current = running
 
   useEffect(() => {
     localStorage.setItem("aq-schema-collapsed", schemaCollapsed ? "1" : "0")
@@ -102,6 +118,28 @@ export function QueryPage() {
     localStorage.setItem("aq-editor-ratio", String(editorRatio))
     editorRef.current?.view?.requestMeasure()
   }, [editorRatio])
+
+  useEffect(() => {
+    localStorage.setItem("aq-auto-refresh-ms", String(autoRefreshMs))
+  }, [autoRefreshMs])
+
+  useEffect(() => {
+    if (!autoRefreshMs) return
+    const tick = () => {
+      if (document.visibilityState === "visible" && !runningRef.current) {
+        runRef.current(true)
+      }
+    }
+    const timer = window.setInterval(tick, autoRefreshMs)
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") tick()
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+  }, [autoRefreshMs])
 
   // Restore a saved query from the URL.
   useEffect(() => {
@@ -137,7 +175,7 @@ export function QueryPage() {
     return out
   }, [sources])
 
-  const runQuery = useCallback(async () => {
+  const runQuery = useCallback(async (background = false) => {
     const text = sqlText.trim()
     if (!text || running) return
     setRunning(true)
@@ -157,8 +195,10 @@ export function QueryPage() {
         setResult(payload.result)
       }
       if (payload.run) setLastRun(payload.run)
-      void queryClient.invalidateQueries({ queryKey: ["runs", tenant.slug] })
-      void queryClient.invalidateQueries({ queryKey: ["overview", tenant.slug] })
+      if (!background) {
+        void queryClient.invalidateQueries({ queryKey: ["runs", tenant.slug] })
+        void queryClient.invalidateQueries({ queryKey: ["overview", tenant.slug] })
+      }
       if (currentSaved) void queryClient.invalidateQueries({ queryKey: ["saved-query", tenant.slug, currentSaved.id] })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Query failed")
@@ -272,9 +312,14 @@ export function QueryPage() {
     document.addEventListener("pointerup", up)
   }
 
+  const autoLabel = autoRefreshMs === 15000 ? "15s" : autoRefreshMs === 30000 ? "30s" : autoRefreshMs === 60000 ? "1m" : autoRefreshMs === 300000 ? "5m" : ""
   const sourceCount = sources.length
   const tableCount = sources.reduce((n, s) => n + s.tables.length, 0)
   const runs = runsData?.runs ?? []
+  const historyPageSize = 20
+  const historyPageCount = Math.max(1, Math.ceil(runs.length / historyPageSize))
+  const currentHistoryPage = Math.min(historyPage, historyPageCount - 1)
+  const pageRuns = runs.slice(currentHistoryPage * historyPageSize, (currentHistoryPage + 1) * historyPageSize)
 
   const renderSchema = (onCollapse: () => void) => (
     <SchemaExplorer
@@ -344,9 +389,10 @@ export function QueryPage() {
               aria-label="Resize schema panel"
               onPointerDown={beginSchemaResize}
               onDoubleClick={() => setSchemaWidth(268)}
-              className="group -mx-1 hidden w-2 cursor-col-resize touch-none items-center justify-center lg:flex"
+              className="group relative hidden w-0 cursor-col-resize touch-none lg:block"
             >
-              <div className="h-10 w-px rounded-full bg-border transition-colors group-hover:bg-primary/60" />
+              <span className="absolute inset-y-0 -left-1.5 w-3" />
+              <span className="pointer-events-none absolute inset-y-2 -left-px w-px bg-border transition-colors group-hover:bg-primary/60" />
             </div>
           </>
         )}
@@ -393,9 +439,10 @@ export function QueryPage() {
             aria-label="Resize results panel"
             onPointerDown={beginEditorResize}
             onDoubleClick={() => setEditorRatio(0.43)}
-            className="group -my-0.5 flex h-3 shrink-0 cursor-row-resize touch-none items-center justify-center"
+            className="group relative h-0 w-full shrink-0 cursor-row-resize touch-none"
           >
-            <div className="h-px w-12 rounded-full bg-border transition-colors group-hover:bg-primary/60" />
+            <span className="absolute -top-1.5 left-0 h-3 w-full" />
+            <span className="pointer-events-none absolute -top-px left-1/2 h-px w-12 -translate-x-1/2 bg-border transition-colors group-hover:bg-primary/60" />
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden surface">
@@ -434,25 +481,36 @@ export function QueryPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-0.5 p-1.5">
-                    {runs.map((run) => (
-                      <button key={run.id} onClick={() => loadRun(run)} className="group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40">
-                        <div className={cn("mt-0.5 grid size-7 shrink-0 place-items-center rounded-md", run.status === "success" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>
-                          {run.status === "success" ? <CheckCircle2 className="size-3.5" /> : <CircleAlert className="size-3.5" />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="line-clamp-1 font-mono text-[11px]">{truncate(run.sql.replace(/\s+/g, " "), 160)}</div>
-                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[10.5px] text-muted-foreground">
-                            <span>{relativeTime(run.createdAt)}</span>
-                            <span className="size-0.5 rounded-full bg-current" />
-                            <span>{formatDuration(run.durationMs)}</span>
-                            <span className="size-0.5 rounded-full bg-current" />
-                            <span>{run.status === "success" ? `${formatNumber(run.rowCount)} rows` : run.error || "failed"}</span>
+                  <div>
+                    <div className="divide-y divide-border/45">
+                      {pageRuns.map((run) => (
+                        <button key={run.id} onClick={() => loadRun(run)} className="group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40">
+                          <div className={cn("mt-0.5 grid size-7 shrink-0 place-items-center rounded-md", run.status === "success" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>
+                            {run.status === "success" ? <CheckCircle2 className="size-3.5" /> : <CircleAlert className="size-3.5" />}
                           </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="line-clamp-1 font-mono text-[11px]">{truncate(run.sql.replace(/\s+/g, " "), 160)}</div>
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[10.5px] text-muted-foreground">
+                              <span>{relativeTime(run.createdAt)}</span>
+                              <span className="size-0.5 rounded-full bg-current" />
+                              <span>{formatDuration(run.durationMs)}</span>
+                              <span className="size-0.5 rounded-full bg-current" />
+                              <span>{run.status === "success" ? `${formatNumber(run.rowCount)} rows` : run.error || "failed"}</span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] text-primary opacity-0 transition-opacity group-hover:opacity-100">Load</span>
+                        </button>
+                      ))}
+                    </div>
+                    {runs.length > historyPageSize && (
+                      <div className="flex items-center justify-between border-t border-border/45 px-4 py-2 text-[10.5px] text-muted-foreground">
+                        <span>{currentHistoryPage * historyPageSize + 1}–{Math.min((currentHistoryPage + 1) * historyPageSize, runs.length)} of {runs.length}</span>
+                        <div className="flex items-center gap-1">
+                          <button disabled={currentHistoryPage === 0} onClick={() => setHistoryPage((p) => Math.max(0, p - 1))} className="rounded px-1.5 py-0.5 hover:bg-accent disabled:opacity-30">Prev</button>
+                          <button disabled={currentHistoryPage >= historyPageCount - 1} onClick={() => setHistoryPage((p) => Math.min(historyPageCount - 1, p + 1))} className="rounded px-1.5 py-0.5 hover:bg-accent disabled:opacity-30">Next</button>
                         </div>
-                        <span className="text-[10px] text-primary opacity-0 transition-opacity group-hover:opacity-100">Load</span>
-                      </button>
-                    ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </TabsContent>

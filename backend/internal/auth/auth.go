@@ -5,9 +5,11 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -21,16 +23,29 @@ import (
 
 const CookieName = "aq_session"
 
+var (
+	ErrInvalidCredentials = errors.New("invalid email or password")
+	ErrRateLimited        = errors.New("too many sign-in attempts; try again later")
+)
+
+type loginAttempt struct {
+	failures int
+	resetAt  time.Time
+}
+
 type Service struct {
 	cfg      config.Config
 	store    *store.Store
 	provider *oidc.Provider
 	oauth    *oauth2.Config
 	verifier *oidc.IDTokenVerifier
+
+	mu       sync.Mutex
+	attempts map[string]loginAttempt
 }
 
 func New(ctx context.Context, cfg config.Config, st *store.Store) (*Service, error) {
-	s := &Service{cfg: cfg, store: st}
+	s := &Service{cfg: cfg, store: st, attempts: map[string]loginAttempt{}}
 	if !cfg.OIDCEnabled() {
 		return s, nil
 	}
@@ -177,6 +192,61 @@ func (s *Service) SessionUser(ctx context.Context, r *http.Request) (*model.User
 	return user, sess, nil
 }
 
+// PasswordLogin authenticates a local email/password account. Failed attempts
+// are tracked in-memory per email and client IP to slow brute-force attacks.
+func (s *Service) PasswordLogin(ctx context.Context, w http.ResponseWriter, email, password, ip string) (*model.User, error) {
+	if !s.cfg.PasswordAuth {
+		return nil, fmt.Errorf("password login is disabled")
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" || password == "" {
+		return nil, ErrInvalidCredentials
+	}
+	key := email + "|" + ip
+	now := time.Now()
+	s.mu.Lock()
+	if attempt, ok := s.attempts[key]; ok && attempt.failures >= 5 && now.Before(attempt.resetAt) {
+		s.mu.Unlock()
+		return nil, ErrRateLimited
+	}
+	s.mu.Unlock()
+
+	user, err := s.store.GetUserByEmail(ctx, email)
+	if err != nil || user.PasswordHash == "" || !cryptox.CheckPassword(user.PasswordHash, password) {
+		s.recordFailure(key, now)
+		return nil, ErrInvalidCredentials
+	}
+	s.mu.Lock()
+	delete(s.attempts, key)
+	s.mu.Unlock()
+	nowTime := store.Now()
+	_, _ = s.store.Users().UpdateOne(ctx, map[string]any{"_id": user.ID}, map[string]any{"$set": map[string]any{"lastLoginAt": nowTime}})
+	user.LastLoginAt = nowTime
+	if err := s.CreateSession(ctx, w, user.ID); err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+func (s *Service) recordFailure(key string, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	attempt := s.attempts[key]
+	if attempt.resetAt.Before(now) {
+		attempt = loginAttempt{}
+	}
+	attempt.failures++
+	attempt.resetAt = now.Add(15 * time.Minute)
+	s.attempts[key] = attempt
+	if len(s.attempts) > 10000 {
+		for k, v := range s.attempts {
+			if v.resetAt.Before(now) {
+				delete(s.attempts, k)
+			}
+		}
+	}
+}
+
 // DevLogin is available only when AUTH_DEV_MODE is enabled.
 func (s *Service) DevLogin(ctx context.Context, w http.ResponseWriter, email, name string) (*model.User, error) {
 	if !s.cfg.DevAuth {
@@ -199,6 +269,7 @@ func (s *Service) DevLogin(ctx context.Context, w http.ResponseWriter, email, na
 // AuthConfig is returned to the frontend.
 type AuthConfig struct {
 	OIDCEnabled  bool   `json:"oidcEnabled"`
+	PasswordAuth bool   `json:"passwordAuthEnabled"`
 	DevAuth      bool   `json:"devAuthEnabled"`
 	AppName      string `json:"appName"`
 	Issuer       string `json:"issuer,omitempty"`
@@ -208,6 +279,7 @@ type AuthConfig struct {
 func (s *Service) PublicConfig() AuthConfig {
 	return AuthConfig{
 		OIDCEnabled:  s.OIDCEnabled(),
+		PasswordAuth: s.cfg.PasswordAuth,
 		DevAuth:      s.cfg.DevAuth,
 		AppName:      "AnyQuery",
 		Issuer:       s.cfg.OIDCIssuer,

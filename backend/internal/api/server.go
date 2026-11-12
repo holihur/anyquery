@@ -53,6 +53,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/auth/oidc/login", s.handleOIDCLogin)
 	mux.HandleFunc("GET /api/v1/auth/oidc/callback", s.handleOIDCCallback)
 	mux.HandleFunc("POST /api/v1/auth/dev-login", s.handleDevLogin)
+	mux.HandleFunc("POST /api/v1/auth/password-login", s.handlePasswordLogin)
 
 	protected := func(pattern string, h http.HandlerFunc) {
 		mux.Handle(pattern, s.authenticate(h))
@@ -61,6 +62,7 @@ func (s *Server) Handler() http.Handler {
 	protected("POST /api/v1/auth/logout", s.handleLogout)
 	protected("POST /api/v1/tenants", s.handleCreateTenant)
 	protected("POST /api/v1/invites/accept", s.handleAcceptInvite)
+	mux.HandleFunc("POST /api/v1/invites/accept-password", s.handleAcceptInvitePassword)
 	protected("GET /api/v1/datasource-types", s.handleDataSourceTypes)
 
 	tenant := func(pattern string, h http.HandlerFunc) {
@@ -73,12 +75,14 @@ func (s *Server) Handler() http.Handler {
 	tenant("GET /api/v1/tenants/{tenant}/members", s.handleMembersList)
 	tenant("PATCH /api/v1/tenants/{tenant}/members/{userID}", s.handleMemberUpdate)
 	tenant("DELETE /api/v1/tenants/{tenant}/members/{userID}", s.handleMemberDelete)
+	tenant("POST /api/v1/tenants/{tenant}/members/{userID}/password", s.handleMemberPasswordReset)
 	tenant("GET /api/v1/tenants/{tenant}/invites", s.handleInvitesList)
 	tenant("POST /api/v1/tenants/{tenant}/invites", s.handleInviteCreate)
 	tenant("DELETE /api/v1/tenants/{tenant}/invites/{id}", s.handleInviteDelete)
 
 	tenant("GET /api/v1/tenants/{tenant}/datasources", s.handleDataSourcesList)
 	tenant("POST /api/v1/tenants/{tenant}/datasources", s.handleDataSourceCreate)
+	tenant("POST /api/v1/tenants/{tenant}/datasources/test", s.handleDataSourceTestConfig)
 	tenant("GET /api/v1/tenants/{tenant}/datasources/{id}", s.handleDataSourceGet)
 	tenant("PATCH /api/v1/tenants/{tenant}/datasources/{id}", s.handleDataSourceUpdate)
 	tenant("DELETE /api/v1/tenants/{tenant}/datasources/{id}", s.handleDataSourceDelete)

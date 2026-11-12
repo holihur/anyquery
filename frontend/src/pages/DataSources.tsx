@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
 import {
   ArrowLeft,
+  CheckCircle2,
   Check,
   ChevronRight,
   Database,
@@ -63,6 +64,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 const categories = [
   { id: "all", label: "All" },
   { id: "sql", label: "SQL" },
+  { id: "timeseries", label: "Time series" },
   { id: "nosql", label: "NoSQL" },
   { id: "search", label: "Search" },
   { id: "api", label: "APIs" },
@@ -310,6 +312,8 @@ function DataSourceDialog({
   const [config, setConfig] = useState<Record<string, string>>({})
   const [showSecrets, setShowSecrets] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; latencyMs?: number; error?: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const isEdit = Boolean(source)
 
@@ -317,6 +321,8 @@ function DataSourceDialog({
     if (!open) return
     setError(null)
     setBusy(false)
+    setTesting(false)
+    setTestResult(null)
     setShowSecrets(false)
     if (source) {
       const spec = types.find((t) => t.type === source.type) ?? null
@@ -348,6 +354,25 @@ function DataSourceDialog({
     const next: Record<string, string> = {}
     for (const f of t.fields) if (f.default) next[f.key] = f.default
     setConfig(next)
+    setTestResult(null)
+    setError(null)
+  }
+
+  async function testConnection() {
+    if (!selected || testing) return
+    setTesting(true)
+    setTestResult(null)
+    setError(null)
+    try {
+      const res = await api.testDataSourceConfig(tenant.slug, source?.type ?? selected.type, config, source?.id)
+      setTestResult(res)
+      if (res.ok) toast.success(`Connection works · ${res.latencyMs ?? 0} ms`)
+      else toast.error(res.error || "Connection failed")
+    } catch (err) {
+      setTestResult({ ok: false, error: err instanceof Error ? err.message : "Connection failed" })
+    } finally {
+      setTesting(false)
+    }
   }
 
   async function submit(e: React.FormEvent) {
@@ -436,7 +461,10 @@ function DataSourceDialog({
                     key={field.key}
                     field={field}
                     value={config[field.key] ?? ""}
-                    onChange={(v) => setConfig((c) => ({ ...c, [field.key]: v }))}
+                    onChange={(v) => {
+                      setConfig((c) => ({ ...c, [field.key]: v }))
+                      setTestResult(null)
+                    }}
                     showSecrets={showSecrets}
                     className={field.kind === "textarea" ? "sm:col-span-2" : undefined}
                   />
@@ -448,12 +476,21 @@ function DataSourceDialog({
                 </button>
               )}
               {isEdit && <p className="text-[10.5px] text-muted-foreground">Leaving a masked secret unchanged keeps the stored value.</p>}
+              {testResult?.ok && (
+                <div className="flex items-center gap-2 rounded-lg bg-success/8 px-3 py-2 text-[12px] text-success">
+                  <CheckCircle2 className="size-3.5" /> Connection works · {testResult.latencyMs ?? 0} ms
+                </div>
+              )}
+              {testResult && !testResult.ok && <ErrorNotice message={testResult.error || "Connection failed"} />}
               {error && <ErrorNotice message={error} />}
             </div>
 
             <DialogFooter className="mt-6">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-              <Button type="submit" disabled={busy || !name.trim()}>
+              <Button type="button" variant="outline" onClick={() => void testConnection()} disabled={testing || busy}>
+                {testing ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test
+              </Button>
+              <Button type="submit" disabled={busy || testing || !name.trim()}>
                 {busy ? <><Loader2 className="size-4 animate-spin" /> Testing connection…</> : <><Check className="size-4" /> {isEdit ? "Save & test" : "Connect source"}</>}
               </Button>
             </DialogFooter>

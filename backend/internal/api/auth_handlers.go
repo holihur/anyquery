@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/anyquery/anyquery/internal/auth"
 	"github.com/anyquery/anyquery/internal/connector"
 	"github.com/anyquery/anyquery/internal/cryptox"
 	"github.com/anyquery/anyquery/internal/model"
@@ -57,6 +58,38 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		returnTo = "/"
 	}
 	http.Redirect(w, r, s.cfg.BaseURL+returnTo, http.StatusFound)
+}
+
+func (s *Server) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.PasswordAuth {
+		writeError(w, http.StatusNotFound, "password_auth_disabled", "Password login is disabled")
+		return
+	}
+	var body struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	user, err := s.auth.PasswordLogin(r.Context(), w, body.Email, body.Password, clientIP(r))
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrRateLimited):
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many sign-in attempts. Try again in 15 minutes.")
+		case errors.Is(err, auth.ErrInvalidCredentials):
+			writeError(w, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password.")
+		default:
+			writeError(w, http.StatusInternalServerError, "login_failed", err.Error())
+		}
+		return
+	}
+	s.store.Audit(r.Context(), model.AuditLog{
+		TenantID: "", ActorID: user.ID, ActorName: user.Name, Action: "auth.login",
+		IP: clientIP(r), Metadata: map[string]any{"method": "password"},
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
 
 func (s *Server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
@@ -181,6 +214,74 @@ func (s *Server) handleAcceptInvite(w http.ResponseWriter, r *http.Request) {
 		TargetType: "user", TargetID: user.ID, IP: clientIP(r),
 	})
 	writeJSON(w, http.StatusOK, tenantRole{Tenant: *tenant, Role: inv.Role})
+}
+
+func (s *Server) handleAcceptInvitePassword(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.PasswordAuth {
+		writeError(w, http.StatusNotFound, "password_auth_disabled", "Password login is disabled")
+		return
+	}
+	var body struct {
+		Token    string `json:"token"`
+		Name     string `json:"name"`
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil || strings.TrimSpace(body.Token) == "" {
+		writeError(w, http.StatusBadRequest, "invalid_body", "invitation token is required")
+		return
+	}
+	inv, err := s.store.GetInviteByToken(r.Context(), cryptox.HashToken(body.Token))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "invite_not_found", "This invitation is invalid or has expired")
+		return
+	}
+	if store.Now().After(inv.ExpiresAt) {
+		writeError(w, http.StatusGone, "invite_expired", "This invitation has expired")
+		return
+	}
+	hash, err := cryptox.HashPassword(body.Password)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_password", err.Error())
+		return
+	}
+	user, err := s.store.GetUserByEmail(r.Context(), inv.Email)
+	if err == nil && user.PasswordHash != "" {
+		writeError(w, http.StatusConflict, "account_exists", "An account already exists for this email. Sign in instead.")
+		return
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		user, err = s.store.CreateLocalUser(r.Context(), inv.Email, body.Name, hash)
+	} else if err == nil {
+		err = s.store.SetUserPassword(r.Context(), user.ID, hash)
+		user.PasswordHash = hash
+	}
+	if err != nil {
+		if errors.Is(err, store.ErrEmailExists) {
+			writeError(w, http.StatusConflict, "account_exists", "An account already exists for this email. Sign in instead.")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if err := s.store.UpsertMember(r.Context(), inv.TenantID, user.ID, inv.Role); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	_ = s.store.MarkInviteAccepted(r.Context(), inv.ID)
+	tenant, err := s.store.GetTenant(r.Context(), inv.TenantID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if err := s.auth.CreateSession(r.Context(), w, user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	s.store.Audit(r.Context(), model.AuditLog{
+		TenantID: tenant.ID, ActorID: user.ID, ActorName: user.Name, Action: "member.join",
+		TargetType: "user", TargetID: user.ID, IP: clientIP(r),
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"tenant": tenant, "role": inv.Role, "user": user})
 }
 
 func (s *Server) handleDataSourceTypes(w http.ResponseWriter, r *http.Request) {
