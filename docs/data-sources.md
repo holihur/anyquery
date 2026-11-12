@@ -1,6 +1,6 @@
 # 数据源支持进度
 
-> 版本：MVP · 2026-11 · 共 **102** 个注册数据源类型（33 native / 37 compatible / 32 template）
+> 版本：MVP · 2026-11 · 共 **103** 个注册数据源类型（34 native / 37 compatible / 32 template）
 >
 > 完整 Top 100 目录见 [data-sources-top100.md](data-sources-top100.md)。
 

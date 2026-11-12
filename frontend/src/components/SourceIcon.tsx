@@ -80,6 +80,7 @@ const typeMeta: Record<string, SourceIconMeta> = {
   pipedrive: { icon: Handshake, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10", label: "Pipedrive" },
   freshdesk: { icon: Headphones, color: "text-cyan-600 dark:text-cyan-400", bg: "bg-cyan-500/10", label: "Freshdesk" },
   github: { icon: Globe2, color: "text-foreground", bg: "bg-muted", label: "GitHub" },
+  openapi: { icon: Globe2, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10", label: "OpenAPI / Swagger" },
 }
 
 const brandMeta: Record<string, SourceIconMeta> = {

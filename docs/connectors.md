@@ -203,6 +203,7 @@ func TestProviderSpec(t *testing.T) {
 | `internal/sqlconn` | PostgreSQL、CockroachDB、Redshift、TimescaleDB、YugabyteDB、MySQL、MariaDB、SingleStore、SQL Server、SQLite、ClickHouse、Trino、Presto、Oracle |
 | `internal/presets` | 37 个 SQL 兼容预设 + 32 个 REST/SaaS 模板（Aurora、Cloud SQL、Neon、TiDB、GitHub、Slack、Stripe 等） |
 | `internal/cloudsql` | Snowflake、Databricks SQL |
+| `internal/openapi` | OpenAPI 3 / Swagger 2 operations as tables |
 | `internal/bigquery` | Google BigQuery（REST） |
 | `internal/cassandra` | Apache Cassandra / ScyllaDB（CQL） |
 | `internal/mongodb` | MongoDB |
