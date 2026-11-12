@@ -18,6 +18,7 @@ type field struct {
 	Qualifiers []string // lowercase alias/table/source qualifiers
 	Alias      string   // display qualifier for star expansion
 	Type       string
+	StarHidden bool // USING/NATURAL common column from the right side
 }
 
 type relation struct {
@@ -43,6 +44,8 @@ func (ec *execCtx) relationForTableExpr(te sql.TableExpr) (*relation, error) {
 			return nil, err
 		}
 		return datasetToRelation(ds, t.Alias, t.Alias), nil
+	case *sql.ValuesTable:
+		return ec.relationForValues(t)
 	case *sql.JoinExpr:
 		left, err := ec.relationForTableExpr(t.Left)
 		if err != nil {
@@ -56,6 +59,49 @@ func (ec *execCtx) relationForTableExpr(te sql.TableExpr) (*relation, error) {
 	default:
 		return nil, errf("unsupported", "unsupported table expression %T", te)
 	}
+}
+
+func (ec *execCtx) relationForValues(v *sql.ValuesTable) (*relation, error) {
+	if len(v.Rows) == 0 {
+		return nil, errf("values_error", "VALUES requires at least one row")
+	}
+	width := len(v.Rows[0])
+	if width == 0 {
+		return nil, errf("values_error", "VALUES rows cannot be empty")
+	}
+	for _, row := range v.Rows {
+		if len(row) != width {
+			return nil, errf("values_error", "VALUES rows must all have the same number of columns")
+		}
+	}
+	cols := make([]ResultColumn, width)
+	if len(v.Columns) > 0 {
+		if len(v.Columns) != width {
+			return nil, errf("values_error", "VALUES alias declares %d columns but rows have %d", len(v.Columns), width)
+		}
+		for i, name := range v.Columns {
+			cols[i] = ResultColumn{Name: name}
+		}
+	} else {
+		for i := range cols {
+			cols[i] = ResultColumn{Name: fmt.Sprintf("column%d", i+1)}
+		}
+	}
+	ds := &dataset{columns: cols}
+	for _, exprs := range v.Rows {
+		row := make(map[string]any, width)
+		ctx := &evalCtx{outer: ec.outerEval, exec: ec}
+		for i, e := range exprs {
+			val, err := evalExpr(ctx, e)
+			if err != nil {
+				return nil, err
+			}
+			row[strings.ToLower(cols[i].Name)] = val
+		}
+		ds.rows = append(ds.rows, row)
+	}
+	ds.columns = inferColumns(ds.rows, ds.columns)
+	return datasetToRelation(ds, v.Alias, v.Alias), nil
 }
 
 func (ec *execCtx) relationForTableRef(ref *sql.TableRef) (*relation, error) {
@@ -265,7 +311,7 @@ func (r *relation) resolve(ref *sql.ColumnRef) (any, field, error) {
 	}
 	var matches []field
 	for _, f := range r.fields {
-		if strings.EqualFold(f.Name, col) {
+		if !f.StarHidden && strings.EqualFold(f.Name, col) {
 			matches = append(matches, f)
 		}
 	}
@@ -333,10 +379,6 @@ func (ec *execCtx) joinRelations(left, right *relation, typ sql.JoinType, on sql
 		using = naturalJoinColumns(left, right)
 		on = nil
 	}
-	if len(using) == 0 && natural {
-		// SQL NATURAL JOIN with no common columns degenerates to a cross join.
-		typ = sql.JoinCross
-	}
 	var usingPairs [][2]field
 	for _, name := range using {
 		lf, lok := findFieldByName(left, name)
@@ -345,6 +387,14 @@ func (ec *execCtx) joinRelations(left, right *relation, typ sql.JoinType, on sql
 			return nil, &Error{Code: "column_not_found", Message: fmt.Sprintf("USING column %q must exist on both sides", name)}
 		}
 		usingPairs = append(usingPairs, [2]field{lf, rf})
+	}
+
+	for _, p := range usingPairs {
+		for i := range combined.fields {
+			if combined.fields[i].Key == p[1].Key {
+				combined.fields[i].StarHidden = true
+			}
+		}
 	}
 
 	leftMatched := make([]bool, len(left.rows))
@@ -423,6 +473,9 @@ func (ec *execCtx) joinRelations(left, right *relation, typ sql.JoinType, on sql
 			}
 			for k, v := range rr {
 				row[k] = v
+			}
+			for _, p := range usingPairs {
+				row[p[0].Key] = rr[p[1].Key]
 			}
 			combined.rows = append(combined.rows, row)
 		}

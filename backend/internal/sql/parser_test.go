@@ -160,6 +160,7 @@ func TestParseModernSQL(t *testing.T) {
 		"SELECT sum(total) OVER (PARTITION BY region ORDER BY id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS s FROM mongo.orders",
 		"SELECT region FROM mongo.orders ORDER BY region DESC NULLS LAST FETCH FIRST 2 ROWS ONLY",
 		"SELECT * FROM mongo.orders NATURAL LEFT JOIN mongo.customers",
+		"SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS t(id, name)",
 	}
 	for _, q := range cases {
 		if _, err := Parse(q); err != nil {
@@ -173,7 +174,9 @@ func TestFormatModernSQL(t *testing.T) {
 		"SELECT region FROM mongo.orders UNION ALL SELECT region FROM mongo.customers ORDER BY region",
 		"SELECT region, row_number() OVER (PARTITION BY region ORDER BY total DESC) AS rn FROM mongo.orders",
 		"SELECT count(*) FILTER (WHERE status = 'paid') AS n FROM mongo.orders",
+		"WITH RECURSIVE nums(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM nums WHERE n < 3) SELECT * FROM nums",
 		"SELECT * FROM mongo.orders NATURAL LEFT JOIN mongo.customers",
+		"SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS t(id, name)",
 		"SELECT extract(year FROM created_at) AS y FROM mongo.orders",
 	}
 	for _, q := range queries {
@@ -185,6 +188,18 @@ func TestFormatModernSQL(t *testing.T) {
 		formatted := FormatSelect(s)
 		if _, err := Parse(formatted); err != nil {
 			t.Errorf("round trip %q -> %q: %v", q, formatted, err)
+		}
+	}
+}
+
+func TestParseQuantifiedComparisons(t *testing.T) {
+	for _, q := range []string{
+		"SELECT * FROM mongo.orders WHERE total > ANY (SELECT total FROM mongo.orders)",
+		"SELECT * FROM mongo.orders WHERE total >= ALL (1, 2, 3)",
+		"SELECT * FROM mongo.orders WHERE total <> SOME (SELECT total FROM mongo.orders)",
+	} {
+		if _, err := Parse(q); err != nil {
+			t.Errorf("%s: %v", q, err)
 		}
 	}
 }

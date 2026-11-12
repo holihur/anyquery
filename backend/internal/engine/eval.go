@@ -115,6 +115,8 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 		return evalBinary(ctx, x)
 	case *sql.CompareExpr:
 		return evalCompare(ctx, x)
+	case *sql.QuantifiedExpr:
+		return evalQuantified(ctx, x)
 	case *sql.InExpr:
 		left, err := evalExpr(ctx, x.Left)
 		if err != nil {
@@ -294,6 +296,79 @@ func evalInSubquery(ctx *evalCtx, x *sql.InExpr, left any) (any, error) {
 	}
 	if x.Negated {
 		return !matched, nil
+	}
+	return matched, nil
+}
+
+func evalQuantified(ctx *evalCtx, q *sql.QuantifiedExpr) (any, error) {
+	left, err := evalExpr(ctx, q.Left)
+	if err != nil {
+		return nil, err
+	}
+	var values []any
+	if q.Subquery != nil {
+		ds, err := evalSubquery(ctx, q.Subquery)
+		if err != nil {
+			return nil, err
+		}
+		if len(ds.columns) != 1 {
+			return nil, errf("subquery_error", "ANY/ALL subquery must return exactly one column")
+		}
+		col := strings.ToLower(ds.columns[0].Name)
+		for _, row := range ds.rows {
+			values = append(values, row[col])
+		}
+	} else {
+		for _, e := range q.List {
+			v, err := evalExpr(ctx, e)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, v)
+		}
+	}
+	if len(values) == 0 {
+		return q.All, nil
+	}
+	if left == nil {
+		return nil, nil
+	}
+	sawNull := false
+	matched := q.All
+	for _, v := range values {
+		if v == nil {
+			sawNull = true
+			continue
+		}
+		cmp := false
+		switch q.Op {
+		case "=", "==":
+			cmp = valuesEqual(left, v)
+		case "!=", "<>":
+			cmp = !valuesEqual(left, v)
+		case "<":
+			cmp = compareValues(left, v) < 0
+		case "<=":
+			cmp = compareValues(left, v) <= 0
+		case ">":
+			cmp = compareValues(left, v) > 0
+		case ">=":
+			cmp = compareValues(left, v) >= 0
+		default:
+			return nil, errf("unsupported", "unsupported quantified comparison %s", q.Op)
+		}
+		if q.All && !cmp {
+			return false, nil
+		}
+		if !q.All && cmp {
+			return true, nil
+		}
+		if q.All {
+			matched = true
+		}
+	}
+	if sawNull {
+		return nil, nil
 	}
 	return matched, nil
 }

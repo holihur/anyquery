@@ -36,9 +36,10 @@ func (*SelectStmt) stmtNode() {}
 
 // CTE is a named subquery. Materialized hints are intentionally omitted for now.
 type CTE struct {
-	Name    string
-	Columns []string
-	Query   *SelectStmt
+	Name      string
+	Columns   []string
+	Query     *SelectStmt
+	Recursive bool
 }
 
 // SetOperation is a UNION / INTERSECT / EXCEPT term.
@@ -109,6 +110,15 @@ type DerivedTable struct {
 }
 
 func (*DerivedTable) tableNode() {}
+
+// ValuesTable is a VALUES (...) table expression in FROM.
+type ValuesTable struct {
+	Rows    [][]Expr
+	Alias   string
+	Columns []string
+}
+
+func (*ValuesTable) tableNode() {}
 
 // JoinType enumerates supported joins.
 type JoinType string
@@ -249,6 +259,17 @@ type InExpr struct {
 
 func (*InExpr) exprNode() {}
 
+// QuantifiedExpr is = ANY/SOME/ALL (subquery or value list).
+type QuantifiedExpr struct {
+	Op       string
+	Left     Expr
+	List     []Expr
+	Subquery *SelectStmt
+	All      bool
+}
+
+func (*QuantifiedExpr) exprNode() {}
+
 type BetweenExpr struct {
 	Left    Expr
 	Low     Expr
@@ -338,6 +359,9 @@ func FormatIdent(s string) string {
 }
 
 func FormatTableRef(t *TableRef) string {
+	if t.Source == "" {
+		return FormatIdent(t.Table)
+	}
 	parts := []string{t.Source}
 	if t.Table != "" {
 		parts = append(parts, FormatIdent(t.Table))
@@ -403,6 +427,21 @@ func (i *InExpr) String() string {
 		parts[n] = e.String()
 	}
 	return "(" + i.Left.String() + op + "(" + strings.Join(parts, ", ") + "))"
+}
+
+func (q *QuantifiedExpr) String() string {
+	quant := "ANY"
+	if q.All {
+		quant = "ALL"
+	}
+	if q.Subquery != nil {
+		return "(" + q.Left.String() + " " + q.Op + " " + quant + " (" + FormatSelect(q.Subquery) + "))"
+	}
+	parts := make([]string, len(q.List))
+	for i, e := range q.List {
+		parts[i] = e.String()
+	}
+	return "(" + q.Left.String() + " " + q.Op + " " + quant + " (" + strings.Join(parts, ", ") + "))"
 }
 
 func (b *BetweenExpr) String() string {
@@ -542,12 +581,28 @@ func FormatSelectItem(i SelectItem) string {
 func FormatSelect(s *SelectStmt) string {
 	var sb strings.Builder
 	if len(s.CTEs) > 0 {
+		recursive := false
+		for _, c := range s.CTEs {
+			if c.Recursive {
+				recursive = true
+			}
+		}
 		sb.WriteString("WITH ")
+		if recursive {
+			sb.WriteString("RECURSIVE ")
+		}
 		for i, c := range s.CTEs {
 			if i > 0 {
 				sb.WriteString(", ")
 			}
 			sb.WriteString(FormatIdent(c.Name))
+			if len(c.Columns) > 0 {
+				cols := make([]string, len(c.Columns))
+				for j, col := range c.Columns {
+					cols[j] = FormatIdent(col)
+				}
+				sb.WriteString("(" + strings.Join(cols, ", ") + ")")
+			}
 			sb.WriteString(" AS (")
 			sb.WriteString(FormatSelect(c.Query))
 			sb.WriteString(")")
@@ -639,6 +694,23 @@ func FormatTableExpr(t TableExpr) string {
 		s := "(" + FormatSelect(x.Query) + ")"
 		if x.Alias != "" {
 			s += " AS " + FormatIdent(x.Alias)
+		}
+		return s
+	case *ValuesTable:
+		rows := make([]string, len(x.Rows))
+		for i, row := range x.Rows {
+			vals := make([]string, len(row))
+			for j, e := range row {
+				vals[j] = e.String()
+			}
+			rows[i] = "(" + strings.Join(vals, ", ") + ")"
+		}
+		s := "(VALUES " + strings.Join(rows, ", ") + ")"
+		if x.Alias != "" {
+			s += " AS " + FormatIdent(x.Alias)
+		}
+		if len(x.Columns) > 0 {
+			s += "(" + strings.Join(x.Columns, ", ") + ")"
 		}
 		return s
 	case *JoinExpr:
@@ -754,6 +826,15 @@ func WalkExpr(e Expr, fn func(Expr) bool) bool {
 				return false
 			}
 		}
+	case *QuantifiedExpr:
+		if !WalkExpr(x.Left, fn) {
+			return false
+		}
+		for _, e := range x.List {
+			if !WalkExpr(e, fn) {
+				return false
+			}
+		}
 	case *BetweenExpr:
 		return WalkExpr(x.Left, fn) && WalkExpr(x.Low, fn) && WalkExpr(x.High, fn)
 	case *IsExpr:
@@ -800,6 +881,19 @@ func WalkExpr(e Expr, fn func(Expr) bool) bool {
 		return WalkExpr(x.Expr, fn)
 	}
 	return true
+}
+
+// ContainsWindow reports whether an expression contains a window function.
+func ContainsWindow(e Expr) bool {
+	found := false
+	WalkExpr(e, func(x Expr) bool {
+		if f, ok := x.(*FuncCall); ok && f.Window != nil {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 // ContainsAggregate reports whether an expression contains an aggregate call.

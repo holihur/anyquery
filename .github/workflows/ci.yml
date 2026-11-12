@@ -216,6 +216,7 @@ jobs:
           execute '{"sql":"WITH totals AS (SELECT region, count(*) AS n FROM mongo.orders WHERE status = '"'"'paid'"'"' GROUP BY region) SELECT region, n, row_number() OVER (ORDER BY n DESC, region) AS rn FROM totals ORDER BY rn"}' > /tmp/sql-window.json
           execute '{"sql":"SELECT region FROM mongo.orders WHERE status = '"'"'paid'"'"' UNION SELECT region FROM mongo.orders WHERE status = '"'"'refunded'"'"' ORDER BY region"}' > /tmp/sql-union.json
           execute '{"sql":"SELECT c.name, (SELECT count(*) FROM mongo.orders o WHERE o.customer_id = c.id) AS orders FROM mongo.customers c ORDER BY c.name LIMIT 3"}' > /tmp/sql-subquery.json
+          execute '{"sql":"WITH RECURSIVE nums(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT count(*) AS n FROM nums"}' > /tmp/sql-recursive.json
           python3 - <<'PY2'
           import json
           window = json.load(open("/tmp/sql-window.json"))
@@ -230,7 +231,10 @@ jobs:
           assert "error" not in sub, sub
           assert len(sub["result"]["rows"]) == 3, sub["result"]["rows"]
           assert all(isinstance(r["orders"], int) for r in sub["result"]["rows"]), sub["result"]["rows"]
-          print("advanced SQL verified:", rows[0], regions, sub["result"]["rows"][0])
+          recursive = json.load(open("/tmp/sql-recursive.json"))
+          assert "error" not in recursive, recursive
+          assert recursive["result"]["rows"][0]["n"] == 5, recursive
+          print("advanced SQL verified:", rows[0], regions, sub["result"]["rows"][0], recursive["result"]["rows"][0])
           PY2
 
       - name: API key authentication

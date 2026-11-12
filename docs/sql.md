@@ -24,6 +24,7 @@ AnyQuery is read-only: `INSERT`, `UPDATE`, `DELETE`, DDL and transactions are no
 - `ORDER BY` supports aliases, select-list ordinals (`ORDER BY 1`) and `NULLS FIRST|LAST` (default: nulls last)
 - `GROUP BY` supports aliases and select-list ordinals
 - `INNER / LEFT / RIGHT / FULL / CROSS JOIN`, `ON` / `USING`, `NATURAL [LEFT|RIGHT|FULL] JOIN`
+- `USING` / `NATURAL` common columns are coalesced in `SELECT *`; qualified references such as `right_alias.id` remain available
 
 Table names use `` `source`.`table` ``. A table name may contain a schema: `` `pg`.`public.users` ``. CTE names are referenced without a source.
 
@@ -43,6 +44,19 @@ SELECT region FROM orders EXCEPT SELECT region FROM customers;
 - `INTERSECT` has higher precedence than `UNION`/`EXCEPT`
 - parentheses can group set terms
 - output columns come from the left term; both sides must have the same column count
+
+### Recursive CTEs
+
+```sql
+WITH RECURSIVE nums(n) AS (
+  SELECT 1
+  UNION ALL
+  SELECT n + 1 FROM nums WHERE n < 5
+)
+SELECT n FROM nums ORDER BY n;
+```
+
+Recursive CTEs support `UNION` (global de-duplication) and `UNION ALL`. The recursive term sees only the previous iteration's rows. Guards: 100 iterations and 10,000 accumulated rows.
 
 ### Subqueries
 
@@ -64,9 +78,24 @@ WHERE EXISTS (SELECT 1 FROM mongo.orders o WHERE o.customer_id = c.id);
 SELECT region, sum(n) AS n
 FROM (SELECT region, count(*) AS n FROM mongo.orders GROUP BY region) t
 GROUP BY region;
+
+-- inline VALUES table
+SELECT id, name FROM (VALUES (1, 'a'), (2, 'b')) AS t(id, name);
 ```
 
 Subqueries can be correlated with the outer query. Correlated subqueries are executed per outer row, so keep their filters selective.
+
+### Quantified comparisons
+
+```sql
+SELECT * FROM mongo.orders
+WHERE total > ANY (SELECT total FROM mongo.orders WHERE region = 'EU');
+
+SELECT * FROM mongo.customers
+WHERE id <> ALL (SELECT customer_id FROM mongo.orders);
+```
+
+`ANY`/`SOME` and `ALL` work with subqueries and parenthesized value lists, with SQL three-valued NULL semantics.
 
 ### Window functions
 
@@ -85,7 +114,7 @@ Supported:
 - aggregates: `count`, `sum`, `avg`, `min`, `max`, `stddev*`, `variance*`, `group_concat`, `string_agg`, `array_agg`, `bool_and`, `bool_or`
 - `PARTITION BY`, `ORDER BY`, and `ROWS`/`RANGE` frames
 
-`RANGE` peer-group semantics are approximated with row positions. Window functions cannot be combined with `GROUP BY` or aggregate projections; aggregate in a CTE first, then apply the window in an outer query.
+`RANGE` frames use peer groups for `UNBOUNDED`/`CURRENT ROW` bounds and value offsets for a single numeric `ORDER BY` key. Window functions can be combined with `GROUP BY`; aggregate projections are evaluated first and windows run over the grouped rows. `HAVING` is applied before window evaluation.
 
 ### Aggregate FILTER
 
@@ -104,7 +133,7 @@ GROUP BY region;
 
 - arithmetic: `+ - * / %`, `||` (concatenation), `& | ~`
 - comparisons: `= != <> < <= > >=`, `LIKE`, `ILIKE`, `REGEXP`
-- `IN (...)`, `BETWEEN`, `IS [NOT] NULL/TRUE/FALSE`, `IS [NOT] DISTINCT FROM`
+- `IN (...)`, `ANY`/`SOME`/`ALL`, `BETWEEN`, `IS [NOT] NULL/TRUE/FALSE`, `IS [NOT] DISTINCT FROM`
 - `CASE`, `CAST`, `::`, `EXISTS`, scalar subqueries
 - `CURRENT_DATE`, `CURRENT_TIMESTAMP`, `NOW()`
 
@@ -156,9 +185,8 @@ Use filters early. LIMIT pushdown is performed where the connector supports it.
 ## Known limitations
 
 - No DML/DDL or transactions.
-- No `WITH RECURSIVE`.
 - No parameter placeholders yet (`?`, `$1`); interpolate values as literals carefully.
 - No `GROUPING SETS`, `ROLLUP`, `CUBE`, `PIVOT`, or named window definitions.
-- `RANGE` frames use row positions rather than peer groups.
 - Window functions are not available inside `|>` pipeline stages.
+- Recursive CTEs require a single `UNION`/`UNION ALL` term and have the documented iteration/row guards.
 - Set-operation type coercion is minimal; values are compared with AnyQuery's cross-source numeric normalization.

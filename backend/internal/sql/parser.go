@@ -495,8 +495,12 @@ func (p *Parser) parseCTEs() ([]*CTE, error) {
 	if err := p.expectKeyword("WITH"); err != nil {
 		return nil, err
 	}
+	recursive := false
 	if p.cur.IsKeyword("RECURSIVE") {
-		return nil, p.errf("recursive CTEs are not supported yet")
+		recursive = true
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
 	}
 	var out []*CTE
 	for {
@@ -504,7 +508,7 @@ func (p *Parser) parseCTEs() ([]*CTE, error) {
 		if err != nil {
 			return nil, err
 		}
-		c := &CTE{Name: name}
+		c := &CTE{Name: name, Recursive: recursive}
 		if p.cur.IsPunct("(") {
 			if err := p.advance(); err != nil {
 				return nil, err
@@ -762,8 +766,11 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 		if err := p.advance(); err != nil {
 			return nil, err
 		}
+		if p.cur.IsKeyword("VALUES") {
+			return p.parseValuesTable()
+		}
 		if !p.cur.IsKeyword("SELECT") && !p.cur.IsKeyword("WITH") && !p.cur.IsKeyword("FROM") {
-			return nil, p.errf("expected subquery after '(' in FROM")
+			return nil, p.errf("expected subquery or VALUES after '(' in FROM")
 		}
 		sub, err := p.parseSelect()
 		if err != nil {
@@ -812,6 +819,63 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 		}
 	}
 	return ref, nil
+}
+
+func (p *Parser) parseValuesTable() (TableExpr, error) {
+	if err := p.advance(); err != nil { // VALUES
+		return nil, err
+	}
+	vt := &ValuesTable{}
+	for {
+		if err := p.expectPunct("("); err != nil {
+			return nil, err
+		}
+		var row []Expr
+		for {
+			e, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			row = append(row, e)
+			if !p.cur.IsPunct(",") {
+				break
+			}
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		}
+		if err := p.expectPunct(")"); err != nil {
+			return nil, err
+		}
+		vt.Rows = append(vt.Rows, row)
+		if !p.cur.IsPunct(",") {
+			break
+		}
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+	}
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	if err := p.expectKeyword("AS"); err != nil {
+		if p.cur.Kind != TokIdent || isClauseKeyword(p.cur.Value) {
+			return nil, p.errf("VALUES table must have an alias")
+		}
+	}
+	alias, err := p.parseIdent()
+	if err != nil {
+		return nil, err
+	}
+	vt.Alias = alias
+	if p.cur.IsPunct("(") {
+		cols, err := p.parseIdentList()
+		if err != nil {
+			return nil, err
+		}
+		vt.Columns = cols
+	}
+	return vt, nil
 }
 
 func (p *Parser) parseQualifiedName() ([]string, error) {
@@ -1104,6 +1168,41 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 		}
 		if err := p.advance(); err != nil {
 			return nil, err
+		}
+		if p.cur.IsKeyword("ANY") || p.cur.IsKeyword("SOME") || p.cur.IsKeyword("ALL") {
+			all := p.cur.IsKeyword("ALL")
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if err := p.expectPunct("("); err != nil {
+				return nil, err
+			}
+			q := &QuantifiedExpr{Op: op, Left: left, All: all}
+			if p.cur.IsKeyword("SELECT") || p.cur.IsKeyword("WITH") {
+				sub, err := p.parseSelect()
+				if err != nil {
+					return nil, err
+				}
+				q.Subquery = sub
+			} else {
+				for {
+					e, err := p.parseExpr(0)
+					if err != nil {
+						return nil, err
+					}
+					q.List = append(q.List, e)
+					if !p.cur.IsPunct(",") {
+						break
+					}
+					if err := p.advance(); err != nil {
+						return nil, err
+					}
+				}
+			}
+			if err := p.expectPunct(")"); err != nil {
+				return nil, err
+			}
+			return q, nil
 		}
 		right, err := p.parseExpr(precCompare + 1)
 		if err != nil {
@@ -1937,7 +2036,7 @@ func isClauseKeyword(s string) bool {
 	case "FROM", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT",
 		"JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "ON", "USING",
 		"AND", "OR", "NOT", "IS", "IN", "LIKE", "ILIKE", "BETWEEN", "WHEN", "THEN", "ELSE", "END",
-		"ASC", "DESC", "NULLS", "FIRST", "LAST", "AS", "BY", "SELECT", "DISTINCT", "ALL", "AGGREGATE", "FILTER", "OVER", "PARTITION", "ROWS", "RANGE", "UNBOUNDED", "PRECEDING", "FOLLOWING", "CURRENT", "ROW", "FETCH", "ONLY", "PIPE":
+		"ASC", "DESC", "NULLS", "FIRST", "LAST", "AS", "BY", "SELECT", "DISTINCT", "ALL", "AGGREGATE", "FILTER", "OVER", "PARTITION", "ROWS", "RANGE", "UNBOUNDED", "PRECEDING", "FOLLOWING", "CURRENT", "ROW", "FETCH", "ONLY", "RECURSIVE", "ANY", "SOME", "PIPE":
 		return true
 	}
 	return false

@@ -27,7 +27,13 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 	// CTEs are materialized once and scoped to this query.
 	var restore []func()
 	for _, cte := range s.CTEs {
-		ds, err := ec.executeSelect(cte.Query)
+		var ds *dataset
+		var err error
+		if cte.Recursive {
+			ds, err = ec.executeRecursiveCTE(cte)
+		} else {
+			ds, err = ec.executeSelect(cte.Query)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -111,12 +117,9 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 	if winErr != nil {
 		return nil, winErr
 	}
-	if len(windowCalls) > 0 && hasAgg {
-		return nil, &Error{Code: "invalid_window", Message: "window functions cannot be combined with GROUP BY or aggregate projections", Hint: "compute the aggregate in a CTE, then apply the window in an outer SELECT"}
-	}
 	var windowValues []map[string]any
-	if len(windowCalls) > 0 {
-		windowValues, winErr = ec.computeWindows(rel, windowCalls)
+	if len(windowCalls) > 0 && !hasAgg {
+		windowValues, winErr = ec.computeWindows(scanWindowSource(rel), windowCalls)
 		if winErr != nil {
 			return nil, winErr
 		}
@@ -143,6 +146,7 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 	}
 
 	var rows []evalRow
+	havingApplied := false
 	if hasAgg {
 		groupBy, err := resolveGroupBy(s)
 		if err != nil {
@@ -183,9 +187,14 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 			if len(groupRows) > 0 {
 				first = groupRows[0]
 			}
+			// Evaluate non-window projections once so window ORDER BY can
+			// reference aggregate aliases (e.g. ORDER BY revenue).
 			out := make(map[string]any, len(plan.items))
 			ctx := &evalCtx{rel: rel, row: first, group: groupRows, outer: ec.outerEval, exec: ec}
 			for _, item := range plan.items {
+				if item.star || sql.ContainsWindow(item.expr) {
+					continue
+				}
 				v, err := evalExpr(ctx, item.expr)
 				if err != nil {
 					return nil, err
@@ -193,6 +202,48 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 				out[item.key] = v
 			}
 			rows = append(rows, evalRow{out: out, first: first, group: groupRows})
+		}
+		if s.Having != nil {
+			filtered := rows[:0]
+			for _, r := range rows {
+				ctx := &evalCtx{rel: rel, row: r.first, aliases: r.out, group: r.group, outer: ec.outerEval, exec: ec}
+				v, err := evalExpr(ctx, s.Having)
+				if err != nil {
+					return nil, err
+				}
+				if truthy(v) {
+					filtered = append(filtered, r)
+				}
+			}
+			rows = filtered
+			havingApplied = true
+			ec.stage("having")
+		}
+		if len(windowCalls) > 0 {
+			src := &windowSource{rel: rel, rows: make([]windowRow, len(rows))}
+			for i, r := range rows {
+				src.rows[i] = windowRow{first: r.first, group: r.group, aliases: r.out}
+			}
+			windowValues, winErr = ec.computeWindows(src, windowCalls)
+			if winErr != nil {
+				return nil, winErr
+			}
+			for i := range rows {
+				r := &rows[i]
+				ctx := &evalCtx{rel: rel, row: r.first, group: r.group, aliases: r.out, outer: ec.outerEval, exec: ec, windows: windowValues[i]}
+				for _, item := range plan.items {
+					if item.star {
+						continue
+					}
+					v, err := evalExpr(ctx, item.expr)
+					if err != nil {
+						return nil, err
+					}
+					r.out[item.key] = v
+				}
+				r.windows = windowValues[i]
+			}
+			ec.stage("window")
 		}
 	} else {
 		for ri, row := range rel.rows {
@@ -220,7 +271,7 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 	}
 
 	// HAVING (aggregates and/or projected aliases).
-	if s.Having != nil {
+	if s.Having != nil && !havingApplied {
 		filtered := rows[:0]
 		for _, r := range rows {
 			ctx := &evalCtx{rel: rel, row: r.first, aliases: r.out, group: r.group, outer: ec.outerEval, exec: ec}
@@ -565,7 +616,13 @@ func fieldsForStar(rel *relation, qualifier string) ([]field, error) {
 		return nil, &Error{Code: "invalid_projection", Message: "SELECT * requires a FROM clause"}
 	}
 	if qualifier == "" {
-		return rel.fields, nil
+		out := make([]field, 0, len(rel.fields))
+		for _, f := range rel.fields {
+			if !f.StarHidden {
+				out = append(out, f)
+			}
+		}
+		return out, nil
 	}
 	q := strings.ToLower(qualifier)
 	var out []field

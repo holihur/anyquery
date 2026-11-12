@@ -386,3 +386,120 @@ func TestGroupByAliasAndOrdinal(t *testing.T) {
 		t.Fatalf("ordinal group = %+v", res.Rows)
 	}
 }
+
+func TestRecursiveCTE(t *testing.T) {
+	res := run(t, `WITH RECURSIVE nums(n) AS (
+  SELECT 1
+  UNION ALL
+  SELECT n + 1 FROM nums WHERE n < 5
+)
+SELECT n FROM nums ORDER BY n`)
+	if res.RowCount != 5 || res.Rows[0]["n"] != int64(1) || res.Rows[4]["n"] != int64(5) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestRecursiveCTEUnionDistinct(t *testing.T) {
+	res := run(t, `WITH RECURSIVE t(n) AS (
+  SELECT 1
+  UNION
+  SELECT CASE WHEN n < 3 THEN n + 1 ELSE 1 END FROM t
+)
+SELECT count(*) AS n FROM t`)
+	if res.Rows[0]["n"] != int64(3) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestWindowOverAggregates(t *testing.T) {
+	res := run(t, `SELECT region, sum(total) AS revenue,
+  rank() OVER (ORDER BY revenue DESC) AS rnk,
+  sum(sum(total)) OVER () AS total_revenue
+FROM mongo.orders GROUP BY region ORDER BY rnk`)
+	if res.RowCount != 2 {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	if res.Rows[0]["region"] != "US" || res.Rows[0]["revenue"] != 225.0 || res.Rows[0]["rnk"] != int64(1) || res.Rows[0]["total_revenue"] != 375.0 {
+		t.Fatalf("first = %+v", res.Rows[0])
+	}
+	if res.Rows[1]["region"] != "EU" || res.Rows[1]["rnk"] != int64(2) {
+		t.Fatalf("second = %+v", res.Rows[1])
+	}
+}
+
+func TestRangePeerFrame(t *testing.T) {
+	res := run(t, `SELECT region, sum(total) OVER (PARTITION BY region ORDER BY region) AS s FROM mongo.orders ORDER BY region, total`)
+	if res.RowCount != 4 {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	if res.Rows[0]["region"] != "EU" || res.Rows[0]["s"] != 150.0 || res.Rows[1]["s"] != 150.0 {
+		t.Fatalf("EU rows = %+v", res.Rows)
+	}
+	if res.Rows[2]["region"] != "US" || res.Rows[2]["s"] != 225.0 {
+		t.Fatalf("US rows = %+v", res.Rows)
+	}
+}
+
+func TestUsingStarCoalescing(t *testing.T) {
+	res := run(t, `SELECT * FROM mongo.orders o JOIN mongo.customers c USING (id)`)
+	if len(res.Columns) != 8 {
+		t.Fatalf("columns = %+v", res.Columns)
+	}
+	seen := map[string]bool{}
+	for _, c := range res.Columns {
+		if seen[c.Name] {
+			t.Fatalf("duplicate column %q in %+v", c.Name, res.Columns)
+		}
+		seen[c.Name] = true
+	}
+	res = run(t, `SELECT id FROM mongo.customers c RIGHT JOIN mongo.orders o USING (id) ORDER BY id`)
+	if res.RowCount != 4 || res.Rows[0]["id"] != int64(1) || res.Rows[3]["id"] != int64(4) {
+		t.Fatalf("coalesced id rows = %+v", res.Rows)
+	}
+}
+
+func TestHavingBeforeWindow(t *testing.T) {
+	res := run(t, `SELECT region, sum(total) AS revenue,
+  rank() OVER (ORDER BY sum(total) DESC) AS rnk
+FROM mongo.orders GROUP BY region HAVING sum(total) < 200`)
+	if res.RowCount != 1 || res.Rows[0]["region"] != "EU" || res.Rows[0]["rnk"] != int64(1) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestQuantifiedSubqueries(t *testing.T) {
+	res := run(t, `SELECT name FROM mongo.customers c
+WHERE c.id = ANY (SELECT customer_id FROM mongo.orders WHERE total > 100)
+ORDER BY name`)
+	if res.RowCount != 1 || res.Rows[0]["name"] != "Acme" {
+		t.Fatalf("ANY rows = %+v", res.Rows)
+	}
+	res = run(t, `SELECT name FROM mongo.customers c
+WHERE c.id > ALL (SELECT customer_id FROM mongo.orders WHERE total < 30)
+ORDER BY name`)
+	if res.RowCount != 1 || res.Rows[0]["name"] != "Globex" {
+		t.Fatalf("ALL rows = %+v", res.Rows)
+	}
+	res = run(t, `SELECT 2 = ANY (1, 2, 3) AS a, 2 = ALL (2, 2) AS b`)
+	if res.Rows[0]["a"] != true || res.Rows[0]["b"] != true {
+		t.Fatalf("list = %+v", res.Rows[0])
+	}
+}
+
+func TestRangeValueFrame(t *testing.T) {
+	res := run(t, `SELECT total, sum(total) OVER (ORDER BY total RANGE BETWEEN 60 PRECEDING AND CURRENT ROW) AS s
+FROM mongo.orders ORDER BY total`)
+	want := []float64{25, 75, 150, 200}
+	for i, w := range want {
+		if res.Rows[i]["s"] != w {
+			t.Fatalf("row %d = %+v, want %v", i, res.Rows[i], w)
+		}
+	}
+}
+
+func TestValuesTable(t *testing.T) {
+	res := run(t, `SELECT id, name FROM (VALUES (2, 'b'), (1, 'a')) AS t(id, name) ORDER BY id`)
+	if res.RowCount != 2 || res.Rows[0]["id"] != int64(1) || res.Rows[0]["name"] != "a" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}

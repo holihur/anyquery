@@ -9,6 +9,30 @@ import (
 	"github.com/anyquery/anyquery/internal/sql"
 )
 
+type windowRow struct {
+	first   map[string]any
+	group   []map[string]any
+	aliases map[string]any
+}
+
+type windowSource struct {
+	rel  *relation
+	rows []windowRow
+}
+
+func scanWindowSource(rel *relation) *windowSource {
+	src := &windowSource{rel: rel, rows: make([]windowRow, len(rel.rows))}
+	for i, row := range rel.rows {
+		src.rows[i] = windowRow{first: row}
+	}
+	return src
+}
+
+func (ec *execCtx) windowCtx(src *windowSource, idx int) *evalCtx {
+	r := src.rows[idx]
+	return &evalCtx{rel: src.rel, row: r.first, group: r.group, aliases: r.aliases, outer: ec.outerEval, exec: ec}
+}
+
 func collectWindowCalls(items []sql.SelectItem, order []sql.OrderItem) ([]*sql.FuncCall, error) {
 	seen := map[string]bool{}
 	var out []*sql.FuncCall
@@ -57,8 +81,8 @@ func isWindowFunction(name string) bool {
 	return sql.IsAggregate(name)
 }
 
-func (ec *execCtx) computeWindows(rel *relation, calls []*sql.FuncCall) ([]map[string]any, error) {
-	out := make([]map[string]any, len(rel.rows))
+func (ec *execCtx) computeWindows(src *windowSource, calls []*sql.FuncCall) ([]map[string]any, error) {
+	out := make([]map[string]any, len(src.rows))
 	for i := range out {
 		out[i] = map[string]any{}
 	}
@@ -66,8 +90,8 @@ func (ec *execCtx) computeWindows(rel *relation, calls []*sql.FuncCall) ([]map[s
 		w := f.Window
 		partitions := map[string][]int{}
 		var partOrder []string
-		for i, row := range rel.rows {
-			ctx := &evalCtx{rel: rel, row: row, outer: ec.outerEval, exec: ec}
+		for i := range src.rows {
+			ctx := ec.windowCtx(src, i)
 			vals := make([]any, len(w.PartitionBy))
 			for j, e := range w.PartitionBy {
 				v, err := evalExpr(ctx, e)
@@ -87,7 +111,7 @@ func (ec *execCtx) computeWindows(rel *relation, calls []*sql.FuncCall) ([]map[s
 			orderKeys := make([][]any, len(idxs))
 			if len(w.OrderBy) > 0 {
 				for n, ri := range idxs {
-					ctx := &evalCtx{rel: rel, row: rel.rows[ri], outer: ec.outerEval, exec: ec}
+					ctx := ec.windowCtx(src, ri)
 					keys := make([]any, len(w.OrderBy))
 					for j, o := range w.OrderBy {
 						v, err := evalExpr(ctx, o.Expr)
@@ -113,7 +137,7 @@ func (ec *execCtx) computeWindows(rel *relation, calls []*sql.FuncCall) ([]map[s
 				}
 				idxs, orderKeys = sortedIdx, sortedKeys
 			}
-			if err := ec.evalWindowPartition(rel, f, idxs, orderKeys, out); err != nil {
+			if err := ec.evalWindowPartition(src, f, idxs, orderKeys, out); err != nil {
 				return nil, err
 			}
 		}
@@ -121,7 +145,7 @@ func (ec *execCtx) computeWindows(rel *relation, calls []*sql.FuncCall) ([]map[s
 	return out, nil
 }
 
-func (ec *execCtx) evalWindowPartition(rel *relation, f *sql.FuncCall, idxs []int, orderKeys [][]any, out []map[string]any) error {
+func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs []int, orderKeys [][]any, out []map[string]any) error {
 	name := strings.ToLower(f.Name)
 	n := len(idxs)
 	if n == 0 {
@@ -157,7 +181,7 @@ func (ec *execCtx) evalWindowPartition(rel *relation, f *sql.FuncCall, idxs []in
 		case "ntile":
 			buckets := 1
 			if len(f.Args) > 0 {
-				v, err := ec.windowEval(rel, ri, f.Args[0])
+				v, err := ec.windowEval(src, ri, f.Args[0])
 				if err != nil {
 					return err
 				}
@@ -176,7 +200,7 @@ func (ec *execCtx) evalWindowPartition(rel *relation, f *sql.FuncCall, idxs []in
 			}
 			offset := 1
 			if len(f.Args) > 1 {
-				v, err := ec.windowEval(rel, ri, f.Args[1])
+				v, err := ec.windowEval(src, ri, f.Args[1])
 				if err != nil {
 					return err
 				}
@@ -189,22 +213,22 @@ func (ec *execCtx) evalWindowPartition(rel *relation, f *sql.FuncCall, idxs []in
 				target = pos + offset
 			}
 			if target >= 0 && target < n {
-				value, err = ec.windowEval(rel, idxs[target], f.Args[0])
+				value, err = ec.windowEval(src, idxs[target], f.Args[0])
 			} else if len(f.Args) > 2 {
-				value, err = ec.windowEval(rel, ri, f.Args[2])
+				value, err = ec.windowEval(src, ri, f.Args[2])
 			}
 		case "first_value", "last_value", "nth_value":
 			if len(f.Args) == 0 {
 				return errf("invalid_window", "%s requires an expression", strings.ToUpper(name))
 			}
-			start, end := windowFrame(f.Window, pos, n)
+			start, end := windowFrame(f.Window, pos, n, orderKeys)
 			target := start
 			if name == "last_value" {
 				target = end
 			} else if name == "nth_value" {
 				k := 1
 				if len(f.Args) > 1 {
-					v, err := ec.windowEval(rel, ri, f.Args[1])
+					v, err := ec.windowEval(src, ri, f.Args[1])
 					if err != nil {
 						return err
 					}
@@ -215,14 +239,14 @@ func (ec *execCtx) evalWindowPartition(rel *relation, f *sql.FuncCall, idxs []in
 				target = start + k - 1
 			}
 			if target >= start && target <= end && target >= 0 && target < n {
-				value, err = ec.windowEval(rel, idxs[target], f.Args[0])
+				value, err = ec.windowEval(src, idxs[target], f.Args[0])
 			}
 		default:
 			if !sql.IsAggregate(name) {
 				return errf("invalid_window", "unsupported window function %s", strings.ToUpper(name))
 			}
-			start, end := windowFrame(f.Window, pos, n)
-			value, err = ec.evalWindowAggregate(rel, f, idxs, start, end)
+			start, end := windowFrame(f.Window, pos, n, orderKeys)
+			value, err = ec.evalWindowAggregate(src, f, idxs, start, end)
 		}
 		if err != nil {
 			return err
@@ -232,7 +256,7 @@ func (ec *execCtx) evalWindowPartition(rel *relation, f *sql.FuncCall, idxs []in
 	return nil
 }
 
-func (ec *execCtx) evalWindowAggregate(rel *relation, f *sql.FuncCall, idxs []int, start, end int) (any, error) {
+func (ec *execCtx) evalWindowAggregate(src *windowSource, f *sql.FuncCall, idxs []int, start, end int) (any, error) {
 	name := strings.ToLower(f.Name)
 	star := len(f.Args) == 1
 	if star {
@@ -251,7 +275,7 @@ func (ec *execCtx) evalWindowAggregate(rel *relation, f *sql.FuncCall, idxs []in
 			continue
 		}
 		ri := idxs[pos]
-		ctx := &evalCtx{rel: rel, row: rel.rows[ri], outer: ec.outerEval, exec: ec}
+		ctx := ec.windowCtx(src, ri)
 		if f.Filter != nil {
 			fv, err := evalExpr(ctx, f.Filter)
 			if err != nil {
@@ -389,9 +413,8 @@ func (ec *execCtx) evalWindowAggregate(rel *relation, f *sql.FuncCall, idxs []in
 	}
 }
 
-func (ec *execCtx) windowEval(rel *relation, rowIdx int, e sql.Expr) (any, error) {
-	ctx := &evalCtx{rel: rel, row: rel.rows[rowIdx], outer: ec.outerEval, exec: ec}
-	return evalExpr(ctx, e)
+func (ec *execCtx) windowEval(src *windowSource, rowIdx int, e sql.Expr) (any, error) {
+	return evalExpr(ec.windowCtx(src, rowIdx), e)
 }
 
 func sameOrderKeys(a, b []any) bool {
@@ -406,15 +429,36 @@ func sameOrderKeys(a, b []any) bool {
 	return true
 }
 
-// windowFrame returns an inclusive [start,end] range. RANGE frames are treated
-// like ROWS frames; the common running-total form is therefore correct while
-// peer groups are approximated.
-func windowFrame(w *sql.WindowSpec, pos, n int) (int, int) {
+// windowFrame returns an inclusive [start,end] range. ROWS frames use row
+// positions. RANGE frames use peer groups for UNBOUNDED/CURRENT bounds and
+// value offsets for a single numeric ORDER BY key; other RANGE offsets fall
+// back to row positions.
+func windowFrame(w *sql.WindowSpec, pos, n int, orderKeys [][]any) (int, int) {
+	if n == 0 {
+		return 0, -1
+	}
+	if pos < 0 {
+		pos = 0
+	}
+	if pos >= n {
+		pos = n - 1
+	}
 	if w == nil || w.FrameKind == "" {
 		if w != nil && len(w.OrderBy) > 0 {
-			return 0, pos
+			return 0, peerEnd(pos, orderKeys)
 		}
 		return 0, n - 1
+	}
+	if w.FrameKind == "RANGE" {
+		start := rangeFrameBound(w.FrameStart, w.FrameStartOffset, pos, n, orderKeys, w.OrderBy, true)
+		end := rangeFrameBound(w.FrameEnd, w.FrameEndOffset, pos, n, orderKeys, w.OrderBy, false)
+		if start < 0 {
+			start = 0
+		}
+		if end >= n {
+			end = n - 1
+		}
+		return start, end
 	}
 	start := frameBound(w.FrameStart, w.FrameStartOffset, pos, n, true)
 	end := frameBound(w.FrameEnd, w.FrameEndOffset, pos, n, false)
@@ -425,6 +469,94 @@ func windowFrame(w *sql.WindowSpec, pos, n int) (int, int) {
 		end = n - 1
 	}
 	return start, end
+}
+
+func peerStart(pos int, orderKeys [][]any) int {
+	if len(orderKeys) == 0 {
+		return pos
+	}
+	start := pos
+	for start > 0 && sameOrderKeys(orderKeys[start], orderKeys[start-1]) {
+		start--
+	}
+	return start
+}
+
+func peerEnd(pos int, orderKeys [][]any) int {
+	if len(orderKeys) == 0 {
+		return pos
+	}
+	end := pos
+	for end+1 < len(orderKeys) && sameOrderKeys(orderKeys[end], orderKeys[end+1]) {
+		end++
+	}
+	return end
+}
+
+func rangeFrameBound(kind string, offset, pos, n int, orderKeys [][]any, order []sql.OrderItem, start bool) int {
+	switch kind {
+	case "unbounded_preceding":
+		return 0
+	case "unbounded_following":
+		return n - 1
+	case "current_row":
+		if start {
+			return peerStart(pos, orderKeys)
+		}
+		return peerEnd(pos, orderKeys)
+	case "preceding", "following":
+		if len(orderKeys) > pos && len(orderKeys[pos]) == 1 && len(order) == 1 {
+			cur, ok := toFloat(orderKeys[pos][0])
+			if ok {
+				target := cur
+				desc := order[0].Desc
+				if kind == "preceding" {
+					if desc {
+						target = cur + float64(offset)
+					} else {
+						target = cur - float64(offset)
+					}
+				} else {
+					if desc {
+						target = cur - float64(offset)
+					} else {
+						target = cur + float64(offset)
+					}
+				}
+				if start {
+					for i := 0; i < n; i++ {
+						v, ok := toFloat(orderKeys[i][0])
+						if !ok {
+							break
+						}
+						if (!desc && v >= target) || (desc && v <= target) {
+							return i
+						}
+					}
+					return n - 1
+				}
+				for i := n - 1; i >= 0; i-- {
+					v, ok := toFloat(orderKeys[i][0])
+					if !ok {
+						break
+					}
+					if (!desc && v <= target) || (desc && v >= target) {
+						return i
+					}
+				}
+				return 0
+			}
+		}
+		// Fallback for non-numeric or multi-key RANGE offsets.
+		if kind == "preceding" {
+			return pos - offset
+		}
+		return pos + offset
+	}
+	if start {
+		return 0
+	}
+	return n - 1
 }
 
 func frameBound(kind string, offset, pos, n int, start bool) int {

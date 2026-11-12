@@ -326,10 +326,10 @@ PAT 在 **Settings → API keys** 创建，raw token 只显示一次。
 
 - `SELECT [ALL|DISTINCT]`、表达式、别名、`FROM`、`WHERE`、`GROUP BY`、`HAVING`、`ORDER BY`、`LIMIT/OFFSET`、`FETCH FIRST`
 - `INNER / LEFT / RIGHT / FULL / CROSS / NATURAL JOIN`、`ON` / `USING`
-- 多表逗号连接、`WITH` CTE、FROM 子查询
+- 多表逗号连接、普通/递归 `WITH` CTE、FROM 子查询与 `VALUES` 内联表
 - `UNION [ALL]`、`INTERSECT [ALL]`、`EXCEPT [ALL]`（INTERSECT 优先级更高）
-- 标量、`IN`、`EXISTS` 子查询，支持相关子查询
-- 窗口函数：`row_number / rank / dense_rank / lag / lead / sum / avg / count … OVER (PARTITION BY … ORDER BY …)`
+- 标量、`IN`、`EXISTS`、`ANY`/`SOME`/`ALL` 子查询，支持相关子查询
+- 窗口函数：`row_number / rank / dense_rank / lag / lead / sum / avg / count … OVER (PARTITION BY … ORDER BY …)`，支持分组聚合后再开窗
 - 聚合：`count / sum / avg / min / max / count(distinct) / group_concat / array_agg / bool_and / bool_or / stddev / variance`，支持 `FILTER (WHERE …)`
 - 常用标量函数：字符串、数学、日期（`extract / date_part / date_add / date_diff`）、JSON、哈希等
 - 运算符：算术、比较、`LIKE / ILIKE / REGEXP`、`IN`、`BETWEEN`、`IS [NOT] DISTINCT FROM`、`CASE`、`CAST`、`::`
@@ -435,7 +435,7 @@ cd backend && go test ./...
 - 谓词/投影下推、源端聚合、并发扫描、流式结果。
 - 每租户独立 OIDC / SCIM、审计导出、查询排队与并发配额。
 - 邮件发送（邀请/告警）目前只生成链接；密码找回由管理员重置，后续接 SMTP 自助重置。
-- 递归 CTE、参数化查询、物化视图和更多窗口 frame 语义。
+- 参数化查询、物化视图、`GROUPING SETS`/`ROLLUP`/`CUBE` 和更多窗口 frame 语义。
 - 更多连接器：BigQuery、Athena、DuckDB、Google Sheets、Kafka 等。
 
 ---
