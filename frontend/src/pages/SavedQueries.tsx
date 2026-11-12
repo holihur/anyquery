@@ -100,7 +100,7 @@ export function SavedQueriesPage() {
               const author = memberById.get(q.createdBy)
               const canDelete = role === "owner" || role === "admin" || q.createdBy === me?.user.id
               return (
-                <div key={q.id} className="group flex flex-col overflow-hidden rounded-xl border bg-card transition-all hover:shadow-md">
+                <div key={q.id} className="group flex flex-col overflow-hidden surface transition-all hover:shadow-md">
                   <div className="flex items-start gap-2.5 p-4 pb-2">
                     <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/8 text-primary">
                       <Bookmark className="size-4" />
@@ -124,7 +124,7 @@ export function SavedQueriesPage() {
                     ) : <span>Teammate</span>}
                     <span className="ml-auto inline-flex items-center gap-1"><Clock3 className="size-2.5" /> {q.lastRunAt ? relativeTime(q.lastRunAt) : "never run"}</span>
                   </div>
-                  <div className="mt-3 flex items-center justify-between border-t px-4 py-2.5">
+                  <div className="mt-3 flex items-center justify-between px-4 py-2.5">
                     <Button variant="ghost" size="xs" asChild><Link to={`/w/${tenant.slug}/query?saved=${q.id}`}><Play className="size-3" /> Open</Link></Button>
                     <div className="flex items-center gap-1">
                       <Badge variant="outline" className="hidden text-[9px] font-mono sm:inline-flex">{formatDateTime(q.updatedAt)}</Badge>
@@ -141,7 +141,7 @@ export function SavedQueriesPage() {
           </div>
         )}
 
-        <div className="mt-6 rounded-xl border border-dashed bg-muted/20 px-4 py-3 text-[11.5px] leading-relaxed text-muted-foreground">
+        <div className="mt-6 rounded-xl bg-muted/25 px-4 py-3 text-[11.5px] leading-relaxed text-muted-foreground">
           Tip: reference cross-source tables with <InlineCode>`source`.`table`</InlineCode>. Combine classic SQL with pipeline stages such as <InlineCode>{`|> AGGREGATE …`}</InlineCode>.
         </div>
       </PageBody>

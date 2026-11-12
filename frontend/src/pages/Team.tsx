@@ -99,9 +99,9 @@ export function TeamPage() {
           }
         />
 
-        <div className="mt-5 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-          <div className="overflow-hidden rounded-xl border bg-card">
-            <div className="flex items-center justify-between border-b px-5 py-4">
+        <div className="mt-5 grid items-start gap-4 lg:grid-cols-[1.6fr_1fr]">
+          <div className="overflow-hidden surface">
+            <div className="flex items-center justify-between px-5 pt-5 pb-2">
               <div>
                 <h2 className="text-sm font-semibold">Members</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">{members.length} people with access</p>
@@ -111,7 +111,7 @@ export function TeamPage() {
             {isLoading ? (
               <div className="space-y-2 p-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14" />)}</div>
             ) : (
-              <div className="divide-y">
+              <div className="space-y-0.5 p-1.5">
                 {members.map((member) => {
                   const isSelf = member.user.id === me?.user.id
                   const canChange = canAdmin && (member.role !== "owner" || role === "owner")
@@ -160,8 +160,8 @@ export function TeamPage() {
           </div>
 
           <div className="space-y-4">
-            <div className="overflow-hidden rounded-xl border bg-card">
-              <div className="border-b px-5 py-4">
+            <div className="overflow-hidden surface">
+              <div className="px-5 pt-5 pb-2">
                 <h2 className="text-sm font-semibold">Pending invitations</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">Invitations expire after 7 days</p>
               </div>
@@ -173,7 +173,7 @@ export function TeamPage() {
                   <p className="mt-2 text-[12px] text-muted-foreground">No pending invitations</p>
                 </div>
               ) : (
-                <div className="divide-y">
+                <div className="space-y-0.5 p-1.5">
                   {invites.map((invite) => (
                     <div key={invite.id} className="flex items-center gap-2.5 px-4 py-3">
                       <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><MailPlus className="size-3.5" /></div>
@@ -188,7 +188,7 @@ export function TeamPage() {
               )}
             </div>
 
-            <div className="rounded-xl border bg-card p-5">
+            <div className="surface p-5">
               <div className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="size-4 text-primary" /> Roles</div>
               <div className="mt-3 space-y-3 text-[11.5px] leading-relaxed">
                 <RoleRow role="Owner" body="Full control, including ownership transfer and workspace deletion." />
@@ -198,7 +198,7 @@ export function TeamPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-dashed bg-muted/20 p-4 text-[11.5px] leading-relaxed text-muted-foreground">
+            <div className="rounded-xl bg-muted/25 p-4 text-[11.5px] leading-relaxed text-muted-foreground">
               Invite links are generated locally — copy the link and send it through your usual channel. Email delivery can be wired to your provider.
             </div>
           </div>

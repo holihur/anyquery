@@ -84,6 +84,19 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: anyquery
+          POSTGRES_PASSWORD: anyquery_test
+          POSTGRES_DB: anyquery_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U anyquery -d anyquery_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       MONGODB_URI: mongodb://127.0.0.1:27017
       MONGODB_DB: anyquery_ci
@@ -99,7 +112,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: wait for services
         run: |
-          for port in 27017 6379; do
+          for port in 27017 6379 5432; do
             for i in $(seq 1 30); do
               if (echo > /dev/tcp/127.0.0.1/$port) >/dev/null 2>&1; then
                 break
@@ -217,7 +230,7 @@ jobs:
           result = json.load(open("/tmp/redis-result.json"))
           assert "error" not in result, result
           rows = result["result"]["rows"]
-          assert rows == [{"name": "Acme", "role": "owner"}, {"name": "Globex", "role": "member"}], rows
+          assert rows == [{"name": "Acme Corp", "role": "owner"}, {"name": "Globex", "role": "member"}], rows
           print("redis join result:", rows)
           PY
 
@@ -248,9 +261,56 @@ jobs:
           result = json.load(open("/tmp/jsonl-result.json"))
           assert "error" not in result, result
           rows = result["result"]["rows"]
-          assert [r["name"] for r in rows] == ["Globex", "Acme"], rows
+          assert [r["name"] for r in rows] == ["Globex", "Acme Corp"], rows
           assert rows[0]["total"] == 120, rows
           print("jsonl join result:", rows)
+          PY
+
+      - name: PostgreSQL connector + Mongo↔Postgres join
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          PGPASSWORD=anyquery_test psql -h 127.0.0.1 -U anyquery -d anyquery_test -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE IF NOT EXISTS public.sales (
+            id serial PRIMARY KEY,
+            region text NOT NULL,
+            product text NOT NULL,
+            amount numeric(12,2) NOT NULL,
+            sold_at timestamptz NOT NULL DEFAULT now()
+          );
+          TRUNCATE public.sales;
+          INSERT INTO public.sales (region, product, amount, sold_at) VALUES
+           ('NA','Atlas Analytics', 499.00, '2026-10-01T10:00:00Z'),
+           ('NA','Pulse BI', 199.00, '2026-10-02T11:00:00Z'),
+           ('EU','Orbit CRM', 299.00, '2026-10-03T12:00:00Z'),
+           ('EU','Forge ETL', 799.00, '2026-10-04T13:00:00Z'),
+           ('APAC','Prism Warehouse', 899.00, '2026-10-05T14:00:00Z');
+          SQL
+          cat > /tmp/pg-ds.json <<'JSON'
+          {"name":"pg","type":"postgres","config":{"host":"127.0.0.1","port":"5432","database":"anyquery_test","username":"anyquery","password":"anyquery_test","sslmode":"disable"}}
+          JSON
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/datasources             -H 'Content-Type: application/json' --data-binary @/tmp/pg-ds.json > /tmp/pg-ds-result.json
+          python3 - <<'PY'
+          import json
+          ds = json.load(open("/tmp/pg-ds-result.json"))
+          assert ds.get("status") == "ready", ds
+          tables = {t["name"]: {c["name"] for c in t["columns"]} for t in ds["tables"]}
+          assert "public.sales" in tables, tables
+          assert {"id", "region", "product", "amount", "sold_at"} <= tables["public.sales"], tables
+          print("postgres schema:", tables)
+          PY
+          cat > /tmp/pg-query.json <<'JSON'
+          {"sql":"SELECT s.region, count(*) AS n, round(sum(s.amount), 2) AS total FROM pg.`public.sales` s JOIN mongo.orders o ON o.region = s.region WHERE o.status = 'paid' GROUP BY s.region ORDER BY total DESC"}
+          JSON
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/queries/execute             -H 'Content-Type: application/json' --data-binary @/tmp/pg-query.json > /tmp/pg-result.json
+          python3 - <<'PY'
+          import json
+          result = json.load(open("/tmp/pg-result.json"))
+          assert "error" not in result, result
+          rows = result["result"]["rows"]
+          assert len(rows) == 3, rows
+          assert rows[0] == {"region": "NA", "n": 30, "total": 10470}, rows[0]
+          print("postgres join result:", rows[0])
           PY
 
       - name: server log

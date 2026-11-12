@@ -72,8 +72,8 @@ export function SettingsPage() {
 
           <TabsContent value="general">
             <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
-              <div className="rounded-xl border bg-card">
-                <div className="border-b px-5 py-4">
+              <div className="surface">
+                <div className="px-5 pt-5 pb-2">
                   <h2 className="text-sm font-semibold">Workspace profile</h2>
                   <p className="mt-0.5 text-xs text-muted-foreground">Visible to all members</p>
                 </div>
@@ -104,7 +104,7 @@ export function SettingsPage() {
               </div>
 
               <div className="space-y-4">
-                <div className="rounded-xl border bg-card p-5">
+                <div className="surface p-5">
                   <div className="flex items-center gap-2 text-sm font-semibold"><Workflow className="size-4 text-primary" /> Query limits</div>
                   <div className="mt-4 space-y-3 text-[12px]">
                     <LimitRow label="Query timeout" value="30 seconds" />
@@ -114,7 +114,7 @@ export function SettingsPage() {
                   </div>
                   <p className="mt-4 text-[10.5px] leading-relaxed text-muted-foreground">Configured by the server administrator. Add filters and LIMIT clauses for large tables.</p>
                 </div>
-                <div className="rounded-xl border bg-card p-5">
+                <div className="surface p-5">
                   <div className="flex items-center gap-2 text-sm font-semibold"><UserCog className="size-4 text-primary" /> Session</div>
                   <div className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
                     Sessions are server-side and expire after <strong className="text-foreground">{config?.sessionHours ?? 168} hours</strong>. Signing out revokes this browser session.
@@ -126,8 +126,8 @@ export function SettingsPage() {
 
           {canAdmin && (
             <TabsContent value="api-keys">
-              <div className="overflow-hidden rounded-xl border bg-card">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
+              <div className="overflow-hidden surface">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 pb-2">
                   <div>
                     <h2 className="text-sm font-semibold">Workspace API keys</h2>
                     <p className="mt-0.5 text-xs text-muted-foreground">Execute queries from scripts, notebooks or agents.</p>
@@ -143,7 +143,7 @@ export function SettingsPage() {
                     <p className="mt-1 text-xs text-muted-foreground">Create a key to query this workspace programmatically.</p>
                   </div>
                 ) : (
-                  <div className="divide-y">
+                  <div className="space-y-0.5 p-1.5">
                     {(keys?.apiKeys ?? []).map((key) => (
                       <div key={key.id} className="flex items-center gap-3 px-5 py-3.5">
                         <div className="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground"><KeyRound className="size-3.5" /></div>
@@ -181,7 +181,7 @@ export function SettingsPage() {
               <SecurityCard icon={KeyRound} title="Sessions" body="Opaque session tokens are stored as SHA-256 hashes; cookies are HttpOnly, SameSite=Lax and Secure over HTTPS." badge="HttpOnly" />
               <SecurityCard icon={Workflow} title="Query isolation" body="Every query is scoped to the workspace membership. API keys are bound to a single workspace." badge="Tenant-scoped" />
             </div>
-            <div className="mt-5 rounded-xl border bg-card p-5">
+            <div className="mt-5 surface p-5">
               <h2 className="text-sm font-semibold">Cross-origin protection</h2>
               <p className="mt-1 max-w-2xl text-[12px] leading-relaxed text-muted-foreground">
                 Mutating requests from cookie-authenticated browsers validate the <InlineCode>Origin</InlineCode> header. API keys bypass CSRF checks by design and should be kept secret.
@@ -225,7 +225,7 @@ function LimitRow({ label, value }: { label: string; value: string }) {
 
 function SecurityCard({ icon: Icon, title, body, badge }: { icon: typeof Lock; title: string; body: string; badge: string }) {
   return (
-    <div className="rounded-xl border bg-card p-5">
+    <div className="surface p-5">
       <div className="flex items-start justify-between">
         <div className="grid size-8 place-items-center rounded-lg bg-primary/8 text-primary"><Icon className="size-4" /></div>
         <Badge variant="outline" className="text-[9.5px]">{badge}</Badge>

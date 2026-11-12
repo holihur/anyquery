@@ -94,7 +94,7 @@ export function AppShell() {
       <div className="px-3">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="group flex w-full items-center gap-2.5 rounded-lg border bg-background/70 px-2.5 py-2 text-left shadow-xs transition-colors hover:bg-background">
+            <button className="group flex w-full items-center gap-2.5 rounded-lg bg-background/80 px-2.5 py-2 text-left shadow-xs transition-colors hover:bg-background">
               <div className="grid size-8 shrink-0 place-items-center rounded-md bg-gradient-to-br from-primary to-cyan-500 text-[13px] font-semibold text-white">
                 {tenant.name.slice(0, 1).toUpperCase()}
               </div>
@@ -160,7 +160,7 @@ export function AppShell() {
         ))}
       </nav>
 
-      <div className="border-t p-3">
+      <div className="p-4">
         <div className="mb-2 flex items-center justify-between px-1">
           <span className="text-[11px] text-muted-foreground">Appearance</span>
           <div className="flex items-center rounded-md border bg-background p-0.5">
@@ -216,17 +216,17 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <aside className="hidden w-[252px] shrink-0 border-r bg-sidebar md:block">{nav}</aside>
+      <aside className="hidden w-[252px] shrink-0 bg-sidebar md:block">{nav}</aside>
 
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-[272px] border-r bg-sidebar shadow-2xl">{nav}</aside>
+          <aside className="absolute inset-y-0 left-0 w-[272px] bg-sidebar shadow-2xl">{nav}</aside>
         </div>
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between border-b bg-background/80 px-4 backdrop-blur md:hidden">
+        <header className="flex h-14 shrink-0 items-center justify-between bg-background/90 px-4 backdrop-blur md:hidden">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon-sm" onClick={() => setMobileOpen(true)}>
               <Menu className="size-4" />

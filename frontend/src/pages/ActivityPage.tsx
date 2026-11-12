@@ -44,8 +44,8 @@ export function ActivityPage() {
           </TabsList>
 
           <TabsContent value="history">
-            <div className="overflow-hidden rounded-xl border bg-card">
-              <div className="flex items-center justify-between border-b px-5 py-4">
+            <div className="overflow-hidden surface">
+              <div className="flex items-center justify-between px-5 pt-5 pb-2">
                 <div>
                   <h2 className="text-sm font-semibold">Query runs</h2>
                   <p className="mt-0.5 text-xs text-muted-foreground">The latest {runs?.runs?.length ?? 0} runs in this workspace</p>
@@ -57,7 +57,7 @@ export function ActivityPage() {
               ) : !(runs?.runs ?? []).length ? (
                 <EmptyState icon={History} title="No query runs yet" description="Run a query in the studio to start building history." className="border-0" />
               ) : (
-                <div className="divide-y">
+                <div className="space-y-0.5 p-1.5">
                   {(runs?.runs ?? []).map((run) => {
                     const user = memberById.get(run.userId)
                     return (
@@ -96,8 +96,8 @@ export function ActivityPage() {
 
           {isAdmin && (
             <TabsContent value="audit">
-              <div className="overflow-hidden rounded-xl border bg-card">
-                <div className="flex items-center justify-between border-b px-5 py-4">
+              <div className="overflow-hidden surface">
+                <div className="flex items-center justify-between px-5 pt-5 pb-2">
                   <div>
                     <h2 className="text-sm font-semibold">Workspace audit log</h2>
                     <p className="mt-0.5 text-xs text-muted-foreground">Membership, connection and query changes</p>
@@ -109,7 +109,7 @@ export function ActivityPage() {
                 ) : !(audit?.logs ?? []).length ? (
                   <EmptyState icon={ScrollText} title="No audit events" description="Workspace activity will appear here." className="border-0" />
                 ) : (
-                  <div className="divide-y">
+                  <div className="space-y-0.5 p-1.5">
                     {(audit?.logs ?? []).map((log) => (
                       <div key={log.id} className="flex items-start gap-3 px-5 py-3">
                         <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">

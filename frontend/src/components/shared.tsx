@@ -112,7 +112,7 @@ export function StatCard({
   className?: string
 }) {
   return (
-    <div className={cn("group relative overflow-hidden rounded-xl border bg-card p-5", className)}>
+    <div className={cn("group relative overflow-hidden surface p-5", className)}>
       <div className="flex items-start justify-between">
         <div>
           <div className="text-[12px] font-medium text-muted-foreground">{label}</div>
@@ -142,7 +142,7 @@ export function EmptyState({
   className?: string
 }) {
   return (
-    <div className={cn("flex flex-col items-center justify-center rounded-xl border border-dashed bg-card/50 px-6 py-14 text-center", className)}>
+    <div className={cn("flex flex-col items-center justify-center surface-quiet px-6 py-14 text-center", className)}>
       <div className="mb-4 grid size-11 place-items-center rounded-xl border bg-background text-muted-foreground shadow-sm">
         <Icon className="size-5" />
       </div>

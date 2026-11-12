@@ -67,8 +67,8 @@ export function OverviewPage() {
         </div>
 
         <div className="mt-8 grid gap-5 xl:grid-cols-[1.45fr_1fr]">
-          <section className="rounded-xl border bg-card">
-            <div className="flex items-center justify-between border-b px-5 py-4">
+          <section className="surface">
+            <div className="flex items-center justify-between px-5 pt-5 pb-2">
               <div>
                 <h2 className="text-sm font-semibold">Recent query activity</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">The latest runs across this workspace</p>
@@ -80,7 +80,7 @@ export function OverviewPage() {
             ) : !(overview?.recentRuns ?? []).length ? (
               <EmptyState icon={Activity} title="No queries yet" description="Run your first federated query to see it here." className="border-0 bg-transparent py-12" action={<Button asChild size="sm"><Link to={`/w/${tenant.slug}/query`}>Open query studio</Link></Button>} />
             ) : (
-              <div className="divide-y">
+              <div className="space-y-0.5 p-1.5">
                 {(overview?.recentRuns ?? []).map((run) => {
                   const user = memberById.get(run.userId)
                   return (
@@ -110,8 +110,8 @@ export function OverviewPage() {
             )}
           </section>
 
-          <section className="rounded-xl border bg-card">
-            <div className="flex items-center justify-between border-b px-5 py-4">
+          <section className="surface">
+            <div className="flex items-center justify-between px-5 pt-5 pb-2">
               <div>
                 <h2 className="text-sm font-semibold">Source health</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">{readySources.length} of {sourceList.length} connected</p>
@@ -126,7 +126,7 @@ export function OverviewPage() {
                 <Button size="sm" className="mt-3" asChild><Link to={`/w/${tenant.slug}/sources`}><Database className="size-4" /> Connect a source</Link></Button>
               </div>
             ) : (
-              <div className="divide-y">
+              <div className="space-y-0.5 p-1.5">
                 {sourceList.slice(0, 5).map((ds) => (
                   <div key={ds.id} className="flex items-center gap-3 px-5 py-3.5">
                     <SourceIcon type={ds.type} size="sm" />
@@ -178,7 +178,7 @@ export function OverviewPage() {
         </section>
 
         {readySources.length === 0 && (
-          <div className="mt-6 flex flex-col gap-3 rounded-xl border border-dashed bg-card/50 px-5 py-4 text-[13px] sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-6 flex flex-col gap-3 surface-quiet px-5 py-4 text-[13px] sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2 text-muted-foreground"><CircleAlert className="size-4 text-warning" /> Connect a data source to unlock the query studio.</div>
             <Button size="sm" variant="outline" asChild><Link to={`/w/${tenant.slug}/sources`}>Connect data <ArrowRight className="size-3.5" /></Link></Button>
           </div>
@@ -190,7 +190,7 @@ export function OverviewPage() {
             { title: "Explore", body: "Browse schemas, then insert qualified table names into the editor.", to: `/w/${tenant.slug}/query`, icon: Layers },
             { title: "Collaborate", body: "Invite teammates, save queries, and review activity together.", to: `/w/${tenant.slug}/team`, icon: Users },
           ].map((item) => (
-            <Link key={item.title} to={item.to} className="group rounded-xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
+            <Link key={item.title} to={item.to} className="group surface p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
               <div className="mb-3 grid size-8 place-items-center rounded-lg bg-primary/8 text-primary"><item.icon className="size-4" /></div>
               <div className="flex items-center justify-between text-[13px] font-semibold">{item.title}<ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
               <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{item.body}</p>

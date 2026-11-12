@@ -174,7 +174,7 @@ export function DataSourcesPage() {
         ) : (
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {sources.map((ds) => (
-              <div key={ds.id} className="group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-all hover:shadow-md">
+              <div key={ds.id} className="group relative flex flex-col overflow-hidden surface transition-all hover:shadow-md">
                 <div className={cn("h-0.5 w-full", ds.status === "ready" ? "bg-success/70" : "bg-destructive/70")} />
                 <div className="flex items-start gap-3 p-4 pb-3">
                   <SourceIcon type={ds.type} size="lg" />
@@ -224,7 +224,7 @@ export function DataSourcesPage() {
                   {ds.tables.length === 0 && <span className="text-[11px] text-muted-foreground">No tables discovered</span>}
                 </div>
 
-                <div className="mt-auto flex items-center justify-between gap-2 border-t px-4 py-3 text-[10.5px] text-muted-foreground">
+                <div className="mt-auto flex items-center justify-between gap-2 px-4 py-2.5 text-[10.5px] text-muted-foreground">
                   <span>{ds.tables.length} tables · synced {relativeTime(ds.lastSyncedAt)}</span>
                   <div className="flex items-center gap-1">
                     {testingId === ds.id || refreshMutation.isPending ? <Loader2 className="size-3 animate-spin" /> : null}
@@ -236,7 +236,7 @@ export function DataSourcesPage() {
           </div>
         )}
 
-        <div className="mt-7 flex items-start gap-3 rounded-xl border border-dashed bg-muted/20 p-4">
+        <div className="mt-7 flex items-start gap-3 rounded-xl bg-muted/25 p-4">
           <SourceIcon type="rest" size="md" />
           <div className="text-[12px] leading-relaxed text-muted-foreground">
             <span className="font-medium text-foreground">Can’t find your system?</span> The connector layer is pluggable. Use the generic REST/JSON or CSV connector for anything with an HTTP endpoint, or add a connector implementing the provider interface.
@@ -527,7 +527,7 @@ function SchemaDialog({ source, open, onOpenChange }: { source: DataSource | nul
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="border-b px-5 py-4">
+        <DialogHeader className="px-5 pt-5 pb-2">
           <div className="flex items-center gap-2.5">
             {source && <SourceIcon type={source.type} />}
             <div>
@@ -547,7 +547,7 @@ function SchemaDialog({ source, open, onOpenChange }: { source: DataSource | nul
                   <Badge variant="muted" className="ml-auto text-[9px]">{table.kind}</Badge>
                   <span className="text-[10px] text-muted-foreground">{table.columns.length} cols</span>
                 </summary>
-                <div className="grid gap-x-4 border-t px-3 py-2 sm:grid-cols-2">
+                <div className="grid gap-x-4 px-3 py-2 sm:grid-cols-2">
                   {table.columns.map((col) => (
                     <div key={col.name} className="flex items-center justify-between gap-2 py-0.5 text-[11px]">
                       <span className="truncate font-mono">{col.name}</span>

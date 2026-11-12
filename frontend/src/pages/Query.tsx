@@ -224,7 +224,7 @@ export function QueryPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-[52px] shrink-0 items-center gap-2 border-b bg-background px-3 md:px-4">
+      <header className="flex h-[52px] shrink-0 items-center gap-2 bg-background px-3 md:px-4">
         <div className="flex min-w-0 items-center gap-2">
           <div className="hidden size-7 place-items-center rounded-md bg-primary/10 text-primary sm:grid">
             <SquareTerminal className="size-3.5" />
@@ -256,12 +256,12 @@ export function QueryPage() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-[268px] shrink-0 border-r lg:block">{schemaPanel}</aside>
+      <div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
+        <aside className="hidden w-[268px] shrink-0 overflow-hidden surface lg:block">{schemaPanel}</aside>
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex h-[43%] min-h-[190px] flex-col border-b bg-card">
-            <div className="flex h-9 shrink-0 items-center justify-between border-b px-3 text-[11px] text-muted-foreground">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div className="flex h-[43%] min-h-[190px] flex-col overflow-hidden surface">
+            <div className="flex h-9 shrink-0 items-center justify-between px-3 text-[11px] text-muted-foreground">
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1 font-mono text-[10px]"><span className="size-1.5 rounded-full bg-emerald-500" /> SQL</span>
                 {currentSaved && <span className="hidden items-center gap-1 sm:inline-flex"><Bookmark className="size-3" /> saved</span>}
@@ -295,9 +295,9 @@ export function QueryPage() {
             </div>
           </div>
 
-          <div className="flex min-h-0 flex-1 flex-col bg-background">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden surface">
             <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
-              <div className="flex h-10 shrink-0 items-center justify-between border-b px-3">
+              <div className="flex h-10 shrink-0 items-center justify-between px-3">
                 <TabsList className="h-7 bg-transparent p-0">
                   <TabsTrigger value="results" className="gap-1.5 px-2.5 data-[state=active]:bg-accent/70">
                     Results
@@ -331,7 +331,7 @@ export function QueryPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="divide-y">
+                  <div className="space-y-0.5 p-1.5">
                     {runs.map((run) => (
                       <button key={run.id} onClick={() => loadRun(run)} className="group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40">
                         <div className={cn("mt-0.5 grid size-7 shrink-0 place-items-center rounded-md", run.status === "success" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>

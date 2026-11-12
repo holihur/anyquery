@@ -17,7 +17,7 @@
 
 | # | 数据源 | 类型 | 状态 | Schema 探测 | 认证 | 过滤下推 | 验证方式 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | PostgreSQL | SQL | 🟡 | `information_schema` | 用户名/密码、SSL、DSN | LIMIT | 编译 + 共享 SQL 测试 |
+| 1 | PostgreSQL | SQL | 🧪 | `information_schema` | 用户名/密码、SSL、DSN | LIMIT | 本地 PostgreSQL 16 + CI 跨源 JOIN |
 | 2 | CockroachDB | SQL | 🟡 | `information_schema` | 用户名/密码、SSL | LIMIT | 编译 + 共享 SQL 测试 |
 | 3 | Amazon Redshift | SQL | 🟡 | `information_schema` | 用户名/密码、SSL | LIMIT | 编译 + 共享 SQL 测试 |
 | 4 | TimescaleDB | SQL | 🟡 | `information_schema` | 用户名/密码、SSL | LIMIT | 编译 + 共享 SQL 测试 |
@@ -34,12 +34,12 @@
 | 15 | Snowflake | 云数仓 | 🟡 | `information_schema` | OAuth / Programmatic Access Token | LIMIT | 编译 + HTTP API 单测（无真实账号） |
 | 16 | Databricks SQL | 云数仓 | 🟡 | `information_schema` | Personal Access Token | LIMIT | 编译 + HTTP API 单测（无真实账号） |
 | 17 | MongoDB | NoSQL | ✅ | 采样文档推断字段 | URI（SCRAM/TLS） | LIMIT | 演示工作区 + CI |
-| 18 | Redis | NoSQL | 🧪 | SCAN 采样 + Hash/JSON 展开 | URL（ACL、TLS） | SCAN + 行数上限 | CI（Redis 7） |
+| 18 | Redis | NoSQL | ✅ | SCAN 采样 + Hash/JSON 展开 | URL（ACL、TLS） | SCAN + 行数上限 | CI（Redis 7）+ Mongo JOIN |
 | 19 | Elasticsearch | Search | 🟡 | `_mapping` | Basic / ApiKey | size | 编译 + HTTP 路径测试 |
 | 20 | OpenSearch | Search | 🟡 | `_mapping` | Basic / ApiKey | size | 编译 + HTTP 路径测试 |
 | 21 | REST / JSON | API | ✅ | 响应采样推断 | Header（Bearer 等） | 客户端行数上限 | 本地端到端 + CI |
 | 22 | CSV / TSV URL | File | ✅ | Header + 类型推断 | Header | 下载后限制 | 本地端到端 |
-| 23 | JSON Lines / NDJSON | File | 🧪 | 逐行采样推断 | Header | 逐行读取限制 | CI |
+| 23 | JSON Lines / NDJSON | File | 🧪 | 逐行采样推断 | Header | 逐行读取限制 | CI + Mongo JOIN |
 
 ## 分项说明
 
