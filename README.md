@@ -21,8 +21,8 @@
 | ![Login](docs/screenshots/login.png) | ![Dark overview](docs/screenshots/overview-dark.png) |
 | **共享查询库** | **团队与权限** |
 | ![Saved queries](docs/screenshots/saved-queries.png) | ![Team](docs/screenshots/team.png) |
-| **数据源连接测试** | **查询历史 / 自动刷新** |
-| ![Data source test](docs/screenshots/data-source-test.png) | ![Query studio](docs/screenshots/query-studio.png) |
+| **数据源连接测试** | **查询历史** |
+| ![Data source test](docs/screenshots/data-source-test.png) | ![Query history](docs/screenshots/query-history.png) |
 
 > 截图来自本地演示工作区（MongoDB + SQLite 联邦查询）。
 
