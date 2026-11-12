@@ -156,11 +156,12 @@ const (
 	ScopeCatalogRead  = "catalog:read"
 	ScopeQueryExecute = "query:execute"
 	ScopeQueryRead    = "query:read"
+	ScopeQueryPlan    = "query:plan"
 )
 
 // AllScopes is the PAT scope set available in the MVP. API keys created before
 // scopes existed have an empty list and retain full access for compatibility.
-var AllScopes = []string{ScopeCatalogRead, ScopeQueryExecute, ScopeQueryRead}
+var AllScopes = []string{ScopeCatalogRead, ScopeQueryExecute, ScopeQueryRead, ScopeQueryPlan}
 
 func ValidScope(scope string) bool {
 	for _, s := range AllScopes {

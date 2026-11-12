@@ -92,6 +92,7 @@ func (s *Server) Handler() http.Handler {
 	tenant("GET /api/v1/tenants/{tenant}/catalog", s.handleCatalog)
 
 	tenant("POST /api/v1/tenants/{tenant}/queries/execute", s.handleExecute)
+	tenant("POST /api/v1/tenants/{tenant}/queries/explain", s.handleExplain)
 	tenant("GET /api/v1/tenants/{tenant}/queries", s.handleSavedQueriesList)
 	tenant("POST /api/v1/tenants/{tenant}/queries", s.handleSavedQueryCreate)
 	tenant("GET /api/v1/tenants/{tenant}/queries/{id}", s.handleSavedQueryGet)

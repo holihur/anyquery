@@ -25,6 +25,7 @@ import {
   SquareTerminal,
   Trash2,
   WandSparkles,
+  Workflow,
 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/lib/api"
@@ -49,6 +50,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { SchemaExplorer, type CatalogSource } from "@/components/query/SchemaExplorer"
 import { ResultsTable } from "@/components/query/ResultsTable"
 import { SaveQueryDialog } from "@/components/query/SaveQueryDialog"
+import { PlanView } from "@/components/query/PlanView"
 import { ErrorNotice } from "@/components/shared"
 
 export function QueryPage() {
@@ -92,6 +94,9 @@ export function QueryPage() {
   const [schemaOpen, setSchemaOpen] = useState(false)
   const [paramsOpen, setParamsOpen] = useState(false)
   const [paramText, setParamText] = useState(() => localStorage.getItem(`aq-params-${tenant.id}`) || "")
+  const [plan, setPlan] = useState<import("@/lib/types").PlanNode | null>(null)
+  const [planLoading, setPlanLoading] = useState(false)
+  const [planError, setPlanError] = useState<string | null>(null)
   const [tab, setTab] = useState("results")
   const [historyPage, setHistoryPage] = useState(0)
   const [schemaCollapsed, setSchemaCollapsed] = useState(() => localStorage.getItem("aq-schema-collapsed") === "1")
@@ -183,6 +188,44 @@ export function QueryPage() {
     return out
   }, [sources])
 
+  const parseBindParams = useCallback((): unknown[] | null => {
+    if (!paramText.trim()) return []
+    try {
+      const parsed = JSON.parse(paramText)
+      if (!Array.isArray(parsed)) throw new Error("Parameters must be a JSON array")
+      return parsed
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid parameter JSON")
+      setErrorCode("parameter_error")
+      setErrorHint("Enter a JSON array, for example [42, \"paid\"]")
+      return null
+    }
+  }, [paramText])
+
+  const explainPlan = useCallback(async () => {
+    const text = sqlText.trim()
+    if (!text) return
+    const bindParams = parseBindParams()
+    if (bindParams === null) return
+    setPlanLoading(true)
+    setPlanError(null)
+    setTab("plan")
+    try {
+      const payload = await api.explain(tenant.slug, text, bindParams)
+      if (payload.error) {
+        setPlanError(payload.error.message)
+        setPlan(null)
+      } else {
+        setPlan(payload.plan ?? null)
+      }
+    } catch (err) {
+      setPlanError(err instanceof Error ? err.message : "Could not build execution plan")
+      setPlan(null)
+    } finally {
+      setPlanLoading(false)
+    }
+  }, [sqlText, tenant.slug, parseBindParams])
+
   const runQuery = useCallback(async (background = false) => {
     const text = sqlText.trim()
     if (!text || running) return
@@ -192,19 +235,10 @@ export function QueryPage() {
     setErrorHint(null)
     setLastRun(null)
     setTab("results")
-    let bindParams: unknown[] = []
-    if (paramText.trim()) {
-      try {
-        const parsed = JSON.parse(paramText)
-        if (!Array.isArray(parsed)) throw new Error("Parameters must be a JSON array")
-        bindParams = parsed
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Invalid parameter JSON")
-        setErrorCode("parameter_error")
-        setErrorHint("Enter a JSON array, for example [42, \"paid\"]")
-        setRunning(false)
-        return
-      }
+    const bindParams = parseBindParams()
+    if (bindParams === null) {
+      setRunning(false)
+      return
     }
     try {
       const payload: ExecuteResponse = await api.execute(tenant.slug, text, currentSaved?.id, bindParams)
@@ -229,7 +263,7 @@ export function QueryPage() {
     } finally {
       setRunning(false)
     }
-  }, [sqlText, running, tenant.slug, currentSaved, queryClient])
+  }, [sqlText, running, tenant.slug, currentSaved, queryClient, parseBindParams])
 
   runRef.current = runQuery
 
@@ -393,6 +427,9 @@ export function QueryPage() {
               <Save className="size-3.5" /> <span className="hidden sm:inline">{currentSaved ? t("Update") : t("Save")}</span>
             </Button>
           )}
+          <Button variant="outline" size="sm" onClick={() => void explainPlan()} disabled={!sqlText.trim()}>
+            <Workflow className="size-3.5" /> <span className="hidden sm:inline">Explain</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setParamsOpen(true)}>
             <Braces className="size-3.5" /> <span className="hidden sm:inline">{t("Params")}</span>
           </Button>
@@ -472,7 +509,7 @@ export function QueryPage() {
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden surface">
-            <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
+            <Tabs value={tab} onValueChange={(value) => { setTab(value); if (value === "plan") void explainPlan() }} className="flex min-h-0 flex-1 flex-col">
               <div className="flex h-10 shrink-0 items-center justify-between border-b border-border/45 px-3">
                 <TabsList className="h-7 bg-transparent p-0">
                   <TabsTrigger value="results" className="gap-1.5 px-2.5 data-[state=active]:bg-accent/70">
@@ -481,6 +518,9 @@ export function QueryPage() {
                   </TabsTrigger>
                   <TabsTrigger value="history" className="gap-1.5 px-2.5 data-[state=active]:bg-accent/70">
                     {t("History")} <span className="text-[9px] text-muted-foreground">{runs.length}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="plan" className="gap-1.5 px-2.5 data-[state=active]:bg-accent/70">
+                    <Workflow className="size-3" /> Plan
                   </TabsTrigger>
                 </TabsList>
                 {tab === "results" && result && (
@@ -497,6 +537,9 @@ export function QueryPage() {
 
               <TabsContent value="results" className="mt-0 min-h-0 flex-1 overflow-hidden">
                 <ResultsTable result={result} running={running} error={error} errorCode={errorCode} errorHint={errorHint} />
+              </TabsContent>
+              <TabsContent value="plan" className="mt-0 min-h-0 flex-1 overflow-hidden">
+                <PlanView plan={plan} loading={planLoading} error={planError} onRefresh={() => void explainPlan()} />
               </TabsContent>
               <TabsContent value="history" className="mt-0 min-h-0 flex-1 overflow-y-auto scrollbar-thin">
                 {runs.length === 0 ? (

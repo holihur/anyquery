@@ -242,7 +242,7 @@ function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
   const { tenant } = useTenant()
   const queryClient = useQueryClient()
   const [name, setName] = useState("")
-  const [scopes, setScopes] = useState<string[]>(["catalog:read", "query:execute", "query:read"])
+  const [scopes, setScopes] = useState<string[]>(["catalog:read", "query:execute", "query:read", "query:plan"])
   const [busy, setBusy] = useState(false)
   const [raw, setRaw] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -264,7 +264,7 @@ function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
 
   function close() {
     setName("")
-    setScopes(["catalog:read", "query:execute", "query:read"])
+    setScopes(["catalog:read", "query:execute", "query:read", "query:plan"])
     setRaw(null)
     setError(null)
     onOpenChange(false)
@@ -301,6 +301,7 @@ function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
                 ["catalog:read", "Read data sources, tables and columns"],
                 ["query:execute", "Execute federated SQL queries"],
                 ["query:read", "Read saved queries and query history"],
+                ["query:plan", "Explain query plans without executing them"],
               ].map(([scope, description]) => (
                 <div key={scope} className="flex items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-2">
                   <div>

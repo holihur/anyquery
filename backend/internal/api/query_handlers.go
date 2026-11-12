@@ -155,6 +155,42 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"result": res, "run": run})
 }
 
+func (s *Server) handleExplain(w http.ResponseWriter, r *http.Request) {
+	if !requireScope(w, r, model.ScopeQueryPlan) {
+		return
+	}
+	t := currentTenant(r)
+	if !currentRole(r).CanQuery() {
+		writeError(w, http.StatusForbidden, "forbidden", "You do not have query access")
+		return
+	}
+	var body struct {
+		SQL    string `json:"sql"`
+		Params []any  `json:"params"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	if strings.TrimSpace(body.SQL) == "" {
+		writeError(w, http.StatusBadRequest, "empty_query", "Enter a SQL query")
+		return
+	}
+	cat := &tenantCatalog{server: s, tenantID: t.ID, opened: map[string]connector.Connector{}}
+	defer cat.Close()
+	plan, err := s.engine.Explain(r.Context(), body.SQL, body.Params, cat)
+	if err != nil {
+		var qe *engine.Error
+		if errors.As(err, &qe) {
+			writeJSON(w, statusForQueryError(err), map[string]any{"error": apiError{Code: qe.Code, Message: qe.Message, Hint: qe.Hint}})
+			return
+		}
+		writeJSON(w, statusForQueryError(err), map[string]any{"error": apiError{Code: "explain_error", Message: err.Error()}})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"plan": plan})
+}
+
 func statusForQueryError(err error) int {
 	var qe *engine.Error
 	if !errors.As(err, &qe) {

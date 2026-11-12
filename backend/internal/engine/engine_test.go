@@ -627,3 +627,36 @@ JOIN shop.`+"`public.items`"+` i ON o.customer_id = i.customer_id`, cat); err !=
 		t.Fatalf("shop columns = %+v", req)
 	}
 }
+
+func TestExplainPlan(t *testing.T) {
+	e := New(DefaultOptions())
+	plan, err := e.Explain(context.Background(), `SELECT c.name, count(*) AS n
+FROM mongo.orders o JOIN mongo.customers c ON o.customer_id = c.id
+WHERE o.status = 'paid' GROUP BY c.name ORDER BY n DESC LIMIT 5`, nil, testCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Operator != "Limit" || len(plan.Children) != 1 {
+		t.Fatalf("root = %+v", plan)
+	}
+	var ops []string
+	var walk func(*PlanNode)
+	walk = func(n *PlanNode) {
+		ops = append(ops, n.Operator)
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(plan)
+	for _, want := range []string{"Sort", "Aggregate", "Project", "Hash Join", "Source Scan"} {
+		found := false
+		for _, op := range ops {
+			if op == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("missing %q in %v", want, ops)
+		}
+	}
+}

@@ -128,6 +128,20 @@ export interface QueryRun {
   createdAt: string
 }
 
+export interface PlanNode {
+  id: string
+  operator: string
+  detail?: string
+  estimatedRows?: number
+  properties?: Record<string, unknown>
+  children?: PlanNode[]
+}
+
+export interface ExplainResponse {
+  plan?: PlanNode
+  error?: { code: string; message: string; hint?: string }
+}
+
 export interface ExecuteResponse {
   result?: QueryResult
   run?: QueryRun

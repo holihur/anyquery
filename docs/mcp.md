@@ -13,6 +13,7 @@ Open **Workspace → Settings → API keys**, create a token and select scopes:
 | `catalog:read` | List data sources, tables and columns; `get_catalog` MCP tool |
 | `query:execute` | Execute federated SQL; `execute_sql` MCP tool |
 | `query:read` | Read saved queries and query history; `list_saved_queries` MCP tool |
+| `query:plan` | Explain query plans without reading data; `explain_sql` MCP tool |
 
 The raw token (`aq_…`) is shown once. Store it like a password. A token with no scopes is treated as a legacy full-access key; new tokens always have explicit scopes.
 
@@ -79,6 +80,16 @@ Runs AnyQuery SQL, including cross-source joins. `limit` controls how many rows 
 
 Every MCP execution is recorded in query history. Query timeouts and source row guards apply.
 
+### `explain_sql`
+
+Scope: `query:plan`
+
+Returns a structured execution plan (operator tree, pushed columns/predicates, hash/nested-loop joins) without opening or reading source data.
+
+```json
+{"sql": "SELECT region, count(*) FROM mongo.orders GROUP BY region"}
+```
+
 ### `list_saved_queries`
 
 Scope: `query:read`
@@ -114,6 +125,7 @@ curl -s http://localhost:8080/mcp \
   - `query:read` → saved queries, runs/overview
 - A missing scope returns HTTP `403 scope_required` for REST, or an MCP tool result with `isError: true`.
 - `tools/list` only returns tools the token can call, so MCP clients never see unauthorized tools.
+- `query:plan` is deliberately separate from `query:execute`: a planner-only token can inspect plans without reading rows.
 - Tokens are workspace-bound and cannot access another tenant.
 - Revoke tokens from Settings at any time.
 

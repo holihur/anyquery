@@ -107,6 +107,19 @@ var mcpTools = []mcpTool{
 		scope:       model.ScopeQueryRead,
 		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 	},
+	{
+		Name:        "explain_sql",
+		Description: "Return a structured execution plan for a federated query without reading source rows.",
+		scope:       model.ScopeQueryPlan,
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"sql"},
+			"properties": map[string]any{
+				"sql":    map[string]any{"type": "string", "description": "SELECT/SHOW query to explain"},
+				"params": map[string]any{"type": "array", "description": "Optional positional bind parameters"},
+			},
+		},
+	},
 }
 
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
@@ -279,6 +292,24 @@ func (s *Server) callMCPTool(r *http.Request, name string, rawArgs json.RawMessa
 			"rowCount": res.RowCount, "truncated": truncated, "warnings": res.Warnings,
 			"stats": res.Stats,
 		})), nil
+	case "explain_sql":
+		var args struct {
+			SQL    string `json:"sql"`
+			Params []any  `json:"params"`
+		}
+		if err := json.Unmarshal(rawArgs, &args); err != nil {
+			return nil, fmt.Errorf("invalid arguments: %w", err)
+		}
+		if strings.TrimSpace(args.SQL) == "" {
+			return nil, fmt.Errorf("sql is required")
+		}
+		cat := &tenantCatalog{server: s, tenantID: tenant.ID, opened: map[string]connector.Connector{}}
+		defer cat.Close()
+		plan, err := s.engine.Explain(r.Context(), args.SQL, args.Params, cat)
+		if err != nil {
+			return nil, err
+		}
+		return toolText(mustJSON(map[string]any{"plan": plan})), nil
 	case "list_saved_queries":
 		list, err := s.store.ListSavedQueries(r.Context(), tenant.ID, user.ID, false)
 		if err != nil {

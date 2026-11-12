@@ -70,7 +70,7 @@ FROM mongo.orders
 - **安全**：数据源凭据 AES-256-GCM 加密；会话 token 仅存 SHA-256；HttpOnly Cookie；Origin 校验；API Key 只显示一次。
 - **团队 API / PAT**：带 scope 的 Personal Access Token，可限制目录读取、SQL 执行、历史读取。
 - **创建前测试连接**：任何数据源在保存前都可以直接 Test，错误会即时显示。
-- **MCP**：内置 Streamable HTTP MCP Server（`/mcp`），MCP 工具严格使用 PAT 的权限域，只暴露被允许的工具。
+- **MCP**：内置 Streamable HTTP MCP Server（`/mcp`），MCP 工具严格使用 PAT 的权限域，只暴露被允许的工具；支持 catalog、执行、保存查询和执行计划。
 - **查询护栏**：超时、单源行数上限、结果行数上限、JOIN 中间结果上限、截断警示。
 - **Top 100**：查询历史展示最近 100 条；保存查询库每个工作区最多 100 条。
 - **i18n**：10 种语言（英/简中/西/印地/阿/葡/俄/日/德/法），自动检测、持久化与 RTL 布局。
@@ -301,6 +301,7 @@ POST   /api/v1/tenants/{tenant}/datasources/{id}/refresh
 GET    /api/v1/tenants/{tenant}/catalog
 
 POST   /api/v1/tenants/{tenant}/queries/execute
+POST   /api/v1/tenants/{tenant}/queries/explain
 GET    /api/v1/tenants/{tenant}/queries
 POST   /api/v1/tenants/{tenant}/queries
 GET    /api/v1/tenants/{tenant}/runs
@@ -318,7 +319,8 @@ GET    /api/v1/tenants/{tenant}/apikeys
 ## MCP 与 PAT
 
 - MCP endpoint：`POST /mcp`（Streamable HTTP，仅接受 `Authorization: Bearer aq_…`）
-- 工具：`get_catalog`（`catalog:read`）、`execute_sql`（`query:execute`）、`list_saved_queries`（`query:read`）
+- 工具：`get_catalog`（`catalog:read`）、`execute_sql`（`query:execute`）、`list_saved_queries`（`query:read`）、`explain_sql`（`query:plan`）
+- Query Studio 的 **Plan** 标签可视化算子树、Join 算法和下推信息，不读取源数据
 - `tools/list` 会根据 token scope 自动过滤，未授权工具不会出现
 - 详细配置示例、Claude Code 接入和 curl 测试见 **[docs/mcp.md](docs/mcp.md)**
 

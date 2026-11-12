@@ -6,6 +6,7 @@ import type {
   ConnectorType,
   DataSource,
   ExecuteResponse,
+  ExplainResponse,
   Invite,
   Member,
   Overview,
@@ -145,6 +146,11 @@ export const api = {
       `/tenants/${slug}/catalog`,
     ),
 
+  explain: (slug: string, sql: string, params?: unknown[]) =>
+    request<ExplainResponse>(`/tenants/${slug}/queries/explain`, {
+      method: "POST",
+      body: JSON.stringify({ sql, params }),
+    }),
   execute: async (slug: string, sql: string, savedQueryId?: string, params?: unknown[]): Promise<ExecuteResponse> => {
     const res = await fetch(`${BASE}/tenants/${slug}/queries/execute`, {
       method: "POST",

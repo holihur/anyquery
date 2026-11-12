@@ -289,6 +289,24 @@ jobs:
           PY2
           test "$status" = "403"
 
+      - name: PAT plan scope and MCP explain
+        run: |
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/apikeys \
+            -H 'Content-Type: application/json' -d '{"name":"ci-plan","scopes":["query:plan"]}' > /tmp/plan-key.json
+          PKEY=$(python3 -c 'import json; print(json.load(open("/tmp/plan-key.json"))["key"])')
+          curl -fsS -X POST http://localhost:8080/mcp -H "Authorization: Bearer $PKEY" -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' > /tmp/mcp-plan-tools.json
+          curl -fsS -X POST http://localhost:8080/mcp -H "Authorization: Bearer $PKEY" -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"explain_sql","arguments":{"sql":"SELECT region, count(*) FROM `mongo`.`orders` GROUP BY region"}}}' > /tmp/mcp-plan.json
+          python3 - <<'PY'
+          import json
+          tools = [t["name"] for t in json.load(open("/tmp/mcp-plan-tools.json"))["result"]["tools"]]
+          assert tools == ["explain_sql"], tools
+          plan = json.load(open("/tmp/mcp-plan.json"))["result"]["content"][0]["text"]
+          assert "Source Scan" in plan and "Aggregate" in plan, plan
+          print("MCP plan scope verified:", tools)
+          PY
+
       - name: Redis connector + Mongo↔Redis join
         run: |
           python3 - <<'PY'
