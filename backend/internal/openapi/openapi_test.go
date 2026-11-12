@@ -73,3 +73,63 @@ components:
 func connectorFetch(table string, limit int) connector.FetchRequest {
 	return connector.FetchRequest{Table: table, Limit: limit}
 }
+
+func TestOpenAPIPagination(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		all := []map[string]any{{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}, {"id": 5}}
+		start := 0
+		if page == "2" {
+			start = 2
+		} else if page == "3" {
+			start = 4
+		}
+		end := start + 2
+		if end > len(all) {
+			end = len(all)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": all[start:end]})
+	}))
+	defer api.Close()
+	spec := `openapi: 3.0.0
+servers: [{url: "` + api.URL + `"}]
+paths:
+  /items:
+    get:
+      operationId: listItems
+      parameters:
+        - {name: page, in: query, schema: {type: integer}}
+        - {name: page_size, in: query, schema: {type: integer}}
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: integer}
+`
+	path := filepath.Join(t.TempDir(), "openapi.yaml")
+	if err := os.WriteFile(path, []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := (Provider{}).Open(context.Background(), map[string]string{"spec": path, "page_size": "2", "max_pages": "10"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := c.Fetch(context.Background(), connectorFetch("listitems", 3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Rows) != 3 || !res.Truncated {
+		t.Fatalf("rows = %d truncated=%v %+v", len(res.Rows), res.Truncated, res.Rows)
+	}
+	if res.Columns[0].Name != "id" {
+		t.Fatalf("columns = %+v", res.Columns)
+	}
+}
