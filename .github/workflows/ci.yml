@@ -532,7 +532,7 @@ jobs:
           print("influx result:", rows)
           PY
 
-      - name: Saved query library top-100 limit
+      - name: Saved query library configurable quota
         run: |
           python3 - <<'PY'
           import http.cookiejar
