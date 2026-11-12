@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/anyquery/anyquery/internal/sql"
 )
@@ -20,6 +21,9 @@ type evalCtx struct {
 	row     map[string]any
 	aliases map[string]any
 	group   []map[string]any
+	outer   *evalCtx
+	exec    *execCtx
+	windows map[string]any
 }
 
 func (c *evalCtx) resolve(ref *sql.ColumnRef) (any, error) {
@@ -43,6 +47,11 @@ func (c *evalCtx) resolve(ref *sql.ColumnRef) (any, error) {
 				return v, nil
 			}
 		}
+		if c.outer != nil {
+			if v, outerErr := c.outer.resolve(ref); outerErr == nil {
+				return v, nil
+			}
+		}
 		return nil, err
 	}
 	if c.aliases != nil {
@@ -53,6 +62,11 @@ func (c *evalCtx) resolve(ref *sql.ColumnRef) (any, error) {
 		}
 		qualifier := strings.ToLower(strings.Join(ref.Parts[:len(ref.Parts)-1], "."))
 		if v, ok := c.aliases[qualifier+"."+col]; ok {
+			return v, nil
+		}
+	}
+	if c.outer != nil {
+		if v, err := c.outer.resolve(ref); err == nil {
 			return v, nil
 		}
 	}
@@ -107,7 +121,7 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 			return nil, err
 		}
 		if x.Subquery != nil {
-			return nil, errf("unsupported", "IN subqueries are not supported yet")
+			return evalInSubquery(ctx, x, left)
 		}
 		matched := false
 		sawNull := false
@@ -158,6 +172,17 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		if x.What == "distinct" {
+			rv, err := evalExpr(ctx, x.Right)
+			if err != nil {
+				return nil, err
+			}
+			distinct := !valuesEqual(v, rv)
+			if x.Negated {
+				return !distinct, nil
+			}
+			return distinct, nil
+		}
 		var result bool
 		switch x.What {
 		case "null":
@@ -172,6 +197,16 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 		}
 		return result, nil
 	case *sql.FuncCall:
+		if x.Window != nil {
+			if ctx.windows == nil {
+				return nil, errf("invalid_window", "window function %s is not allowed here", strings.ToUpper(x.Name))
+			}
+			v, ok := ctx.windows[x.String()]
+			if !ok {
+				return nil, errf("invalid_window", "window function %s was not computed", strings.ToUpper(x.Name))
+			}
+			return v, nil
+		}
 		if sql.IsAggregate(x.Name) {
 			if ctx.group == nil {
 				return nil, errf("invalid_aggregate", "aggregate function %s is not allowed here", strings.ToUpper(x.Name))
@@ -188,12 +223,79 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 		}
 		return castValue(v, x.Type)
 	case *sql.ExistsExpr:
-		return nil, errf("unsupported", "EXISTS subqueries are not supported yet")
+		ds, err := evalSubquery(ctx, x.Query)
+		if err != nil {
+			return nil, err
+		}
+		return len(ds.rows) > 0, nil
 	case *sql.SubqueryExpr:
-		return nil, errf("unsupported", "scalar subqueries are not supported yet")
+		ds, err := evalSubquery(ctx, x.Query)
+		if err != nil {
+			return nil, err
+		}
+		switch len(ds.rows) {
+		case 0:
+			if len(ds.columns) != 1 {
+				return nil, errf("subquery_error", "scalar subquery must return exactly one column")
+			}
+			return nil, nil
+		case 1:
+			if len(ds.columns) != 1 {
+				return nil, errf("subquery_error", "scalar subquery must return exactly one column")
+			}
+			return ds.rows[0][strings.ToLower(ds.columns[0].Name)], nil
+		default:
+			return nil, errf("subquery_error", "scalar subquery returned more than one row")
+		}
 	default:
 		return nil, errf("unsupported", "unsupported expression %T", e)
 	}
+}
+
+func evalSubquery(ctx *evalCtx, q *sql.SelectStmt) (*dataset, error) {
+	if ctx.exec == nil {
+		return nil, errf("subquery_error", "subquery execution context is unavailable")
+	}
+	prev := ctx.exec.outerEval
+	ctx.exec.outerEval = ctx
+	defer func() { ctx.exec.outerEval = prev }()
+	return ctx.exec.executeSelect(q)
+}
+
+func evalInSubquery(ctx *evalCtx, x *sql.InExpr, left any) (any, error) {
+	ds, err := evalSubquery(ctx, x.Subquery)
+	if err != nil {
+		return nil, err
+	}
+	if len(ds.columns) != 1 {
+		return nil, errf("subquery_error", "IN subquery must return exactly one column")
+	}
+	if left == nil {
+		if len(ds.rows) == 0 {
+			return x.Negated, nil
+		}
+		return nil, nil
+	}
+	col := strings.ToLower(ds.columns[0].Name)
+	matched, sawNull := false, false
+	for _, row := range ds.rows {
+		v := row[col]
+		if v == nil {
+			sawNull = true
+			continue
+		}
+		if valuesEqual(left, v) {
+			matched = true
+			break
+		}
+	}
+	if !matched && sawNull {
+		return nil, nil
+	}
+	if x.Negated {
+		return !matched, nil
+	}
+	return matched, nil
 }
 
 func evalBinary(ctx *evalCtx, b *sql.BinaryExpr) (any, error) {
@@ -662,6 +764,178 @@ func evalFunction(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 		return math.Mod(float64(time.Now().UnixNano())/1e9, 1), nil
 	case "json_extract", "json_extract_scalar":
 		return jsonExtract(arg(0), arg(1), name == "json_extract_scalar")
+	case "extract", "date_part":
+		if len(args) != 2 {
+			return nil, errf("invalid_arguments", "%s expects (part, timestamp)", strings.ToUpper(name))
+		}
+		if arg(0) == nil || arg(1) == nil {
+			return nil, nil
+		}
+		return extractPart(fmt.Sprint(arg(0)), arg(1))
+	case "date_add", "date_sub", "dateadd", "datesub", "timestampadd":
+		if len(args) != 3 {
+			return nil, errf("invalid_arguments", "%s expects (unit, amount, timestamp)", strings.ToUpper(name))
+		}
+		if arg(1) == nil || arg(2) == nil {
+			return nil, nil
+		}
+		n, ok := toInt(arg(1))
+		if !ok {
+			return nil, errf("type_error", "%s amount must be an integer", strings.ToUpper(name))
+		}
+		if name == "date_sub" || name == "datesub" {
+			n = -n
+		}
+		return dateAdd(fmt.Sprint(arg(0)), n, arg(2))
+	case "date_diff", "datediff", "timestampdiff":
+		if len(args) != 3 {
+			return nil, errf("invalid_arguments", "%s expects (unit, start, end)", strings.ToUpper(name))
+		}
+		if arg(1) == nil || arg(2) == nil {
+			return nil, nil
+		}
+		return dateDiff(fmt.Sprint(arg(0)), arg(1), arg(2))
+	case "left":
+		if len(args) != 2 || arg(0) == nil {
+			return nil, nil
+		}
+		n, _ := toInt(arg(1))
+		r := []rune(fmt.Sprint(arg(0)))
+		if n < 0 {
+			n = 0
+		}
+		if n > len(r) {
+			n = len(r)
+		}
+		return string(r[:n]), nil
+	case "right":
+		if len(args) != 2 || arg(0) == nil {
+			return nil, nil
+		}
+		n, _ := toInt(arg(1))
+		r := []rune(fmt.Sprint(arg(0)))
+		if n < 0 {
+			n = 0
+		}
+		if n > len(r) {
+			n = len(r)
+		}
+		return string(r[len(r)-n:]), nil
+	case "reverse":
+		if len(args) != 1 || arg(0) == nil {
+			return nil, nil
+		}
+		r := []rune(fmt.Sprint(arg(0)))
+		for i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {
+			r[i], r[j] = r[j], r[i]
+		}
+		return string(r), nil
+	case "repeat":
+		if len(args) != 2 || arg(0) == nil {
+			return nil, nil
+		}
+		n, _ := toInt(arg(1))
+		if n < 0 {
+			n = 0
+		}
+		return strings.Repeat(fmt.Sprint(arg(0)), n), nil
+	case "position", "strpos", "instr":
+		if len(args) != 2 || arg(0) == nil || arg(1) == nil {
+			return nil, nil
+		}
+		idx := strings.Index(fmt.Sprint(arg(1)), fmt.Sprint(arg(0)))
+		if idx < 0 {
+			return int64(0), nil
+		}
+		return int64(len([]rune(fmt.Sprint(arg(1))[:idx])) + 1), nil
+	case "starts_with", "startswith":
+		if len(args) != 2 || arg(0) == nil || arg(1) == nil {
+			return nil, nil
+		}
+		return strings.HasPrefix(fmt.Sprint(arg(0)), fmt.Sprint(arg(1))), nil
+	case "ends_with", "endswith":
+		if len(args) != 2 || arg(0) == nil || arg(1) == nil {
+			return nil, nil
+		}
+		return strings.HasSuffix(fmt.Sprint(arg(0)), fmt.Sprint(arg(1))), nil
+	case "contains":
+		if len(args) != 2 || arg(0) == nil || arg(1) == nil {
+			return nil, nil
+		}
+		return strings.Contains(fmt.Sprint(arg(0)), fmt.Sprint(arg(1))), nil
+	case "initcap":
+		if len(args) != 1 || arg(0) == nil {
+			return nil, nil
+		}
+		s := strings.Fields(strings.ToLower(fmt.Sprint(arg(0))))
+		for i, w := range s {
+			r := []rune(w)
+			if len(r) > 0 {
+				r[0] = unicode.ToUpper(r[0])
+			}
+			s[i] = string(r)
+		}
+		return strings.Join(s, " "), nil
+	case "lpad", "rpad":
+		if len(args) < 2 || arg(0) == nil {
+			return nil, nil
+		}
+		n, _ := toInt(arg(1))
+		pad := " "
+		if len(args) > 2 && arg(2) != nil {
+			pad = fmt.Sprint(arg(2))
+		}
+		s := fmt.Sprint(arg(0))
+		r := []rune(s)
+		if n <= len(r) {
+			return string(r[:maxInt(n, 0)]), nil
+		}
+		need := n - len(r)
+		if pad == "" {
+			pad = " "
+		}
+		fill := strings.Repeat(pad, need/len([]rune(pad))+1)
+		fillRunes := []rune(fill)[:need]
+		if name == "lpad" {
+			return string(fillRunes) + s, nil
+		}
+		return s + string(fillRunes), nil
+	case "regexp_replace":
+		if len(args) < 3 || arg(0) == nil || arg(1) == nil || arg(2) == nil {
+			return nil, nil
+		}
+		re, err := regexp.Compile(fmt.Sprint(arg(1)))
+		if err != nil {
+			return nil, errf("invalid_expression", "invalid regular expression: %v", err)
+		}
+		return re.ReplaceAllString(fmt.Sprint(arg(0)), fmt.Sprint(arg(2))), nil
+	case "regexp_extract":
+		if len(args) < 2 || arg(0) == nil || arg(1) == nil {
+			return nil, nil
+		}
+		re, err := regexp.Compile(fmt.Sprint(arg(1)))
+		if err != nil {
+			return nil, errf("invalid_expression", "invalid regular expression: %v", err)
+		}
+		m := re.FindStringSubmatch(fmt.Sprint(arg(0)))
+		idx := 0
+		if len(args) > 2 {
+			if n, ok := toInt(arg(2)); ok {
+				idx = n
+			}
+		}
+		if idx < 0 || idx >= len(m) {
+			return "", nil
+		}
+		return m[idx], nil
+	case "if", "iff":
+		if len(args) != 3 {
+			return nil, errf("invalid_arguments", "%s expects 3 arguments", strings.ToUpper(name))
+		}
+		if truthy(arg(0)) {
+			return arg(1), nil
+		}
+		return arg(2), nil
 	default:
 		return nil, errf("unknown_function", "unknown function %s", strings.ToUpper(name))
 	}
@@ -707,6 +981,102 @@ func jsonExtract(v, path any, scalar bool) (any, error) {
 	return cur, nil
 }
 
+func extractPart(part string, v any) (any, error) {
+	t, ok := toTime(v)
+	if !ok {
+		return nil, errf("type_error", "EXTRACT expects a timestamp")
+	}
+	switch strings.ToLower(part) {
+	case "year":
+		return int64(t.Year()), nil
+	case "quarter":
+		return int64((int(t.Month())-1)/3 + 1), nil
+	case "month":
+		return int64(t.Month()), nil
+	case "week":
+		_, week := t.ISOWeek()
+		return int64(week), nil
+	case "day":
+		return int64(t.Day()), nil
+	case "dow", "dayofweek":
+		return int64(t.Weekday()), nil
+	case "doy", "dayofyear":
+		return int64(t.YearDay()), nil
+	case "hour":
+		return int64(t.Hour()), nil
+	case "minute":
+		return int64(t.Minute()), nil
+	case "second":
+		return int64(t.Second()), nil
+	case "epoch":
+		return float64(t.UnixNano()) / 1e9, nil
+	default:
+		return nil, errf("invalid_arguments", "unsupported EXTRACT field %q", part)
+	}
+}
+
+func dateAdd(unit string, amount int, v any) (any, error) {
+	t, ok := toTime(v)
+	if !ok {
+		return nil, errf("type_error", "DATE_ADD expects a timestamp")
+	}
+	switch strings.ToLower(unit) {
+	case "year":
+		t = t.AddDate(amount, 0, 0)
+	case "quarter":
+		t = t.AddDate(0, amount*3, 0)
+	case "month":
+		t = t.AddDate(0, amount, 0)
+	case "week":
+		t = t.AddDate(0, 0, amount*7)
+	case "day":
+		t = t.AddDate(0, 0, amount)
+	case "hour":
+		t = t.Add(time.Duration(amount) * time.Hour)
+	case "minute":
+		t = t.Add(time.Duration(amount) * time.Minute)
+	case "second":
+		t = t.Add(time.Duration(amount) * time.Second)
+	default:
+		return nil, errf("invalid_arguments", "unsupported DATE_ADD unit %q", unit)
+	}
+	return t.UTC().Format(time.RFC3339Nano), nil
+}
+
+func dateDiff(unit string, a, b any) (any, error) {
+	start, ok := toTime(a)
+	if !ok {
+		return nil, errf("type_error", "DATE_DIFF expects timestamps")
+	}
+	end, ok := toTime(b)
+	if !ok {
+		return nil, errf("type_error", "DATE_DIFF expects timestamps")
+	}
+	switch strings.ToLower(unit) {
+	case "year":
+		return int64(end.Year() - start.Year()), nil
+	case "month":
+		return int64((end.Year()-start.Year())*12 + int(end.Month()) - int(start.Month())), nil
+	case "day":
+		return int64(end.Sub(start).Hours() / 24), nil
+	case "hour":
+		return int64(end.Sub(start).Hours()), nil
+	case "minute":
+		return int64(end.Sub(start).Minutes()), nil
+	case "second":
+		return int64(end.Sub(start).Seconds()), nil
+	default:
+		return nil, errf("invalid_arguments", "unsupported DATE_DIFF unit %q", unit)
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func dateTrunc(unit string, v any) (any, error) {
 	t, ok := toTime(v)
 	if !ok {
@@ -750,14 +1120,40 @@ func evalAggregate(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 		return nil, errf("invalid_aggregate", "%s requires an argument", strings.ToUpper(name))
 	}
 	if star && name == "count" {
-		return int64(len(group)), nil
+		if f.Filter == nil {
+			return int64(len(group)), nil
+		}
+		n := int64(0)
+		for _, row := range group {
+			rowCtx := &evalCtx{rel: ctx.rel, row: row, outer: ctx.outer, exec: ctx.exec}
+			if ctx.rel == nil {
+				rowCtx.aliases = lowerMap(row)
+			}
+			v, err := evalExpr(rowCtx, f.Filter)
+			if err != nil {
+				return nil, err
+			}
+			if truthy(v) {
+				n++
+			}
+		}
+		return n, nil
 	}
 
 	values := make([]any, 0, len(group))
 	for _, row := range group {
-		rowCtx := &evalCtx{rel: ctx.rel, row: row}
+		rowCtx := &evalCtx{rel: ctx.rel, row: row, outer: ctx.outer, exec: ctx.exec}
 		if ctx.rel == nil {
 			rowCtx.aliases = lowerMap(row)
+		}
+		if f.Filter != nil {
+			fv, err := evalExpr(rowCtx, f.Filter)
+			if err != nil {
+				return nil, err
+			}
+			if !truthy(fv) {
+				continue
+			}
 		}
 		v, err := evalExpr(rowCtx, f.Args[0])
 		if err != nil {
@@ -850,6 +1246,36 @@ func evalAggregate(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 			}
 		}
 		return res, nil
+	case "stddev", "stddev_pop", "stddev_samp", "variance", "var_pop", "var_samp":
+		if len(values) == 0 {
+			return nil, nil
+		}
+		nums := make([]float64, 0, len(values))
+		for _, v := range values {
+			fv, ok := toFloat(v)
+			if !ok {
+				return nil, errf("type_error", "%s expects numeric values", strings.ToUpper(name))
+			}
+			nums = append(nums, fv)
+		}
+		mean := 0.0
+		for _, v := range nums {
+			mean += v
+		}
+		mean /= float64(len(nums))
+		var ss float64
+		for _, v := range nums {
+			ss += (v - mean) * (v - mean)
+		}
+		denom := float64(len(nums))
+		if strings.Contains(name, "samp") && len(nums) > 1 {
+			denom = float64(len(nums) - 1)
+		}
+		variance := ss / denom
+		if strings.HasPrefix(name, "stddev") {
+			return math.Sqrt(variance), nil
+		}
+		return variance, nil
 	default:
 		return nil, errf("unsupported", "unsupported aggregate %s", strings.ToUpper(name))
 	}

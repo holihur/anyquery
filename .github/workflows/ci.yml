@@ -207,6 +207,32 @@ jobs:
           assert rows[0]["region"] == "NA", rows[0]
           print("pipeline result:", rows[0])
           PY
+      - name: advanced SQL (CTE + window + set ops + subquery)
+        run: |
+          execute() {
+            curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/queries/execute \
+              -H 'Content-Type: application/json' --data-binary "$1"
+          }
+          execute '{"sql":"WITH totals AS (SELECT region, count(*) AS n FROM mongo.orders WHERE status = '"'"'paid'"'"' GROUP BY region) SELECT region, n, row_number() OVER (ORDER BY n DESC, region) AS rn FROM totals ORDER BY rn"}' > /tmp/sql-window.json
+          execute '{"sql":"SELECT region FROM mongo.orders WHERE status = '"'"'paid'"'"' UNION SELECT region FROM mongo.orders WHERE status = '"'"'refunded'"'"' ORDER BY region"}' > /tmp/sql-union.json
+          execute '{"sql":"SELECT c.name, (SELECT count(*) FROM mongo.orders o WHERE o.customer_id = c.id) AS orders FROM mongo.customers c ORDER BY c.name LIMIT 3"}' > /tmp/sql-subquery.json
+          python3 - <<'PY2'
+          import json
+          window = json.load(open("/tmp/sql-window.json"))
+          assert "error" not in window, window
+          rows = window["result"]["rows"]
+          assert rows and rows[0]["rn"] == 1, rows
+          union = json.load(open("/tmp/sql-union.json"))
+          assert "error" not in union, union
+          regions = [r["region"] for r in union["result"]["rows"]]
+          assert len(regions) == len(set(regions)) and "NA" in regions, regions
+          sub = json.load(open("/tmp/sql-subquery.json"))
+          assert "error" not in sub, sub
+          assert len(sub["result"]["rows"]) == 3, sub["result"]["rows"]
+          assert all(isinstance(r["orders"], int) for r in sub["result"]["rows"]), sub["result"]["rows"]
+          print("advanced SQL verified:", rows[0], regions, sub["result"]["rows"][0])
+          PY2
+
       - name: API key authentication
         run: |
           curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/apikeys \

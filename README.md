@@ -59,7 +59,7 @@ FROM mongo.orders
 
 ## 功能
 
-- **联邦查询**：跨数据源 JOIN（inner / left / right / full / cross），CTE、FROM 子查询等常用查询能力。
+- **联邦查询**：跨数据源 JOIN（inner / left / right / full / cross / natural）、CTE、标量/IN/EXISTS 子查询、UNION/INTERSECT/EXCEPT 与窗口函数。
 - **自研 SQL 解析器**：没有依赖过时的第三方 MySQL parser；表达式、函数、语句和 pipe stage 都可以本地扩展。
 - **31 种内置连接器**（见下表），连接器完全抽象，新增数据源只需实现接口并注册。
 - **多租户**：`workspace` 隔离数据源、查询、成员、审计与 API Key；所有资源都带 `tenantId`。
@@ -324,15 +324,18 @@ PAT 在 **Settings → API keys** 创建，raw token 只显示一次。
 
 ## SQL 支持
 
-- `SELECT [DISTINCT]`、表达式、别名、`FROM`、`WHERE`、`GROUP BY`、`HAVING`、`ORDER BY`、`LIMIT/OFFSET`
-- `INNER / LEFT / RIGHT / FULL / CROSS JOIN`、`ON` / `USING`
+- `SELECT [ALL|DISTINCT]`、表达式、别名、`FROM`、`WHERE`、`GROUP BY`、`HAVING`、`ORDER BY`、`LIMIT/OFFSET`、`FETCH FIRST`
+- `INNER / LEFT / RIGHT / FULL / CROSS / NATURAL JOIN`、`ON` / `USING`
 - 多表逗号连接、`WITH` CTE、FROM 子查询
-- 聚合：`count / sum / avg / min / max / count(distinct) / group_concat / array_agg / bool_and / bool_or`
-- 常用标量函数：`lower / upper / length / trim / substring / concat / coalesce / ifnull / nullif / abs / round / ceil / floor / power / sqrt / replace / split_part / date_trunc / now / md5 / sha256 / json_extract …`
-- 运算符：算术、比较、`LIKE / ILIKE / REGEXP`、`IN`、`BETWEEN`、`IS NULL`、`CASE`、`CAST`、`::`
+- `UNION [ALL]`、`INTERSECT [ALL]`、`EXCEPT [ALL]`（INTERSECT 优先级更高）
+- 标量、`IN`、`EXISTS` 子查询，支持相关子查询
+- 窗口函数：`row_number / rank / dense_rank / lag / lead / sum / avg / count … OVER (PARTITION BY … ORDER BY …)`
+- 聚合：`count / sum / avg / min / max / count(distinct) / group_concat / array_agg / bool_and / bool_or / stddev / variance`，支持 `FILTER (WHERE …)`
+- 常用标量函数：字符串、数学、日期（`extract / date_part / date_add / date_diff`）、JSON、哈希等
+- 运算符：算术、比较、`LIKE / ILIKE / REGEXP`、`IN`、`BETWEEN`、`IS [NOT] DISTINCT FROM`、`CASE`、`CAST`、`::`
 - Pipeline stages：`WHERE`、`SELECT`、`AGGREGATE … GROUP BY`、`ORDER BY`、`LIMIT`、`DISTINCT`、`JOIN`
 
-查询中的表名格式为 `` `source`.`table` ``（schema 可包含在 table 内，例如 `` `pg`.`public.users` ``）。执行器对表名做 catalog 校验并逐方言安全引用。
+完整语法、函数列表和限制见 **[docs/sql.md](docs/sql.md)**。查询中的表名格式为 `` `source`.`table` ``（schema 可包含在 table 内，例如 `` `pg`.`public.users` ``）。执行器对表名做 catalog 校验并逐方言安全引用。
 
 **保存查询上限**：每个 workspace 100 条；超出时返回 `409 saved_query_limit`，UI 会提示删除旧查询。查询历史最多展示最近 100 条。
 
@@ -379,6 +382,7 @@ PAT 在 **Settings → API keys** 创建，raw token 只显示一次。
 ├── docs/connectors.md
 ├── docs/data-sources.md     # connector support matrix
 ├── docs/mcp.md              # MCP + PAT scopes
+├── docs/sql.md              # SQL syntax, functions and limits
 ├── .github/workflows/ci.yml
 ├── mise.toml
 ├── docker-compose.yml
@@ -431,7 +435,7 @@ cd backend && go test ./...
 - 谓词/投影下推、源端聚合、并发扫描、流式结果。
 - 每租户独立 OIDC / SCIM、审计导出、查询排队与并发配额。
 - 邮件发送（邀请/告警）目前只生成链接；密码找回由管理员重置，后续接 SMTP 自助重置。
-- 更完整的 SQL：窗口函数、UNION/INTERSECT、参数化查询、物化视图。
+- 递归 CTE、参数化查询、物化视图和更多窗口 frame 语义。
 - 更多连接器：BigQuery、Athena、DuckDB、Google Sheets、Kafka 等。
 
 ---

@@ -122,6 +122,14 @@ func (d *dataset) evalCtx(row map[string]any) *evalCtx {
 	return &evalCtx{aliases: aliases}
 }
 
+func (ec *execCtx) datasetCtx(d *dataset, row map[string]any) *evalCtx {
+	aliases := make(map[string]any, len(row))
+	for k, v := range row {
+		aliases[strings.ToLower(k)] = v
+	}
+	return &evalCtx{aliases: aliases, outer: ec.outerEval, exec: ec}
+}
+
 // Execute parses and runs one statement.
 func (e *Engine) Execute(ctx context.Context, query string, cat Catalog) (*Result, error) {
 	start := time.Now()
@@ -168,15 +176,16 @@ func (e *Engine) Execute(ctx context.Context, query string, cat Catalog) (*Resul
 }
 
 type execCtx struct {
-	ctx      context.Context
-	engine   *Engine
-	catalog  Catalog
-	sources  []SourceMeta
-	opened   map[string]connector.Connector
-	ctes     map[string]*dataset
-	warnings []string
-	stats    []SourceStat
-	stageLog []string
+	ctx       context.Context
+	engine    *Engine
+	catalog   Catalog
+	sources   []SourceMeta
+	opened    map[string]connector.Connector
+	ctes      map[string]*dataset
+	warnings  []string
+	stats     []SourceStat
+	stageLog  []string
+	outerEval *evalCtx
 }
 
 func (ec *execCtx) close() {

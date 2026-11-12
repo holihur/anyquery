@@ -66,6 +66,82 @@ func (p *Parser) parseStatement() (Statement, error) {
 }
 
 func (p *Parser) parseSelect() (*SelectStmt, error) {
+	s, err := p.parseSelectBody()
+	if err != nil {
+		return nil, err
+	}
+	s, err = p.parseSetOperations(s, 1)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.parseSelectTail(s); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// parseSetOperations parses UNION / INTERSECT / EXCEPT using precedence:
+// INTERSECT binds tighter than UNION and EXCEPT.
+func (p *Parser) parseSetOperations(left *SelectStmt, minPrec int) (*SelectStmt, error) {
+	for {
+		op, prec, ok := p.parseSetOperator()
+		if !ok || prec < minPrec {
+			return left, nil
+		}
+		all := false
+		if p.cur.IsKeyword("ALL") {
+			all = true
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		} else if p.cur.IsKeyword("DISTINCT") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		}
+		right, err := p.parseSetTerm(prec + 1)
+		if err != nil {
+			return nil, err
+		}
+		left.SetOps = append(left.SetOps, SetOperation{Op: op, All: all, Right: right})
+	}
+}
+
+func (p *Parser) parseSetTerm(minPrec int) (*SelectStmt, error) {
+	if p.cur.IsPunct("(") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		right, err := p.parseSelect()
+		if err != nil {
+			return nil, err
+		}
+		if err := p.expectPunct(")"); err != nil {
+			return nil, err
+		}
+		return right, nil
+	}
+	right, err := p.parseSelectBody()
+	if err != nil {
+		return nil, err
+	}
+	return p.parseSetOperations(right, minPrec)
+}
+
+func (p *Parser) parseSetOperator() (string, int, bool) {
+	for _, op := range []struct {
+		name string
+		prec int
+	}{{"UNION", 1}, {"EXCEPT", 1}, {"INTERSECT", 2}} {
+		if p.cur.IsKeyword(op.name) {
+			_ = p.advance()
+			return op.name, op.prec, true
+		}
+	}
+	return "", 0, false
+}
+
+func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 	s := &SelectStmt{}
 	if p.cur.IsKeyword("WITH") {
 		ctes, err := p.parseCTEs()
@@ -85,6 +161,11 @@ func (p *Parser) parseSelect() (*SelectStmt, error) {
 		if err := p.advance(); err != nil {
 			return nil, err
 		}
+	} else if p.cur.IsKeyword("ALL") {
+		// SELECT ALL is the explicit spelling of the default.
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
 	}
 	items, err := p.parseSelectItems()
 	if err != nil {
@@ -101,37 +182,13 @@ func (p *Parser) parseSelect() (*SelectStmt, error) {
 		}
 		s.From = from
 	}
-	if err := p.parseSelectTail(s); err != nil {
+	if err := p.parseSelectClauses(s); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
-// parseFromFirst supports FROM-first pipeline queries:
-//
-//	FROM mongo.orders |> WHERE status = 'paid' |> AGGREGATE count(*) AS n
-func (p *Parser) parseFromFirst() (*SelectStmt, error) {
-	if err := p.advance(); err != nil { // FROM
-		return nil, err
-	}
-	from, err := p.parseFromList()
-	if err != nil {
-		return nil, err
-	}
-	s := &SelectStmt{From: from, Projections: []SelectItem{{Star: true}}}
-	if p.cur.IsPunct("|>") {
-		if err := p.parsePipes(s); err != nil {
-			return nil, err
-		}
-		return s, nil
-	}
-	if err := p.parseSelectTail(s); err != nil {
-		return nil, err
-	}
-	return s, nil
-}
-
-func (p *Parser) parseSelectTail(s *SelectStmt) error {
+func (p *Parser) parseSelectClauses(s *SelectStmt) error {
 	var err error
 	if p.cur.IsKeyword("WHERE") {
 		if err := p.advance(); err != nil {
@@ -160,6 +217,38 @@ func (p *Parser) parseSelectTail(s *SelectStmt) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// parseFromFirst supports FROM-first pipeline queries:
+//
+//	FROM mongo.orders |> WHERE status = 'paid' |> AGGREGATE count(*) AS n
+func (p *Parser) parseFromFirst() (*SelectStmt, error) {
+	if err := p.advance(); err != nil { // FROM
+		return nil, err
+	}
+	from, err := p.parseFromList()
+	if err != nil {
+		return nil, err
+	}
+	s := &SelectStmt{From: from, Projections: []SelectItem{{Star: true}}}
+	if err := p.parseSelectClauses(s); err != nil {
+		return nil, err
+	}
+	if p.cur.IsPunct("|>") {
+		if err := p.parsePipes(s); err != nil {
+			return nil, err
+		}
+		return s, nil
+	}
+	if err := p.parseSelectTail(s); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func (p *Parser) parseSelectTail(s *SelectStmt) error {
+	var err error
 	if p.cur.IsKeyword("ORDER") {
 		if err := p.advance(); err != nil {
 			return err
@@ -183,7 +272,37 @@ func (p *Parser) parseSelectTail(s *SelectStmt) error {
 		if err != nil {
 			return err
 		}
+		if p.cur.IsKeyword("ROW") || p.cur.IsKeyword("ROWS") {
+			if err := p.advance(); err != nil {
+				return err
+			}
+		}
 		s.Offset = &n
+	}
+	if p.cur.IsKeyword("FETCH") {
+		if err := p.advance(); err != nil {
+			return err
+		}
+		if p.cur.IsKeyword("FIRST") || p.cur.IsKeyword("NEXT") {
+			if err := p.advance(); err != nil {
+				return err
+			}
+		}
+		n, err := p.parseIntLiteral("FETCH")
+		if err != nil {
+			return err
+		}
+		if p.cur.IsKeyword("ROW") || p.cur.IsKeyword("ROWS") {
+			if err := p.advance(); err != nil {
+				return err
+			}
+		}
+		if p.cur.IsKeyword("ONLY") {
+			if err := p.advance(); err != nil {
+				return err
+			}
+		}
+		s.Limit = &n
 	}
 	return p.parsePipes(s)
 }
@@ -287,7 +406,7 @@ func (p *Parser) parsePipeStage() (PipeStage, error) {
 			return nil, err
 		}
 		return &PipeDistinct{}, nil
-	case p.cur.IsKeyword("JOIN"), p.cur.IsKeyword("INNER"), p.cur.IsKeyword("LEFT"), p.cur.IsKeyword("RIGHT"), p.cur.IsKeyword("FULL"), p.cur.IsKeyword("CROSS"):
+	case p.cur.IsKeyword("JOIN"), p.cur.IsKeyword("INNER"), p.cur.IsKeyword("LEFT"), p.cur.IsKeyword("RIGHT"), p.cur.IsKeyword("FULL"), p.cur.IsKeyword("CROSS"), p.cur.IsKeyword("NATURAL"):
 		return p.parsePipeJoin()
 	default:
 		return nil, p.errf("unknown pipeline stage starting at %s", p.cur)
@@ -296,6 +415,13 @@ func (p *Parser) parsePipeStage() (PipeStage, error) {
 
 func (p *Parser) parsePipeJoin() (PipeStage, error) {
 	jt := JoinInner
+	natural := false
+	if p.cur.IsKeyword("NATURAL") {
+		natural = true
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+	}
 	switch {
 	case p.cur.IsKeyword("INNER"):
 		if err := p.advance(); err != nil {
@@ -344,7 +470,7 @@ func (p *Parser) parsePipeJoin() (PipeStage, error) {
 	if err != nil {
 		return nil, err
 	}
-	stage := &PipeJoin{Right: right, Type: jt}
+	stage := &PipeJoin{Right: right, Type: jt, Natural: natural}
 	if jt != JoinCross {
 		if p.cur.IsKeyword("ON") {
 			if err := p.advance(); err != nil {
@@ -537,6 +663,13 @@ func (p *Parser) parseTableExpr() (TableExpr, error) {
 	}
 	for {
 		jt := JoinType("")
+		natural := false
+		if p.cur.IsKeyword("NATURAL") && (p.peek.IsKeyword("JOIN") || p.peek.IsKeyword("INNER") || p.peek.IsKeyword("LEFT") || p.peek.IsKeyword("RIGHT") || p.peek.IsKeyword("FULL") || p.peek.IsKeyword("CROSS")) {
+			natural = true
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		}
 		switch {
 		case p.cur.IsKeyword("JOIN"), p.cur.IsKeyword("INNER"):
 			jt = JoinInner
@@ -602,7 +735,7 @@ func (p *Parser) parseTableExpr() (TableExpr, error) {
 		if err != nil {
 			return nil, err
 		}
-		j := &JoinExpr{Left: left, Right: right, Type: jt}
+		j := &JoinExpr{Left: left, Right: right, Type: jt, Natural: natural}
 		if jt != JoinCross {
 			if p.cur.IsKeyword("ON") {
 				if err := p.advance(); err != nil {
@@ -759,6 +892,22 @@ func (p *Parser) parseOrderItems() ([]OrderItem, error) {
 				return nil, err
 			}
 		}
+		if p.cur.IsKeyword("NULLS") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			switch {
+			case p.cur.IsKeyword("FIRST"):
+				item.Nulls = "first"
+			case p.cur.IsKeyword("LAST"):
+				item.Nulls = "last"
+			default:
+				return nil, p.errf("expected FIRST or LAST after NULLS")
+			}
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		}
 		out = append(out, item)
 		if !p.cur.IsPunct(",") {
 			break
@@ -773,6 +922,12 @@ func (p *Parser) parseOrderItems() ([]OrderItem, error) {
 func (p *Parser) parseLimit() (*int, *int, error) {
 	if err := p.expectKeyword("LIMIT"); err != nil {
 		return nil, nil, err
+	}
+	if p.cur.IsKeyword("ALL") {
+		if err := p.advance(); err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, nil
 	}
 	first, err := p.parseIntLiteral("LIMIT")
 	if err != nil {
@@ -1029,6 +1184,19 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 				return nil, err
 			}
 		}
+		if p.cur.IsKeyword("DISTINCT") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if err := p.expectKeyword("FROM"); err != nil {
+				return nil, err
+			}
+			right, err := p.parseExpr(precCompare + 1)
+			if err != nil {
+				return nil, err
+			}
+			return &IsExpr{Left: left, Right: right, What: "distinct", Negated: isNeg}, nil
+		}
 		var what string
 		switch {
 		case p.cur.IsKeyword("NULL"):
@@ -1128,6 +1296,15 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		}
 		return &Literal{Kind: LitNull}, nil
 
+	case t.IsKeyword("EXTRACT"):
+		return p.parseExtract()
+	case t.IsKeyword("POSITION"):
+		return p.parsePosition()
+	case t.IsKeyword("SUBSTRING"), t.IsKeyword("SUBSTR"):
+		if p.peek.IsPunct("(") {
+			return p.parseSubstring()
+		}
+		return nil, p.errf("expected '(' after %s", strings.ToUpper(t.Value))
 	case t.IsKeyword("CASE"):
 		return p.parseCase()
 
@@ -1197,7 +1374,33 @@ func (p *Parser) parsePrimary() (Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			return &FuncCall{Name: name, Args: args, Distinct: distinct}, nil
+			fn := &FuncCall{Name: name, Args: args, Distinct: distinct}
+			if p.cur.IsKeyword("FILTER") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+				if err := p.expectPunct("("); err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("WHERE"); err != nil {
+					return nil, err
+				}
+				if fn.Filter, err = p.parseExpr(0); err != nil {
+					return nil, err
+				}
+				if err := p.expectPunct(")"); err != nil {
+					return nil, err
+				}
+			}
+			if p.cur.IsKeyword("OVER") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+				if fn.Window, err = p.parseWindowSpec(); err != nil {
+					return nil, err
+				}
+			}
+			return fn, nil
 		}
 		parts, err := p.parseQualifiedName()
 		if err != nil {
@@ -1207,6 +1410,122 @@ func (p *Parser) parsePrimary() (Expr, error) {
 	}
 
 	return nil, p.errf("expected expression, got %s", t)
+}
+
+func (p *Parser) parseWindowSpec() (*WindowSpec, error) {
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+	w := &WindowSpec{}
+	if p.cur.IsKeyword("PARTITION") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		if err := p.expectKeyword("BY"); err != nil {
+			return nil, err
+		}
+		var err error
+		if w.PartitionBy, err = p.parseExprList(); err != nil {
+			return nil, err
+		}
+	}
+	if p.cur.IsKeyword("ORDER") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		if err := p.expectKeyword("BY"); err != nil {
+			return nil, err
+		}
+		var err error
+		if w.OrderBy, err = p.parseOrderItems(); err != nil {
+			return nil, err
+		}
+	}
+	if p.cur.IsKeyword("ROWS") || p.cur.IsKeyword("RANGE") {
+		w.FrameKind = strings.ToUpper(p.cur.Value)
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		if p.cur.IsKeyword("BETWEEN") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			start, off, err := p.parseFrameBound()
+			if err != nil {
+				return nil, err
+			}
+			w.FrameStart, w.FrameStartOffset = start, off
+			if err := p.expectKeyword("AND"); err != nil {
+				return nil, err
+			}
+			end, off, err := p.parseFrameBound()
+			if err != nil {
+				return nil, err
+			}
+			w.FrameEnd, w.FrameEndOffset = end, off
+		} else {
+			start, off, err := p.parseFrameBound()
+			if err != nil {
+				return nil, err
+			}
+			w.FrameStart, w.FrameStartOffset = start, off
+			w.FrameEnd = "current_row"
+		}
+	}
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	return w, nil
+}
+
+func (p *Parser) parseFrameBound() (string, int, error) {
+	if p.cur.IsKeyword("UNBOUNDED") {
+		if err := p.advance(); err != nil {
+			return "", 0, err
+		}
+		switch {
+		case p.cur.IsKeyword("PRECEDING"):
+			if err := p.advance(); err != nil {
+				return "", 0, err
+			}
+			return "unbounded_preceding", 0, nil
+		case p.cur.IsKeyword("FOLLOWING"):
+			if err := p.advance(); err != nil {
+				return "", 0, err
+			}
+			return "unbounded_following", 0, nil
+		}
+		return "", 0, p.errf("expected PRECEDING or FOLLOWING after UNBOUNDED")
+	}
+	if p.cur.IsKeyword("CURRENT") {
+		if err := p.advance(); err != nil {
+			return "", 0, err
+		}
+		if err := p.expectKeyword("ROW"); err != nil {
+			return "", 0, err
+		}
+		return "current_row", 0, nil
+	}
+	if p.cur.Kind != TokNumber {
+		return "", 0, p.errf("expected a frame bound")
+	}
+	n, err := p.parseIntLiteral("frame bound")
+	if err != nil {
+		return "", 0, err
+	}
+	switch {
+	case p.cur.IsKeyword("PRECEDING"):
+		if err := p.advance(); err != nil {
+			return "", 0, err
+		}
+		return "preceding", n, nil
+	case p.cur.IsKeyword("FOLLOWING"):
+		if err := p.advance(); err != nil {
+			return "", 0, err
+		}
+		return "following", n, nil
+	}
+	return "", 0, p.errf("expected PRECEDING or FOLLOWING after frame offset")
 }
 
 func (p *Parser) parseCallArgs() ([]Expr, error) {
@@ -1259,6 +1578,103 @@ func (p *Parser) parseCallArgsDistinct() ([]Expr, bool, error) {
 		return nil, false, err
 	}
 	return args, distinct, nil
+}
+
+func (p *Parser) parseExtract() (Expr, error) {
+	if err := p.advance(); err != nil { // EXTRACT
+		return nil, err
+	}
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+	part, err := p.parseIdent()
+	if err != nil {
+		return nil, err
+	}
+	if err := p.expectKeyword("FROM"); err != nil {
+		return nil, err
+	}
+	e, err := p.parseExpr(0)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	return &FuncCall{Name: "extract", Args: []Expr{&Literal{Kind: LitString, Value: part}, e}}, nil
+}
+
+func (p *Parser) parsePosition() (Expr, error) {
+	if err := p.advance(); err != nil { // POSITION
+		return nil, err
+	}
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+	sub, err := p.parseExpr(precCompare + 1)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.expectKeyword("IN"); err != nil {
+		return nil, err
+	}
+	str, err := p.parseExpr(0)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	return &FuncCall{Name: "position", Args: []Expr{sub, str}}, nil
+}
+
+func (p *Parser) parseSubstring() (Expr, error) {
+	if err := p.advance(); err != nil { // SUBSTRING
+		return nil, err
+	}
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+	str, err := p.parseExpr(0)
+	if err != nil {
+		return nil, err
+	}
+	args := []Expr{str}
+	if p.cur.IsKeyword("FROM") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		start, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, start)
+		if p.cur.IsKeyword("FOR") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			length, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, length)
+		}
+	} else if p.cur.IsPunct(",") {
+		for p.cur.IsPunct(",") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			a, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, a)
+		}
+	}
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	return &FuncCall{Name: "substring", Args: args}, nil
 }
 
 func (p *Parser) parseCase() (Expr, error) {
@@ -1521,7 +1937,7 @@ func isClauseKeyword(s string) bool {
 	case "FROM", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT",
 		"JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "ON", "USING",
 		"AND", "OR", "NOT", "IS", "IN", "LIKE", "ILIKE", "BETWEEN", "WHEN", "THEN", "ELSE", "END",
-		"ASC", "DESC", "AS", "BY", "SELECT", "DISTINCT", "AGGREGATE", "FILTER", "PIPE":
+		"ASC", "DESC", "NULLS", "FIRST", "LAST", "AS", "BY", "SELECT", "DISTINCT", "ALL", "AGGREGATE", "FILTER", "OVER", "PARTITION", "ROWS", "RANGE", "UNBOUNDED", "PRECEDING", "FOLLOWING", "CURRENT", "ROW", "FETCH", "ONLY", "PIPE":
 		return true
 	}
 	return false

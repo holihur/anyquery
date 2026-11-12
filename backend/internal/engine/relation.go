@@ -52,7 +52,7 @@ func (ec *execCtx) relationForTableExpr(te sql.TableExpr) (*relation, error) {
 		if err != nil {
 			return nil, err
 		}
-		return ec.joinRelations(left, right, t.Type, t.On, t.Using)
+		return ec.joinRelations(left, right, t.Type, t.On, t.Using, t.Natural)
 	default:
 		return nil, errf("unsupported", "unsupported table expression %T", te)
 	}
@@ -306,7 +306,7 @@ func (r *relation) columnNames() []string {
 	return names
 }
 
-func (ec *execCtx) joinRelations(left, right *relation, typ sql.JoinType, on sql.Expr, using []string) (*relation, error) {
+func (ec *execCtx) joinRelations(left, right *relation, typ sql.JoinType, on sql.Expr, using []string, natural bool) (*relation, error) {
 	combined := &relation{
 		fields: append(append([]field{}, left.fields...), right.fields...),
 	}
@@ -329,6 +329,14 @@ func (ec *execCtx) joinRelations(left, right *relation, typ sql.JoinType, on sql
 		}
 	}
 
+	if natural {
+		using = naturalJoinColumns(left, right)
+		on = nil
+	}
+	if len(using) == 0 && natural {
+		// SQL NATURAL JOIN with no common columns degenerates to a cross join.
+		typ = sql.JoinCross
+	}
 	var usingPairs [][2]field
 	for _, name := range using {
 		lf, lok := findFieldByName(left, name)
@@ -367,7 +375,7 @@ func (ec *execCtx) joinRelations(left, right *relation, typ sql.JoinType, on sql
 						}
 					}
 				} else if on != nil {
-					ctx := &evalCtx{rel: combined, row: row}
+					ctx := &evalCtx{rel: combined, row: row, outer: ec.outerEval, exec: ec}
 					v, err := evalExpr(ctx, on)
 					if err != nil {
 						return nil, err
@@ -460,7 +468,7 @@ func (ec *execCtx) hashJoin(combined, left, right *relation, typ sql.JoinType, o
 			rr := right.rows[ri]
 			row := mergeRows(lr, rr, combined.fields)
 			if on != nil {
-				ctx := &evalCtx{rel: combined, row: row}
+				ctx := &evalCtx{rel: combined, row: row, outer: ec.outerEval, exec: ec}
 				v, err := evalExpr(ctx, on)
 				if err != nil {
 					return err
@@ -478,6 +486,23 @@ func (ec *execCtx) hashJoin(combined, left, right *relation, typ sql.JoinType, o
 		}
 	}
 	return nil
+}
+
+func naturalJoinColumns(left, right *relation) []string {
+	leftNames := map[string]bool{}
+	for _, f := range left.fields {
+		leftNames[strings.ToLower(f.Name)] = true
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, f := range right.fields {
+		name := strings.ToLower(f.Name)
+		if leftNames[name] && !seen[name] {
+			seen[name] = true
+			out = append(out, f.Name)
+		}
+	}
+	return out
 }
 
 // splitAnd flattens AND expressions for equi-key detection.

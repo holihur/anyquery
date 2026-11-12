@@ -28,6 +28,7 @@ type SelectStmt struct {
 	OrderBy     []OrderItem
 	Limit       *int
 	Offset      *int
+	SetOps      []SetOperation
 	Pipes       []PipeStage
 }
 
@@ -40,8 +41,9 @@ type CTE struct {
 	Query   *SelectStmt
 }
 
-// SetOperation is reserved for UNION support.
+// SetOperation is a UNION / INTERSECT / EXCEPT term.
 type SetOperation struct {
+	Op    string // UNION, INTERSECT, EXCEPT
 	All   bool
 	Right *SelectStmt
 }
@@ -80,8 +82,9 @@ type SelectItem struct {
 
 // OrderItem is one ORDER BY term.
 type OrderItem struct {
-	Expr Expr
-	Desc bool
+	Expr  Expr
+	Desc  bool
+	Nulls string // "", "first" or "last"
 }
 
 // TableExpr is a node in the FROM tree.
@@ -120,11 +123,12 @@ const (
 
 // JoinExpr joins two table expressions.
 type JoinExpr struct {
-	Left  TableExpr
-	Right TableExpr
-	Type  JoinType
-	On    Expr
-	Using []string
+	Left    TableExpr
+	Right   TableExpr
+	Type    JoinType
+	On      Expr
+	Using   []string
+	Natural bool
 }
 
 func (*JoinExpr) tableNode() {}
@@ -164,10 +168,11 @@ type PipeLimit struct {
 func (*PipeLimit) pipeNode() {}
 
 type PipeJoin struct {
-	Right TableExpr
-	Type  JoinType
-	On    Expr
-	Using []string
+	Right   TableExpr
+	Type    JoinType
+	On      Expr
+	Using   []string
+	Natural bool
 }
 
 func (*PipeJoin) pipeNode() {}
@@ -255,7 +260,8 @@ func (*BetweenExpr) exprNode() {}
 
 type IsExpr struct {
 	Left    Expr
-	What    string // null, true, false, unknown
+	Right   Expr   // set for IS [NOT] DISTINCT FROM
+	What    string // null, true, false, unknown, distinct
 	Negated bool
 }
 
@@ -266,6 +272,21 @@ type FuncCall struct {
 	Args     []Expr
 	Star     bool
 	Distinct bool
+	Filter   Expr
+	Window   *WindowSpec
+}
+
+// WindowSpec is an OVER (...) clause. FrameStart/FrameEnd use the values
+// unbounded_preceding, current_row, unbounded_following, preceding, following;
+// FrameOffset is meaningful for the last two.
+type WindowSpec struct {
+	PartitionBy      []Expr
+	OrderBy          []OrderItem
+	FrameKind        string // "", ROWS or RANGE
+	FrameStart       string
+	FrameStartOffset int
+	FrameEnd         string
+	FrameEndOffset   int
 }
 
 func (*FuncCall) exprNode() {}
@@ -397,22 +418,84 @@ func (i *IsExpr) String() string {
 	if i.Negated {
 		op = " IS NOT "
 	}
+	if i.What == "distinct" {
+		return "(" + i.Left.String() + op + "DISTINCT FROM " + i.Right.String() + ")"
+	}
 	return "(" + i.Left.String() + op + strings.ToUpper(i.What) + ")"
 }
 
 func (f *FuncCall) String() string {
+	if strings.EqualFold(f.Name, "extract") && len(f.Args) == 2 {
+		part := f.Args[0].String()
+		if lit, ok := f.Args[0].(*Literal); ok && lit.Kind == LitString {
+			part = fmt.Sprint(lit.Value)
+		}
+		return "extract(" + part + " FROM " + f.Args[1].String() + ")"
+	}
+	if strings.EqualFold(f.Name, "position") && len(f.Args) == 2 {
+		return "position(" + f.Args[0].String() + " IN " + f.Args[1].String() + ")"
+	}
+	var out string
 	if f.Star {
-		return f.Name + "(*)"
+		out = f.Name + "(*)"
+	} else {
+		args := make([]string, len(f.Args))
+		for i, a := range f.Args {
+			args[i] = a.String()
+		}
+		prefix := ""
+		if f.Distinct {
+			prefix = "DISTINCT "
+		}
+		out = f.Name + "(" + prefix + strings.Join(args, ", ") + ")"
 	}
-	args := make([]string, len(f.Args))
-	for i, a := range f.Args {
-		args[i] = a.String()
+	if f.Filter != nil {
+		out += " FILTER (WHERE " + f.Filter.String() + ")"
 	}
-	prefix := ""
-	if f.Distinct {
-		prefix = "DISTINCT "
+	if f.Window != nil {
+		out += " OVER (" + f.Window.String() + ")"
 	}
-	return f.Name + "(" + prefix + strings.Join(args, ", ") + ")"
+	return out
+}
+
+func (w *WindowSpec) String() string {
+	var parts []string
+	if len(w.PartitionBy) > 0 {
+		exprs := make([]string, len(w.PartitionBy))
+		for i, e := range w.PartitionBy {
+			exprs[i] = e.String()
+		}
+		parts = append(parts, "PARTITION BY "+strings.Join(exprs, ", "))
+	}
+	if len(w.OrderBy) > 0 {
+		parts = append(parts, "ORDER BY "+formatOrder(w.OrderBy))
+	}
+	if w.FrameKind != "" {
+		frame := w.FrameKind
+		if w.FrameEnd != "" {
+			frame += " BETWEEN " + formatFrameBound(w.FrameStart, w.FrameStartOffset) + " AND " + formatFrameBound(w.FrameEnd, w.FrameEndOffset)
+		} else {
+			frame += " " + formatFrameBound(w.FrameStart, w.FrameStartOffset)
+		}
+		parts = append(parts, frame)
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatFrameBound(kind string, offset int) string {
+	switch kind {
+	case "unbounded_preceding":
+		return "UNBOUNDED PRECEDING"
+	case "current_row":
+		return "CURRENT ROW"
+	case "unbounded_following":
+		return "UNBOUNDED FOLLOWING"
+	case "preceding":
+		return fmt.Sprintf("%d PRECEDING", offset)
+	case "following":
+		return fmt.Sprintf("%d FOLLOWING", offset)
+	}
+	return kind
 }
 
 func (c *CaseExpr) String() string {
@@ -505,6 +588,14 @@ func FormatSelect(s *SelectStmt) string {
 	if s.Having != nil {
 		sb.WriteString(" HAVING " + s.Having.String())
 	}
+	for _, op := range s.SetOps {
+		sb.WriteString(" " + strings.ToUpper(op.Op))
+		if op.All {
+			sb.WriteString(" ALL")
+		}
+		sb.WriteString(" ")
+		sb.WriteString(FormatSelect(op.Right))
+	}
 	if len(s.OrderBy) > 0 {
 		sb.WriteString(" ORDER BY ")
 		sb.WriteString(formatOrder(s.OrderBy))
@@ -529,6 +620,9 @@ func formatOrder(items []OrderItem) string {
 		if o.Desc {
 			parts[i] += " DESC"
 		}
+		if o.Nulls != "" {
+			parts[i] += " NULLS " + strings.ToUpper(o.Nulls)
+		}
 	}
 	return strings.Join(parts, ", ")
 }
@@ -548,7 +642,11 @@ func FormatTableExpr(t TableExpr) string {
 		}
 		return s
 	case *JoinExpr:
-		s := FormatTableExpr(x.Left) + " " + strings.ToUpper(string(x.Type)) + " JOIN " + FormatTableExpr(x.Right)
+		prefix := ""
+		if x.Natural {
+			prefix = "NATURAL "
+		}
+		s := FormatTableExpr(x.Left) + " " + prefix + strings.ToUpper(string(x.Type)) + " JOIN " + FormatTableExpr(x.Right)
 		if x.On != nil {
 			s += " ON " + x.On.String()
 		}
@@ -596,12 +694,16 @@ func FormatPipe(p PipeStage) string {
 		}
 		return fmt.Sprintf("LIMIT %d", x.Limit)
 	case *PipeJoin:
-		s := strings.ToUpper(string(x.Type)) + " JOIN " + FormatTableExpr(x.Right)
+		prefix := ""
+		if x.Natural {
+			prefix = "NATURAL "
+		}
+		s := prefix + strings.ToUpper(string(x.Type)) + " JOIN " + FormatTableExpr(x.Right)
 		if x.On != nil {
 			s += " ON " + x.On.String()
 		}
 		if len(x.Using) > 0 {
-			s = strings.ToUpper(string(x.Type)) + " JOIN " + FormatTableExpr(x.Right) + " USING (" + strings.Join(x.Using, ", ") + ")"
+			s = prefix + strings.ToUpper(string(x.Type)) + " JOIN " + FormatTableExpr(x.Right) + " USING (" + strings.Join(x.Using, ", ") + ")"
 		}
 		return s
 	case *PipeDistinct:
@@ -655,11 +757,31 @@ func WalkExpr(e Expr, fn func(Expr) bool) bool {
 	case *BetweenExpr:
 		return WalkExpr(x.Left, fn) && WalkExpr(x.Low, fn) && WalkExpr(x.High, fn)
 	case *IsExpr:
-		return WalkExpr(x.Left, fn)
+		if !WalkExpr(x.Left, fn) {
+			return false
+		}
+		if x.Right != nil {
+			return WalkExpr(x.Right, fn)
+		}
 	case *FuncCall:
 		for _, a := range x.Args {
 			if !WalkExpr(a, fn) {
 				return false
+			}
+		}
+		if x.Filter != nil && !WalkExpr(x.Filter, fn) {
+			return false
+		}
+		if x.Window != nil {
+			for _, e := range x.Window.PartitionBy {
+				if !WalkExpr(e, fn) {
+					return false
+				}
+			}
+			for _, o := range x.Window.OrderBy {
+				if !WalkExpr(o.Expr, fn) {
+					return false
+				}
 			}
 		}
 	case *CaseExpr:
@@ -684,7 +806,7 @@ func WalkExpr(e Expr, fn func(Expr) bool) bool {
 func ContainsAggregate(e Expr) bool {
 	found := false
 	WalkExpr(e, func(x Expr) bool {
-		if f, ok := x.(*FuncCall); ok && IsAggregate(f.Name) {
+		if f, ok := x.(*FuncCall); ok && f.Window == nil && IsAggregate(f.Name) {
 			found = true
 			return false
 		}
@@ -692,6 +814,9 @@ func ContainsAggregate(e Expr) bool {
 	})
 	return found
 }
+
+// IsWindow reports whether f is a window function call.
+func IsWindow(f *FuncCall) bool { return f != nil && f.Window != nil }
 
 // IsAggregate reports whether name is an aggregate function.
 func IsAggregate(name string) bool {

@@ -229,3 +229,160 @@ func TestNumericCrossSourceJoin(t *testing.T) {
 		t.Fatalf("rows = %+v", res.Rows)
 	}
 }
+
+func TestUnionAndOrder(t *testing.T) {
+	res := run(t, `SELECT region FROM mongo.orders WHERE status = 'paid'
+UNION
+SELECT region FROM mongo.customers
+ORDER BY region`)
+	if res.RowCount != 2 {
+		t.Fatalf("rows = %d %+v", res.RowCount, res.Rows)
+	}
+	if res.Rows[0]["region"] != "EU" || res.Rows[1]["region"] != "US" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestUnionAllKeepsDuplicates(t *testing.T) {
+	res := run(t, `SELECT region FROM mongo.orders WHERE status = 'paid'
+UNION ALL SELECT region FROM mongo.orders WHERE status = 'paid'`)
+	if res.RowCount != 6 {
+		t.Fatalf("rows = %d", res.RowCount)
+	}
+}
+
+func TestIntersectAndExcept(t *testing.T) {
+	res := run(t, `SELECT region FROM mongo.orders INTERSECT SELECT region FROM mongo.customers ORDER BY region`)
+	if res.RowCount != 2 {
+		t.Fatalf("intersect rows = %d %+v", res.RowCount, res.Rows)
+	}
+	res = run(t, `SELECT region FROM mongo.orders EXCEPT SELECT region FROM mongo.customers ORDER BY region`)
+	if res.RowCount != 0 {
+		t.Fatalf("except rows = %d %+v", res.RowCount, res.Rows)
+	}
+}
+
+func TestScalarAndInSubqueries(t *testing.T) {
+	res := run(t, `SELECT name FROM mongo.customers WHERE id IN (SELECT customer_id FROM mongo.orders WHERE total > 100) ORDER BY name`)
+	if res.RowCount != 1 || res.Rows[0]["name"] != "Acme" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	res = run(t, `SELECT name, (SELECT count(*) FROM mongo.orders o WHERE o.customer_id = c.id) AS n FROM mongo.customers c ORDER BY name`)
+	if res.RowCount != 2 || res.Rows[0]["n"] != int64(3) || res.Rows[1]["n"] != int64(1) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestExistsSubquery(t *testing.T) {
+	res := run(t, `SELECT name FROM mongo.customers c WHERE EXISTS (SELECT 1 FROM mongo.orders o WHERE o.customer_id = c.id AND o.status = 'refunded') ORDER BY name`)
+	if res.RowCount != 1 || res.Rows[0]["name"] != "Acme" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestWindowFunctions(t *testing.T) {
+	res := run(t, `SELECT region, total,
+  row_number() OVER (PARTITION BY region ORDER BY total DESC) AS rn,
+  rank() OVER (PARTITION BY region ORDER BY total DESC) AS rnk,
+  dense_rank() OVER (PARTITION BY region ORDER BY total DESC) AS dr,
+  sum(total) OVER (PARTITION BY region ORDER BY total) AS running,
+  lag(total) OVER (PARTITION BY region ORDER BY total) AS prev,
+  lead(total) OVER (PARTITION BY region ORDER BY total) AS next
+FROM mongo.orders ORDER BY region, total`)
+	if res.RowCount != 4 {
+		t.Fatalf("rows = %d", res.RowCount)
+	}
+	// EU rows: 50, 100. US rows: 25, 200.
+	eu := res.Rows[0]
+	if eu["region"] != "EU" || eu["rn"] != int64(2) || eu["running"] != 50.0 || eu["prev"] != nil || eu["next"] != 100.0 {
+		t.Fatalf("eu row = %+v", eu)
+	}
+	eu2 := res.Rows[1]
+	if eu2["running"] != 150.0 || eu2["prev"] != 50.0 || eu2["next"] != nil {
+		t.Fatalf("eu2 row = %+v", eu2)
+	}
+}
+
+func TestWindowNoOrderAndCount(t *testing.T) {
+	res := run(t, `SELECT region, count(*) OVER (PARTITION BY region) AS n, count(*) OVER () AS all_n FROM mongo.orders ORDER BY region LIMIT 1`)
+	if res.Rows[0]["n"] != int64(2) || res.Rows[0]["all_n"] != int64(4) {
+		t.Fatalf("row = %+v", res.Rows[0])
+	}
+}
+
+func TestNaturalJoinAndNullsOrder(t *testing.T) {
+	res := run(t, `SELECT count(*) AS n FROM mongo.orders NATURAL JOIN mongo.customers`)
+	if res.Rows[0]["n"] != int64(1) {
+		t.Fatalf("natural join = %+v", res.Rows)
+	}
+	res = run(t, `SELECT region FROM mongo.orders ORDER BY region NULLS FIRST`)
+	if res.Rows[0]["region"] != "EU" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestAggregateFilter(t *testing.T) {
+	res := run(t, `SELECT region, count(*) AS all_n, count(*) FILTER (WHERE status = 'paid') AS paid_n, sum(total) FILTER (WHERE status = 'paid') AS paid_sum
+FROM mongo.orders GROUP BY region ORDER BY region`)
+	if res.Rows[0]["all_n"] != int64(2) || res.Rows[0]["paid_n"] != int64(2) || res.Rows[0]["paid_sum"] != 150.0 {
+		t.Fatalf("EU = %+v", res.Rows[0])
+	}
+	if res.Rows[1]["paid_n"] != int64(1) || res.Rows[1]["paid_sum"] != 25.0 {
+		t.Fatalf("US = %+v", res.Rows[1])
+	}
+}
+
+func TestSQLFunctionsAndFetch(t *testing.T) {
+	res := run(t, `SELECT extract(year FROM '2024-05-06T07:08:09Z') AS y,
+	date_part('month', '2024-05-06T07:08:09Z') AS m,
+	date_add('day', 2, '2024-05-06T07:08:09Z') AS d,
+	position('cd' IN 'abcdef') AS pos,
+	substring('abcdef' FROM 2 FOR 3) AS sub,
+	regexp_replace('a-b-c', '-', '/') AS rep
+	FETCH FIRST 1 ROWS ONLY`)
+	if res.Rows[0]["y"] != int64(2024) || res.Rows[0]["m"] != int64(5) || res.Rows[0]["pos"] != int64(3) || res.Rows[0]["sub"] != "bcd" || res.Rows[0]["rep"] != "a/b/c" {
+		t.Fatalf("row = %+v", res.Rows[0])
+	}
+}
+
+func TestOrderByOrdinalAndNulls(t *testing.T) {
+	res := run(t, `SELECT region, total, CASE WHEN total > 100 THEN NULL ELSE total END AS maybe
+FROM mongo.orders ORDER BY 3 NULLS FIRST, 1`)
+	if res.Rows[0]["maybe"] != nil {
+		t.Fatalf("expected null first: %+v", res.Rows)
+	}
+}
+
+func TestIsDistinctFrom(t *testing.T) {
+	res := run(t, `SELECT count(*) AS n FROM mongo.orders o
+JOIN mongo.customers c ON o.customer_id = c.id
+WHERE o.region IS DISTINCT FROM c.region`)
+	if res.Rows[0]["n"] != int64(1) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	res = run(t, `SELECT (NULL IS NOT DISTINCT FROM NULL) AS same, (1 IS DISTINCT FROM 2) AS diff`)
+	if res.Rows[0]["same"] != true || res.Rows[0]["diff"] != true {
+		t.Fatalf("row = %+v", res.Rows[0])
+	}
+}
+
+func TestSetOperationPrecedence(t *testing.T) {
+	res := run(t, `SELECT region FROM mongo.orders
+UNION
+SELECT region FROM mongo.customers INTERSECT SELECT region FROM mongo.customers WHERE region = 'EU'
+ORDER BY region`)
+	if res.RowCount != 2 || res.Rows[0]["region"] != "EU" || res.Rows[1]["region"] != "US" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestGroupByAliasAndOrdinal(t *testing.T) {
+	res := run(t, `SELECT region AS r, count(*) AS n FROM mongo.orders GROUP BY r ORDER BY r`)
+	if res.RowCount != 2 || res.Rows[0]["r"] != "EU" || res.Rows[0]["n"] != int64(2) {
+		t.Fatalf("alias group = %+v", res.Rows)
+	}
+	res = run(t, `SELECT region, count(*) AS n FROM mongo.orders GROUP BY 1 ORDER BY 1`)
+	if res.RowCount != 2 || res.Rows[0]["region"] != "EU" {
+		t.Fatalf("ordinal group = %+v", res.Rows)
+	}
+}

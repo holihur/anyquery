@@ -68,7 +68,7 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 			if err != nil {
 				return nil, err
 			}
-			rel, err = ec.joinRelations(rel, right, sql.JoinCross, nil, nil)
+			rel, err = ec.joinRelations(rel, right, sql.JoinCross, nil, nil, false)
 			if err != nil {
 				return nil, err
 			}
@@ -79,7 +79,7 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 	if s.Where != nil {
 		var filtered []map[string]any
 		for _, row := range rel.rows {
-			ctx := &evalCtx{rel: rel, row: row}
+			ctx := &evalCtx{rel: rel, row: row, outer: ec.outerEval, exec: ec}
 			v, err := evalExpr(ctx, s.Where)
 			if err != nil {
 				return nil, err
@@ -107,6 +107,22 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 		}
 	}
 
+	windowCalls, winErr := collectWindowCalls(s.Projections, s.OrderBy)
+	if winErr != nil {
+		return nil, winErr
+	}
+	if len(windowCalls) > 0 && hasAgg {
+		return nil, &Error{Code: "invalid_window", Message: "window functions cannot be combined with GROUP BY or aggregate projections", Hint: "compute the aggregate in a CTE, then apply the window in an outer SELECT"}
+	}
+	var windowValues []map[string]any
+	if len(windowCalls) > 0 {
+		windowValues, winErr = ec.computeWindows(rel, windowCalls)
+		if winErr != nil {
+			return nil, winErr
+		}
+		ec.stage("window")
+	}
+
 	var plan *plannedProjection
 	var err error
 	if hasAgg {
@@ -126,22 +142,20 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 		ec.stage("project")
 	}
 
-	type evalRow struct {
-		out   map[string]any
-		first map[string]any
-		group []map[string]any
-	}
-
 	var rows []evalRow
 	if hasAgg {
-		groupItems, err := buildGroupPlans(rel, s.GroupBy)
+		groupBy, err := resolveGroupBy(s)
+		if err != nil {
+			return nil, err
+		}
+		groupItems, err := buildGroupPlans(rel, groupBy)
 		if err != nil {
 			return nil, err
 		}
 		groups := map[string][]map[string]any{}
 		var order []string
 		for _, row := range rel.rows {
-			ctx := &evalCtx{rel: rel, row: row}
+			ctx := &evalCtx{rel: rel, row: row, outer: ec.outerEval, exec: ec}
 			vals := make([]any, len(groupItems))
 			for i, g := range groupItems {
 				v, err := evalExpr(ctx, g.expr)
@@ -170,7 +184,7 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 				first = groupRows[0]
 			}
 			out := make(map[string]any, len(plan.items))
-			ctx := &evalCtx{rel: rel, row: first, group: groupRows}
+			ctx := &evalCtx{rel: rel, row: first, group: groupRows, outer: ec.outerEval, exec: ec}
 			for _, item := range plan.items {
 				v, err := evalExpr(ctx, item.expr)
 				if err != nil {
@@ -181,9 +195,13 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 			rows = append(rows, evalRow{out: out, first: first, group: groupRows})
 		}
 	} else {
-		for _, row := range rel.rows {
+		for ri, row := range rel.rows {
 			out := make(map[string]any, len(plan.items))
-			ctx := &evalCtx{rel: rel, row: row}
+			var windows map[string]any
+			if windowValues != nil {
+				windows = windowValues[ri]
+			}
+			ctx := &evalCtx{rel: rel, row: row, outer: ec.outerEval, exec: ec, windows: windows}
 			for _, item := range plan.items {
 				var v any
 				if item.star {
@@ -197,7 +215,7 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 				}
 				out[item.key] = v
 			}
-			rows = append(rows, evalRow{out: out, first: row})
+			rows = append(rows, evalRow{out: out, first: row, windows: windows})
 		}
 	}
 
@@ -205,7 +223,7 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 	if s.Having != nil {
 		filtered := rows[:0]
 		for _, r := range rows {
-			ctx := &evalCtx{rel: rel, row: r.first, aliases: r.out, group: r.group}
+			ctx := &evalCtx{rel: rel, row: r.first, aliases: r.out, group: r.group, outer: ec.outerEval, exec: ec}
 			v, err := evalExpr(ctx, s.Having)
 			if err != nil {
 				return nil, err
@@ -218,7 +236,25 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 		ec.stage("having")
 	}
 
-	// ORDER BY.
+	// DISTINCT applies per SELECT term, before set operations.
+	columns := make([]ResultColumn, len(plan.cols))
+	copy(columns, plan.cols)
+	if s.Distinct {
+		rows = distinctEvalRows(rows, columns)
+		ec.stage("distinct")
+	}
+
+	// UNION / INTERSECT / EXCEPT combine complete SELECT terms.
+	if len(s.SetOps) > 0 {
+		var err error
+		rows, columns, err = ec.applySetOps(s, rows, columns)
+		if err != nil {
+			return nil, err
+		}
+		ec.stage("set-op")
+	}
+
+	// ORDER BY applies to the combined result.
 	if len(s.OrderBy) > 0 {
 		type sortRow struct {
 			r    evalRow
@@ -228,7 +264,14 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 		for i, r := range rows {
 			keys := make([]any, len(s.OrderBy))
 			for j, o := range s.OrderBy {
-				ctx := &evalCtx{rel: rel, row: r.first, aliases: r.out, group: r.group}
+				ctx := &evalCtx{rel: rel, row: r.first, aliases: r.out, group: r.group, outer: ec.outerEval, exec: ec, windows: r.windows}
+				if n, ok := orderOrdinal(o.Expr); ok {
+					if n < 1 || n > len(columns) {
+						return nil, errf("invalid_order", "ORDER BY position %d is out of range", n)
+					}
+					keys[j] = valuesInColumnOrder(r.out, columns)[n-1]
+					continue
+				}
 				v, err := evalExpr(ctx, o.Expr)
 				if err != nil {
 					return nil, err
@@ -244,24 +287,6 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 			rows[i] = sortable[i].r
 		}
 		ec.stage("sort")
-	}
-
-	// DISTINCT (before final LIMIT).
-	columns := make([]ResultColumn, len(plan.cols))
-	copy(columns, plan.cols)
-	if s.Distinct {
-		seen := map[string]bool{}
-		deduped := rows[:0]
-		for _, r := range rows {
-			key := canonicalValues(valuesInColumnOrder(r.out, columns))
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			deduped = append(deduped, r)
-		}
-		rows = deduped
-		ec.stage("distinct")
 	}
 
 	// LIMIT / OFFSET.
@@ -286,6 +311,173 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 		return ec.applyPipes(ds, s.Pipes)
 	}
 	return ds, nil
+}
+
+type evalRow struct {
+	out     map[string]any
+	first   map[string]any
+	group   []map[string]any
+	windows map[string]any
+}
+
+func orderOrdinal(e sql.Expr) (int, bool) {
+	lit, ok := e.(*sql.Literal)
+	if !ok || lit.Kind != sql.LitInt {
+		return 0, false
+	}
+	n, ok := lit.Value.(int64)
+	if !ok || n <= 0 {
+		return 0, false
+	}
+	return int(n), true
+}
+
+func distinctEvalRows(rows []evalRow, columns []ResultColumn) []evalRow {
+	seen := map[string]bool{}
+	out := rows[:0]
+	for _, r := range rows {
+		key := canonicalValues(valuesInColumnOrder(r.out, columns))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, r)
+	}
+	return out
+}
+
+func (ec *execCtx) applySetOps(s *sql.SelectStmt, leftRows []evalRow, columns []ResultColumn) ([]evalRow, []ResultColumn, error) {
+	current := leftRows
+	for _, op := range s.SetOps {
+		right, err := ec.executeSelect(op.Right)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(right.columns) != len(columns) {
+			return nil, nil, errf("set_operation_error", "%s requires both sides to return the same number of columns (%d vs %d)", op.Op, len(columns), len(right.columns))
+		}
+		rightRows := make([]evalRow, 0, len(right.rows))
+		for _, rr := range right.rows {
+			m := make(map[string]any, len(columns))
+			for i, col := range columns {
+				m[strings.ToLower(col.Name)] = rr[strings.ToLower(right.columns[i].Name)]
+			}
+			rightRows = append(rightRows, evalRow{out: m, first: m})
+		}
+		current, err = combineSetRows(strings.ToUpper(op.Op), op.All, current, rightRows, columns)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return current, columns, nil
+}
+
+func combineSetRows(op string, all bool, left, right []evalRow, columns []ResultColumn) ([]evalRow, error) {
+	keyOf := func(r evalRow) string { return canonicalValues(valuesInColumnOrder(r.out, columns)) }
+	switch op {
+	case "UNION":
+		if all {
+			return append(append([]evalRow{}, left...), right...), nil
+		}
+		seen := map[string]bool{}
+		out := make([]evalRow, 0, len(left)+len(right))
+		for _, r := range append(append([]evalRow{}, left...), right...) {
+			k := keyOf(r)
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			out = append(out, r)
+		}
+		return out, nil
+	case "INTERSECT":
+		rightCount := map[string]int{}
+		for _, r := range right {
+			rightCount[keyOf(r)]++
+		}
+		if all {
+			out := make([]evalRow, 0)
+			for _, r := range left {
+				k := keyOf(r)
+				if rightCount[k] > 0 {
+					rightCount[k]--
+					out = append(out, r)
+				}
+			}
+			return out, nil
+		}
+		seen := map[string]bool{}
+		out := make([]evalRow, 0)
+		for _, r := range left {
+			k := keyOf(r)
+			if rightCount[k] > 0 && !seen[k] {
+				seen[k] = true
+				out = append(out, r)
+			}
+		}
+		return out, nil
+	case "EXCEPT":
+		rightCount := map[string]int{}
+		for _, r := range right {
+			rightCount[keyOf(r)]++
+		}
+		if all {
+			out := make([]evalRow, 0)
+			for _, r := range left {
+				k := keyOf(r)
+				if rightCount[k] > 0 {
+					rightCount[k]--
+					continue
+				}
+				out = append(out, r)
+			}
+			return out, nil
+		}
+		seen := map[string]bool{}
+		out := make([]evalRow, 0)
+		for _, r := range left {
+			k := keyOf(r)
+			if rightCount[k] == 0 && !seen[k] {
+				seen[k] = true
+				out = append(out, r)
+			}
+		}
+		return out, nil
+	default:
+		return nil, errf("set_operation_error", "unsupported set operation %s", op)
+	}
+}
+
+func resolveGroupBy(s *sql.SelectStmt) ([]sql.Expr, error) {
+	out := make([]sql.Expr, len(s.GroupBy))
+	for i, e := range s.GroupBy {
+		if n, ok := orderOrdinal(e); ok {
+			if n < 1 || n > len(s.Projections) {
+				return nil, errf("invalid_group", "GROUP BY position %d is out of range", n)
+			}
+			item := s.Projections[n-1]
+			if item.Star || item.Expr == nil {
+				return nil, errf("invalid_group", "GROUP BY position %d does not refer to an expression", n)
+			}
+			out[i] = item.Expr
+			continue
+		}
+		if ref, ok := e.(*sql.ColumnRef); ok && len(ref.Parts) == 1 {
+			found := false
+			for _, item := range s.Projections {
+				if item.Alias != "" && strings.EqualFold(item.Alias, ref.Parts[0]) {
+					out[i] = item.Expr
+					found = true
+					break
+				}
+			}
+			if found {
+				continue
+			}
+		}
+		out[i] = e
+	}
+	return out, nil
 }
 
 func ensureNoStarAggregate(items []sql.SelectItem) error {
@@ -445,11 +637,15 @@ func lessSortKeys(a, b []any, items []sql.OrderItem) bool {
 			continue
 		}
 		// NULLs always sort last, regardless of direction.
-		if a[i] == nil {
-			return false
-		}
-		if b[i] == nil {
-			return true
+		if a[i] == nil || b[i] == nil {
+			if a[i] == nil && b[i] == nil {
+				continue
+			}
+			nullsFirst := items[i].Nulls == "first"
+			if a[i] == nil {
+				return nullsFirst
+			}
+			return !nullsFirst
 		}
 		c := compareValues(a[i], b[i])
 		if items[i].Desc {
@@ -468,7 +664,7 @@ func (ec *execCtx) applyPipes(ds *dataset, pipes []sql.PipeStage) (*dataset, err
 		case *sql.PipeWhere:
 			filtered := ds.rows[:0]
 			for _, row := range ds.rows {
-				v, err := evalExpr(ds.evalCtx(row), p.Expr)
+				v, err := evalExpr(ec.datasetCtx(ds, row), p.Expr)
 				if err != nil {
 					return nil, err
 				}
@@ -493,7 +689,7 @@ func (ec *execCtx) applyPipes(ds *dataset, pipes []sql.PipeStage) (*dataset, err
 			ds = out
 			ec.stage("pipe:aggregate")
 		case *sql.PipeOrder:
-			if err := sortDataset(ds, p.Items); err != nil {
+			if err := sortDataset(ec, ds, p.Items); err != nil {
 				return nil, err
 			}
 			ec.stage("pipe:sort")
@@ -542,7 +738,7 @@ func (ec *execCtx) pipeProject(ds *dataset, items []sql.SelectItem, distinct boo
 	out := &dataset{columns: plan.cols}
 	for _, row := range ds.rows {
 		o := make(map[string]any, len(plan.items))
-		ctx := ds.evalCtx(row)
+		ctx := ec.datasetCtx(ds, row)
 		for _, item := range plan.items {
 			var v any
 			if item.star {
@@ -579,7 +775,7 @@ func (ec *execCtx) pipeAggregate(ds *dataset, p *sql.PipeAggregate) (*dataset, e
 	groups := map[string][]map[string]any{}
 	var order []string
 	for _, row := range ds.rows {
-		ctx := ds.evalCtx(row)
+		ctx := ec.datasetCtx(ds, row)
 		vals := make([]any, len(p.GroupBy))
 		for i, g := range p.GroupBy {
 			v, err := evalExpr(ctx, g)
@@ -605,7 +801,7 @@ func (ec *execCtx) pipeAggregate(ds *dataset, p *sql.PipeAggregate) (*dataset, e
 		if len(groupRows) > 0 {
 			first = groupRows[0]
 		}
-		ctx := ds.evalCtx(first)
+		ctx := ec.datasetCtx(ds, first)
 		ctx.group = groupRows
 		o := make(map[string]any, len(plan.items))
 		for _, item := range plan.items {
@@ -627,7 +823,7 @@ func (ec *execCtx) pipeJoin(ds *dataset, p *sql.PipeJoin) (*dataset, error) {
 	if err != nil {
 		return nil, err
 	}
-	joined, err := ec.joinRelations(left, right, p.Type, p.On, p.Using)
+	joined, err := ec.joinRelations(left, right, p.Type, p.On, p.Using, p.Natural)
 	if err != nil {
 		return nil, err
 	}
@@ -647,10 +843,10 @@ func (ec *execCtx) pipeJoin(ds *dataset, p *sql.PipeJoin) (*dataset, error) {
 	return out, nil
 }
 
-func sortDataset(ds *dataset, items []sql.OrderItem) error {
+func sortDataset(ec *execCtx, ds *dataset, items []sql.OrderItem) error {
 	keys := make([][]any, len(ds.rows))
 	for i, row := range ds.rows {
-		ctx := ds.evalCtx(row)
+		ctx := ec.datasetCtx(ds, row)
 		keys[i] = make([]any, len(items))
 		for j, it := range items {
 			v, err := evalExpr(ctx, it.Expr)

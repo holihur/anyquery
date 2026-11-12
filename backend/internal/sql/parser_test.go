@@ -145,3 +145,46 @@ func TestParseErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestParseModernSQL(t *testing.T) {
+	cases := []string{
+		"SELECT ALL region FROM mongo.orders",
+		"SELECT region FROM mongo.orders UNION ALL SELECT region FROM mongo.customers",
+		"SELECT region FROM mongo.orders INTERSECT SELECT region FROM mongo.customers",
+		"SELECT region FROM mongo.orders EXCEPT SELECT region FROM mongo.customers",
+		"SELECT extract(year FROM created_at) AS y FROM mongo.orders",
+		"SELECT substring(name FROM 2 FOR 3) FROM mongo.customers",
+		"SELECT position('ac' IN name) FROM mongo.customers",
+		"SELECT count(*) FILTER (WHERE status = 'paid') AS n FROM mongo.orders",
+		"SELECT region, row_number() OVER (PARTITION BY region ORDER BY total DESC) AS rn FROM mongo.orders",
+		"SELECT sum(total) OVER (PARTITION BY region ORDER BY id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS s FROM mongo.orders",
+		"SELECT region FROM mongo.orders ORDER BY region DESC NULLS LAST FETCH FIRST 2 ROWS ONLY",
+		"SELECT * FROM mongo.orders NATURAL LEFT JOIN mongo.customers",
+	}
+	for _, q := range cases {
+		if _, err := Parse(q); err != nil {
+			t.Errorf("%s: %v", q, err)
+		}
+	}
+}
+
+func TestFormatModernSQL(t *testing.T) {
+	queries := []string{
+		"SELECT region FROM mongo.orders UNION ALL SELECT region FROM mongo.customers ORDER BY region",
+		"SELECT region, row_number() OVER (PARTITION BY region ORDER BY total DESC) AS rn FROM mongo.orders",
+		"SELECT count(*) FILTER (WHERE status = 'paid') AS n FROM mongo.orders",
+		"SELECT * FROM mongo.orders NATURAL LEFT JOIN mongo.customers",
+		"SELECT extract(year FROM created_at) AS y FROM mongo.orders",
+	}
+	for _, q := range queries {
+		stmt, err := Parse(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := stmt.(*SelectStmt)
+		formatted := FormatSelect(s)
+		if _, err := Parse(formatted); err != nil {
+			t.Errorf("round trip %q -> %q: %v", q, formatted, err)
+		}
+	}
+}
