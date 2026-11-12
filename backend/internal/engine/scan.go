@@ -139,45 +139,39 @@ func (ec *execCtx) buildScanHints(s *sql.SelectStmt) map[*sql.TableRef]*scanHint
 			}
 		}
 	}
-	var walkExpr func(sql.Expr)
-	walkExpr = func(e sql.Expr) {
+	walkExpr := func(e sql.Expr) {
 		if e == nil {
 			return
 		}
-		switch x := e.(type) {
-		case *sql.ColumnRef:
-			name := x.Parts[len(x.Parts)-1]
-			if len(x.Parts) > 1 {
-				t := findTable(strings.Join(x.Parts[:len(x.Parts)-1], "."))
-				if t == nil {
+		sql.WalkExpr(e, func(x sql.Expr) bool {
+			switch v := x.(type) {
+			case *sql.ColumnRef:
+				name := v.Parts[len(v.Parts)-1]
+				if len(v.Parts) > 1 {
+					t := findTable(strings.Join(v.Parts[:len(v.Parts)-1], "."))
+					if t == nil {
+						pruneSafe = false
+						return true
+					}
+					addColumn(t, name)
+					return true
+				}
+				var matches []*scanTable
+				for _, t := range tables {
+					if _, ok := t.columns[strings.ToLower(name)]; ok {
+						matches = append(matches, t)
+					}
+				}
+				if len(matches) == 0 {
 					pruneSafe = false
-					return
+					return true
 				}
-				addColumn(t, name)
-				return
-			}
-			var matches []*scanTable
-			for _, t := range tables {
-				if _, ok := t.columns[strings.ToLower(name)]; ok {
-					matches = append(matches, t)
+				for _, t := range matches {
+					addColumn(t, name)
 				}
 			}
-			if len(matches) == 0 {
-				pruneSafe = false
-				return
-			}
-			for _, t := range matches {
-				addColumn(t, name)
-			}
-		case *sql.StarExpr:
-			if x.Table == "" {
-				pruneSafe = false
-			} else if t := findTable(x.Table); t != nil {
-				addAll(t)
-			} else {
-				pruneSafe = false
-			}
-		}
+			return true
+		})
 	}
 	for _, item := range s.Projections {
 		checkSubquery(item.Expr)
@@ -200,6 +194,28 @@ func (ec *execCtx) buildScanHints(s *sql.SelectStmt) map[*sql.TableRef]*scanHint
 	for _, o := range s.OrderBy {
 		checkSubquery(o.Expr)
 		walkExpr(o.Expr)
+	}
+	var walkJoin func(sql.TableExpr)
+	walkJoin = func(te sql.TableExpr) {
+		switch x := te.(type) {
+		case *sql.JoinExpr:
+			walkJoin(x.Left)
+			walkJoin(x.Right)
+			if x.On != nil {
+				checkSubquery(x.On)
+				walkExpr(x.On)
+			}
+			for _, name := range x.Using {
+				for _, t := range tables {
+					if _, ok := t.columns[strings.ToLower(name)]; ok {
+						addColumn(t, name)
+					}
+				}
+			}
+		}
+	}
+	for _, te := range s.From {
+		walkJoin(te)
 	}
 
 	if pruneSafe {

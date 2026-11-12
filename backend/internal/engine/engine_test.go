@@ -11,6 +11,7 @@ import (
 type fakeConn struct {
 	tables  map[string][]map[string]any
 	lastReq *connector.FetchRequest
+	reqs    []connector.FetchRequest
 }
 
 func (f *fakeConn) Ping(context.Context) error { return nil }
@@ -21,6 +22,7 @@ func (f *fakeConn) Close() error                                          { retu
 func (f *fakeConn) Introspect(context.Context) ([]connector.Table, error) { return nil, nil }
 func (f *fakeConn) Fetch(_ context.Context, req connector.FetchRequest) (*connector.FetchResult, error) {
 	f.lastReq = &req
+	f.reqs = append(f.reqs, req)
 	rows := f.tables[req.Table]
 	if req.Limit > 0 && len(rows) > req.Limit {
 		rows = rows[:req.Limit]
@@ -600,5 +602,28 @@ func TestGlobalAggregateOverEmptySubquery(t *testing.T) {
 	res := run(t, `SELECT (SELECT count(*) FROM mongo.orders WHERE id = 999) AS n`)
 	if res.Rows[0]["n"] != int64(0) {
 		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestJoinScanPushdownIncludesJoinColumns(t *testing.T) {
+	cat := testCatalog()
+	e := New(DefaultOptions())
+	if _, err := e.Execute(context.Background(), `SELECT c.name, i.category
+FROM mongo.customers c JOIN mongo.orders o ON c.id = o.customer_id
+JOIN shop.`+"`public.items`"+` i ON o.customer_id = i.customer_id`, cat); err != nil {
+		t.Fatal(err)
+	}
+	byTable := map[string]connector.FetchRequest{}
+	for _, req := range cat.conns["mongo"].reqs {
+		byTable[req.Table] = req
+	}
+	if req := byTable["customers"]; !containsString(req.Columns, "id") || !containsString(req.Columns, "name") {
+		t.Fatalf("customer columns = %+v", req)
+	}
+	if req := byTable["orders"]; !containsString(req.Columns, "customer_id") {
+		t.Fatalf("order columns = %+v", req)
+	}
+	if req := cat.conns["shop"].lastReq; req == nil || !containsString(req.Columns, "customer_id") || !containsString(req.Columns, "category") {
+		t.Fatalf("shop columns = %+v", req)
 	}
 }
