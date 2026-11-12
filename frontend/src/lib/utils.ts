@@ -12,9 +12,13 @@ export function initials(name?: string, email?: string) {
   return source.slice(0, 2).toUpperCase()
 }
 
+function activeLocale() {
+  return localStorage.getItem("aq-locale") || document.documentElement.lang || navigator.language
+}
+
 export function formatNumber(n: number | null | undefined) {
   if (n === null || n === undefined) return "—"
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(n)
+  return new Intl.NumberFormat(activeLocale(), { maximumFractionDigits: 2 }).format(n)
 }
 
 export function formatDuration(ms?: number) {
@@ -28,12 +32,12 @@ export function relativeTime(value?: string | Date | null) {
   const date = typeof value === "string" ? new Date(value) : value
   const diff = Date.now() - date.getTime()
   const abs = Math.abs(diff)
-  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" })
-  if (abs < 45_000) return "just now"
+  const rtf = new Intl.RelativeTimeFormat(activeLocale(), { numeric: "auto" })
+  if (abs < 45_000) return rtf.format(0, "second")
   if (abs < 3_600_000) return rtf.format(-Math.round(diff / 60_000), "minute")
   if (abs < 86_400_000) return rtf.format(-Math.round(diff / 3_600_000), "hour")
   if (abs < 604_800_000) return rtf.format(-Math.round(diff / 86_400_000), "day")
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+  return date.toLocaleDateString(activeLocale(), { month: "short", day: "numeric", year: "numeric" })
 }
 
 export function shortRelative(value?: string | Date | null) {
@@ -41,19 +45,20 @@ export function shortRelative(value?: string | Date | null) {
   const date = typeof value === "string" ? new Date(value) : value
   const diff = Date.now() - date.getTime()
   const minutes = Math.round(diff / 60_000)
-  if (minutes < 1) return "just now"
-  if (minutes < 60) return `${minutes}m ago`
+  const rtf = new Intl.RelativeTimeFormat(activeLocale(), { numeric: "auto", style: "narrow" })
+  if (minutes < 1) return rtf.format(0, "second")
+  if (minutes < 60) return rtf.format(-minutes, "minute")
   const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return rtf.format(-hours, "hour")
   const days = Math.round(hours / 24)
-  if (days < 30) return `${days}d ago`
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  if (days < 30) return rtf.format(-days, "day")
+  return date.toLocaleDateString(activeLocale(), { month: "short", day: "numeric" })
 }
 
 export function formatDateTime(value?: string | Date | null) {
   if (!value) return "—"
   const date = typeof value === "string" ? new Date(value) : value
-  return date.toLocaleString(undefined, {
+  return date.toLocaleString(activeLocale(), {
     month: "short",
     day: "numeric",
     hour: "2-digit",

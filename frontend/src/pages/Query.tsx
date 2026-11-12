@@ -30,6 +30,7 @@ import {
 import { toast } from "sonner"
 import { api } from "@/lib/api"
 import { useTenant } from "@/providers/tenant"
+import { useI18n } from "@/i18n"
 import { useTheme } from "@/providers/theme"
 import { cn, downloadCSV, formatDuration, formatNumber, relativeTime, truncate } from "@/lib/utils"
 import type { ExecuteResponse, QueryRun, QueryResult, SavedQuery } from "@/lib/types"
@@ -52,6 +53,7 @@ import { SaveQueryDialog } from "@/components/query/SaveQueryDialog"
 import { ErrorNotice } from "@/components/shared"
 
 export function QueryPage() {
+  const { t } = useI18n()
   const { tenant, role } = useTenant()
   const { resolvedTheme } = useTheme()
   const navigate = useNavigate()
@@ -363,7 +365,7 @@ export function QueryPage() {
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="truncate text-[13px] font-semibold">{currentSaved?.name || "Untitled query"}</span>
+              <span className="truncate text-[13px] font-semibold">{currentSaved?.name || t("Untitled query")}</span>
               {currentSaved && <Badge variant="outline" className="hidden text-[9.5px] capitalize sm:inline-flex">{currentSaved.visibility}</Badge>}
               {currentSaved && <CheckCircle2 className="hidden size-3 text-success sm:block" />}
             </div>
@@ -373,8 +375,8 @@ export function QueryPage() {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
-          <Button variant="ghost" size="sm" className="hidden md:inline-flex" onClick={newQuery}><FileCode2 className="size-3.5" /> New</Button>
-          <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={formatQuery} title="Format SQL"><WandSparkles className="size-3.5" /> Format</Button>
+          <Button variant="ghost" size="sm" className="hidden md:inline-flex" onClick={newQuery}><FileCode2 className="size-3.5" /> {t("New")}</Button>
+          <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={formatQuery} title="Format SQL"><WandSparkles className="size-3.5" /> {t("Format")}</Button>
           <Button
             variant="outline"
             size="sm"
@@ -384,19 +386,19 @@ export function QueryPage() {
               else setSchemaOpen(true)
             }}
           >
-            <PanelLeft className="size-3.5" /> Schema
+            <PanelLeft className="size-3.5" /> {t("Schema")}
           </Button>
           {canEdit && (
             <Button variant="outline" size="sm" onClick={() => setSaveOpen(true)} disabled={!sqlText.trim()}>
-              <Save className="size-3.5" /> <span className="hidden sm:inline">{currentSaved ? "Update" : "Save"}</span>
+              <Save className="size-3.5" /> <span className="hidden sm:inline">{currentSaved ? t("Update") : t("Save")}</span>
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={() => setParamsOpen(true)}>
-            <Braces className="size-3.5" /> <span className="hidden sm:inline">Params</span>
+            <Braces className="size-3.5" /> <span className="hidden sm:inline">{t("Params")}</span>
           </Button>
           <Button size="sm" onClick={() => void runQuery()} disabled={running || !sqlText.trim()} className="min-w-[82px]">
             {running ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5 fill-current" />}
-            {running ? "Running" : "Run"}
+            {running ? t("Running") : t("Run")}
           </Button>
         </div>
       </header>
@@ -426,11 +428,11 @@ export function QueryPage() {
             <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/45 px-3 text-[11px] text-muted-foreground">
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1 font-mono text-[10px]"><span className="size-1.5 rounded-full bg-emerald-500" /> SQL</span>
-                {currentSaved && <span className="hidden items-center gap-1 sm:inline-flex"><Bookmark className="size-3" /> saved</span>}
+                {currentSaved && <span className="hidden items-center gap-1 sm:inline-flex"><Bookmark className="size-3" /> {t("saved")}</span>}
               </div>
               <div className="flex items-center gap-2 text-[10px]">
                 <span className="hidden items-center gap-1 sm:inline-flex"><Sparkles className="size-3" /> Cmd/Ctrl + Enter to run</span>
-                <button className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent" onClick={() => setTab("history")}><History className="size-3" /> History</button>
+                <button className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent" onClick={() => setTab("history")}><History className="size-3" /> {t("History")}</button>
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-hidden bg-card">
@@ -474,11 +476,11 @@ export function QueryPage() {
               <div className="flex h-10 shrink-0 items-center justify-between border-b border-border/45 px-3">
                 <TabsList className="h-7 bg-transparent p-0">
                   <TabsTrigger value="results" className="gap-1.5 px-2.5 data-[state=active]:bg-accent/70">
-                    Results
+                    {t("Results")}
                     {lastRun && <Badge variant={lastRun.status === "success" ? "success" : "destructive"} className="px-1 py-0 text-[9px]">{lastRun.status === "success" ? formatNumber(lastRun.rowCount) : "!"}</Badge>}
                   </TabsTrigger>
                   <TabsTrigger value="history" className="gap-1.5 px-2.5 data-[state=active]:bg-accent/70">
-                    History <span className="text-[9px] text-muted-foreground">{runs.length}</span>
+                    {t("History")} <span className="text-[9px] text-muted-foreground">{runs.length}</span>
                   </TabsTrigger>
                 </TabsList>
                 {tab === "results" && result && (
@@ -501,7 +503,7 @@ export function QueryPage() {
                   <div className="grid h-full place-items-center p-6 text-center">
                     <div>
                       <History className="mx-auto size-6 text-muted-foreground/50" />
-                      <p className="mt-2 text-sm text-muted-foreground">No query history yet.</p>
+                      <p className="mt-2 text-sm text-muted-foreground">{t("No query history yet.")}</p>
                     </div>
                   </div>
                 ) : (
@@ -546,9 +548,9 @@ export function QueryPage() {
       <Dialog open={paramsOpen} onOpenChange={setParamsOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Bind parameters</DialogTitle>
+            <DialogTitle>{t("Bind parameters")}</DialogTitle>
             <DialogDescription>
-              Positional values for <code className="font-mono text-[11px]">?</code> or <code className="font-mono text-[11px]">$1</code> placeholders. Enter a JSON array.
+              {t("Positional values for ? or $1 placeholders. Enter a JSON array.")}
             </DialogDescription>
           </DialogHeader>
           <textarea
@@ -560,8 +562,8 @@ export function QueryPage() {
             className="w-full resize-y rounded-lg border bg-muted/20 px-3 py-2 font-mono text-[12px] outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
           />
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setParamText("")}>Clear</Button>
-            <Button onClick={() => setParamsOpen(false)}>Done</Button>
+            <Button variant="ghost" onClick={() => setParamText("")}>{t("Clear")}</Button>
+            <Button onClick={() => setParamsOpen(false)}>{t("Done")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

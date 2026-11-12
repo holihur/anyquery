@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import {
   Activity,
+  Globe2,
   Bookmark,
   ChevronDown,
   ChevronsUpDown,
@@ -27,6 +28,8 @@ import { api } from "@/lib/api"
 import { useAuth } from "@/providers/auth"
 import { useTenant } from "@/providers/tenant"
 import { useTheme } from "@/providers/theme"
+import { useI18n } from "@/i18n"
+import { LanguageRadioItems } from "@/components/layout/LanguageMenu"
 import { Logo, LogoMark } from "@/components/layout/Logo"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -75,6 +78,7 @@ const navGroups = [
 ]
 
 export function AppShell() {
+  const { t, locale, setLocale } = useI18n()
   const { me, logout } = useAuth()
   const { tenant, role } = useTenant()
   const { theme, setTheme } = useTheme()
@@ -120,13 +124,13 @@ export function AppShell() {
           <div className="flex items-center gap-1">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-sm" className="hidden md:inline-flex" onClick={() => setCollapsed(true)} aria-label="Collapse sidebar">
+                <Button variant="ghost" size="icon-sm" className="hidden md:inline-flex" onClick={() => setCollapsed(true)} aria-label={t("Collapse sidebar")}>
                   <PanelLeftClose className="size-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="right">Collapse sidebar</TooltipContent>
+              <TooltipContent side="right">{t("Collapse sidebar")}</TooltipContent>
             </Tooltip>
-            <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={() => setMobileOpen(false)} aria-label="Close navigation">
+            <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={() => setMobileOpen(false)} aria-label={t("Close navigation")}>
               <X className="size-4" />
             </Button>
           </div>
@@ -137,11 +141,11 @@ export function AppShell() {
         <div className="flex justify-center pb-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-xs" onClick={() => setCollapsed(false)} aria-label="Expand sidebar">
+              <Button variant="ghost" size="icon-xs" onClick={() => setCollapsed(false)} aria-label={t("Expand sidebar")}>
                 <PanelLeftOpen className="size-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">Expand sidebar</TooltipContent>
+            <TooltipContent side="right">{t("Expand sidebar")}</TooltipContent>
           </Tooltip>
         </div>
       )}
@@ -174,14 +178,14 @@ export function AppShell() {
             )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" side={compact ? "right" : "bottom"} className="w-[232px]">
-            <DropdownMenuLabel className="text-[11px]">Workspaces</DropdownMenuLabel>
+            <DropdownMenuLabel className="text-[11px]">{t("Workspaces")}</DropdownMenuLabel>
             {me?.tenants.map((t) => (
               <TenantMenuItem key={t.id} tenant={t} current={t.id === tenant.id} onSelect={() => navigate(`/w/${t.slug}`)} />
             ))}
-            {otherTenants.length === 0 && <div className="px-2 py-1.5 text-xs text-muted-foreground">You’re in your only workspace</div>}
+            {otherTenants.length === 0 && <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("You’re in your only workspace")}</div>}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => setCreateOpen(true)}>
-              <Plus className="size-4" /> New workspace
+              <Plus className="size-4" /> {t("New workspace")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -191,7 +195,7 @@ export function AppShell() {
         {navGroups.map((group) => (
           <div key={group.label}>
             {!compact && (
-              <div className="mb-1.5 px-2.5 text-[10px] font-medium tracking-[0.13em] text-muted-foreground/80 uppercase">{group.label}</div>
+              <div className="mb-1.5 px-2.5 text-[10px] font-medium tracking-[0.13em] text-muted-foreground/80 uppercase">{t(group.label)}</div>
             )}
             <div className="space-y-0.5">
               {group.items.map((item) => {
@@ -218,7 +222,7 @@ export function AppShell() {
                             <>
                               <span className={cn("absolute left-0 h-4 w-0.5 rounded-full bg-primary transition-opacity", isActive ? "opacity-100" : "opacity-0")} />
                               <item.icon className="size-4 shrink-0 opacity-80" />
-                              <span className="truncate">{item.label}</span>
+                              <span className="truncate">{t(item.label)}</span>
                             </>
                           )}
                         </NavLink>
@@ -252,13 +256,13 @@ export function AppShell() {
                               </Link>
                             )
                           })}
-                          {queries.length === 0 && <div className="px-2 py-1 text-[10.5px] text-muted-foreground/70">No saved queries</div>}
+                          {queries.length === 0 && <div className="px-2 py-1 text-[10.5px] text-muted-foreground/70">{t("No saved queries")}</div>}
                           <Link
                             to={`/w/${tenant.slug}/saved`}
                             onClick={() => setMobileOpen(false)}
                             className="block rounded-md px-2 py-1.5 text-[10.5px] font-medium text-primary/80 hover:bg-sidebar-accent/55 hover:text-primary"
                           >
-                            {queries.length > 5 ? `View all ${queries.length}` : "Open library"}
+                            {queries.length > 5 ? t("View all {count}", { count: queries.length }) : t("Open library")}
                           </Link>
                         </div>
                       )}
@@ -271,8 +275,8 @@ export function AppShell() {
                     to={href}
                     end={item.end}
                     onClick={() => setMobileOpen(false)}
-                    title={compact ? item.label : undefined}
-                    aria-label={compact ? item.label : undefined}
+                    title={compact ? t(item.label) : undefined}
+                    aria-label={compact ? t(item.label) : undefined}
                     className={({ isActive }) =>
                       cn(
                         "group relative flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors",
@@ -287,7 +291,7 @@ export function AppShell() {
                       <>
                         <span className={cn("absolute left-0 h-4 w-0.5 rounded-full bg-primary transition-opacity", isActive ? "opacity-100" : "opacity-0")} />
                         <item.icon className="size-4 shrink-0 opacity-80" />
-                        <span className={cn("truncate", compact && "sr-only")}>{item.label}</span>
+                        <span className={cn("truncate", compact && "sr-only")}>{t(item.label)}</span>
                       </>
                     )}
                   </NavLink>
@@ -332,23 +336,31 @@ export function AppShell() {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => navigate(`/w/${tenant.slug}/settings`)}>
-              <Settings className="size-4" /> Workspace settings
+              <Settings className="size-4" /> {t("Workspace settings")}
             </DropdownMenuItem>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
-                <Sun className="size-4" /> Theme
+                <Sun className="size-4" /> {t("Theme")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value as "light" | "dark" | "system")}>
-                  <DropdownMenuRadioItem value="light"><Sun className="size-4" /> Light</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="dark"><Moon className="size-4" /> Dark</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="system"><Monitor className="size-4" /> System</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="light"><Sun className="size-4" /> {t("Light")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="dark"><Moon className="size-4" /> {t("Dark")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="system"><Monitor className="size-4" /> {t("System")}</DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Globe2 className="size-4" /> {t("Language")}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="max-h-[360px] w-[228px] overflow-y-auto">
+                <LanguageRadioItems value={locale} onChange={setLocale} />
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onSelect={() => void signOut()}>
-              <LogOut className="size-4" /> Sign out
+              <LogOut className="size-4" /> {t("Sign out")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -380,7 +392,7 @@ export function AppShell() {
               <Menu className="size-4" />
             </Button>
             <LogoMark className="size-6" />
-            <span className="text-sm font-semibold">{title || tenant.name}</span>
+            <span className="text-sm font-semibold">{title ? t(title) : tenant.name}</span>
           </div>
           <button className="flex items-center gap-2" onClick={() => setMobileOpen(true)}>
             <Avatar className="size-7">
@@ -425,6 +437,7 @@ export function CreateWorkspaceDialog({
   onOpenChange: (open: boolean) => void
   onCreated?: () => void
 }) {
+  const { t } = useI18n()
   const { refresh } = useAuth()
   const navigate = useNavigate()
   const [name, setName] = useState("")
@@ -454,13 +467,13 @@ export function CreateWorkspaceDialog({
       <DialogContent>
         <form onSubmit={submit}>
           <DialogHeader>
-            <DialogTitle>Create a workspace</DialogTitle>
+            <DialogTitle>{t("Create workspace")}</DialogTitle>
             <DialogDescription>
-              Workspaces keep data sources, queries and members isolated. You’ll be the owner.
+              {t("Workspaces keep data sources, queries and members isolated. You’ll be the owner.")}
             </DialogDescription>
           </DialogHeader>
           <div className="mt-5 space-y-2">
-            <Label htmlFor="workspace-name">Workspace name</Label>
+            <Label htmlFor="workspace-name">{t("Name")}</Label>
             <Input
               id="workspace-name"
               autoFocus
@@ -468,14 +481,14 @@ export function CreateWorkspaceDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">A URL-friendly slug is generated automatically.</p>
+            <p className="text-xs text-muted-foreground">{t("A URL-friendly slug is generated automatically.")}</p>
           </div>
           <DialogFooter className="mt-6">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button type="submit" disabled={busy || !name.trim()}>
-              {busy ? "Creating…" : "Create workspace"}
+              {busy ? t("Creating…") : t("Create workspace")}
             </Button>
           </DialogFooter>
         </form>

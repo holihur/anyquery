@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import type { Role } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { useI18n } from "@/i18n"
 
 const typeMeta: Record<string, { icon: LucideIcon; color: string; bg: string; label: string }> = {
   mongodb: { icon: Database, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10", label: "MongoDB" },
@@ -101,8 +102,9 @@ export function RoleBadge({ role }: { role: Role }) {
 }
 
 export function StatusBadge({ status }: { status: string }) {
-  if (status === "ready" || status === "success") return <Badge variant="success">Healthy</Badge>
-  if (status === "error") return <Badge variant="destructive">Error</Badge>
+  const { t } = useI18n()
+  if (status === "ready" || status === "success") return <Badge variant="success">{t("Healthy")}</Badge>
+  if (status === "error") return <Badge variant="destructive">{t("Error")}</Badge>
   return <Badge variant="muted">{status}</Badge>
 }
 
@@ -161,16 +163,18 @@ export function EmptyState({
   )
 }
 
-export function LoadingBlock({ label = "Loading…", className }: { label?: string; className?: string }) {
+export function LoadingBlock({ label, className }: { label?: string; className?: string }) {
+  const { t } = useI18n()
   return (
     <div className={cn("flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground", className)}>
       <Loader2 className="size-4 animate-spin" />
-      {label}
+      {label ?? t("Loading…")}
     </div>
   )
 }
 
-export function FullPageLoader({ label = "Loading AnyQuery…" }: { label?: string }) {
+export function FullPageLoader({ label }: { label?: string }) {
+  const { t } = useI18n()
   return (
     <div className="grid min-h-screen place-items-center bg-background">
       <div className="flex flex-col items-center gap-4">
@@ -181,14 +185,15 @@ export function FullPageLoader({ label = "Loading AnyQuery…" }: { label?: stri
           </div>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-3.5 animate-spin" /> {label}
+          <Loader2 className="size-3.5 animate-spin" /> {label ?? t("Loading AnyQuery…")}
         </div>
       </div>
     </div>
   )
 }
 
-export function CopyButton({ value, label = "Copy", className }: { value: string; label?: string; className?: string }) {
+export function CopyButton({ value, label, className }: { value: string; label?: string; className?: string }) {
+  const { t } = useI18n()
   return (
     <Button
       type="button"
@@ -196,10 +201,10 @@ export function CopyButton({ value, label = "Copy", className }: { value: string
       size="xs"
       className={cn("text-muted-foreground", className)}
       onClick={() => {
-        void navigator.clipboard.writeText(value).then(() => toast.success("Copied to clipboard"))
+        void navigator.clipboard.writeText(value).then(() => toast.success(t("Copied to clipboard")))
       }}
     >
-      <Copy className="size-3.5" /> {label}
+      <Copy className="size-3.5" /> {label ?? t("Copy")}
     </Button>
   )
 }

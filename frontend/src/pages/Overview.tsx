@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import { api } from "@/lib/api"
 import { useTenant } from "@/providers/tenant"
+import { useI18n } from "@/i18n"
 import { formatDuration, formatNumber, initials, relativeTime, shortRelative, truncate } from "@/lib/utils"
 import { Page, PageBody, PageHeader, SourceIcon, StatCard, StatusBadge, EmptyState, InlineCode } from "@/components/shared"
 import { Button } from "@/components/ui/button"
@@ -30,6 +31,7 @@ const sampleQuery = `FROM mongo.orders
 |> ORDER BY revenue DESC`
 
 export function OverviewPage() {
+  const { t } = useI18n()
   const { tenant, role } = useTenant()
   const { data: overview, isLoading } = useQuery({ queryKey: ["overview", tenant.slug], queryFn: () => api.overview(tenant.slug) })
   const { data: sources } = useQuery({ queryKey: ["datasources", tenant.slug], queryFn: () => api.dataSources(tenant.slug) })
@@ -43,12 +45,12 @@ export function OverviewPage() {
       <PageBody>
         <PageHeader
           eyebrow={tenant.name}
-          title={`Good to see you${role === "owner" ? ", owner" : ""}.`}
-          description="Your federated data workspace — connect sources, explore schemas and share queries with the team."
+          title={role === "owner" ? t("Good to see you, owner.") : "Good to see you."}
+          description={t("Your federated data workspace — connect sources, explore schemas and share queries with the team.")}
           actions={
             <>
-              <Button variant="outline" asChild><Link to={`/w/${tenant.slug}/sources`}><Database className="size-4" /> Add a source</Link></Button>
-              <Button asChild><Link to={`/w/${tenant.slug}/query`}><Play className="size-4" /> New query</Link></Button>
+              <Button variant="outline" asChild><Link to={`/w/${tenant.slug}/sources`}><Database className="size-4" /> {t("Add a source")}</Link></Button>
+              <Button asChild><Link to={`/w/${tenant.slug}/query`}><Play className="size-4" /> {t("New query")}</Link></Button>
             </>
           }
         />
@@ -58,10 +60,10 @@ export function OverviewPage() {
             Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[116px] rounded-xl" />)
           ) : (
             <>
-              <StatCard label="Data sources" value={overview?.dataSources ?? 0} icon={Database} detail={`${overview?.readyDataSources ?? 0} connected · ${overview?.tables ?? 0} tables`} />
-              <StatCard label="Team members" value={overview?.members ?? 0} icon={Users} detail={`You are ${role}`} />
-              <StatCard label="Saved queries" value={overview?.savedQueries ?? 0} icon={Bookmark} detail="Shared with the workspace" />
-              <StatCard label="Tables available" value={overview?.tables ?? 0} icon={Layers} detail="Across all connected sources" />
+              <StatCard label={t("Data sources")} value={overview?.dataSources ?? 0} icon={Database} detail={t("{connected} connected · {tables} tables", { connected: overview?.readyDataSources ?? 0, tables: overview?.tables ?? 0 })} />
+              <StatCard label={t("Team members")} value={overview?.members ?? 0} icon={Users} detail={t("You are {role}", { role })} />
+              <StatCard label={t("Saved queries")} value={overview?.savedQueries ?? 0} icon={Bookmark} detail={t("Shared with the workspace")} />
+              <StatCard label={t("Tables available")} value={overview?.tables ?? 0} icon={Layers} detail={t("Across all connected sources")} />
             </>
           )}
         </div>
@@ -70,15 +72,15 @@ export function OverviewPage() {
           <section className="surface">
             <div className="flex items-center justify-between border-b border-border/55 px-5 pt-5 pb-3">
               <div>
-                <h2 className="text-sm font-semibold">Recent query activity</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">The latest runs across this workspace</p>
+                <h2 className="text-sm font-semibold">{t("Recent query activity")}</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t("The latest runs across this workspace")}</p>
               </div>
-              <Button variant="ghost" size="sm" asChild><Link to={`/w/${tenant.slug}/activity`}>View all <ArrowRight className="size-3.5" /></Link></Button>
+              <Button variant="ghost" size="sm" asChild><Link to={`/w/${tenant.slug}/activity`}>{t("View all")} <ArrowRight className="size-3.5" /></Link></Button>
             </div>
             {isLoading ? (
               <div className="space-y-2 p-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
             ) : !(overview?.recentRuns ?? []).length ? (
-              <EmptyState icon={Activity} title="No queries yet" description="Run your first federated query to see it here." className="border-0 bg-transparent py-12" action={<Button asChild size="sm"><Link to={`/w/${tenant.slug}/query`}>Open query studio</Link></Button>} />
+              <EmptyState icon={Activity} title={t("No queries yet")} description={t("Run your first federated query to see it here.")} className="border-0 bg-transparent py-12" action={<Button asChild size="sm"><Link to={`/w/${tenant.slug}/query`}>{t("Open query studio")}</Link></Button>} />
             ) : (
               <div className="divide-y divide-border/45">
                 {(overview?.recentRuns ?? []).map((run) => {
@@ -113,8 +115,8 @@ export function OverviewPage() {
           <section className="surface">
             <div className="flex items-center justify-between border-b border-border/55 px-5 pt-5 pb-3">
               <div>
-                <h2 className="text-sm font-semibold">Source health</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">{readySources.length} of {sourceList.length} connected</p>
+                <h2 className="text-sm font-semibold">{t("Source health")}</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t("{ready} of {total} connected", { ready: readySources.length, total: sourceList.length })}</p>
               </div>
               <Button variant="ghost" size="icon-sm" asChild><Link to={`/w/${tenant.slug}/sources`}><ArrowRight className="size-4" /></Link></Button>
             </div>
@@ -122,8 +124,8 @@ export function OverviewPage() {
               <div className="space-y-2 p-4">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-14" />)}</div>
             ) : !sourceList.length ? (
               <div className="p-5">
-                <p className="text-[13px] text-muted-foreground">No sources connected yet.</p>
-                <Button size="sm" className="mt-3" asChild><Link to={`/w/${tenant.slug}/sources`}><Database className="size-4" /> Connect a source</Link></Button>
+                <p className="text-[13px] text-muted-foreground">{t("No sources connected yet.")}</p>
+                <Button size="sm" className="mt-3" asChild><Link to={`/w/${tenant.slug}/sources`}><Database className="size-4" /> {t("Connect a source")}</Link></Button>
               </div>
             ) : (
               <div className="divide-y divide-border/45">
@@ -136,9 +138,9 @@ export function OverviewPage() {
                         <Badge variant="outline" className="text-[10px]">{ds.typeName}</Badge>
                       </div>
                       <div className="mt-0.5 flex items-center gap-1.5 whitespace-nowrap text-[11px] text-muted-foreground">
-                        <span>{ds.tables.length} tables</span>
+                        <span>{t("{count} tables", { count: ds.tables.length })}</span>
                         <span className="size-0.5 rounded-full bg-current" />
-                        <span className="whitespace-nowrap">{ds.lastSyncedAt ? `synced ${shortRelative(ds.lastSyncedAt)}` : "not synced"}</span>
+                        <span className="whitespace-nowrap">{ds.lastSyncedAt ? t("synced {time}", { time: shortRelative(ds.lastSyncedAt) }) : t("not synced")}</span>
                       </div>
                     </div>
                     <StatusBadge status={ds.status} />
@@ -155,15 +157,15 @@ export function OverviewPage() {
           <div className="relative grid gap-8 lg:grid-cols-[1.1fr_1fr] lg:items-center">
             <div>
               <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-white/12 bg-white/5 px-2.5 py-1 text-[10.5px] font-medium text-white/60">
-                <SquareTerminal className="size-3" /> Query pipelines
+                <SquareTerminal className="size-3" /> {t("Query pipelines")}
               </div>
-              <h2 className="text-xl font-semibold tracking-tight">Federate first, model later.</h2>
+              <h2 className="text-xl font-semibold tracking-tight">{t("Federate first, model later.")}</h2>
               <p className="mt-2 max-w-lg text-[13px] leading-relaxed text-white/55">
-                Join MongoDB collections with SQL tables in one query. Use classic SQL or composable pipeline stages — the same workspace handles both.
+                {t("Join MongoDB collections with SQL tables in one query. Use classic SQL or composable pipeline stages — the same workspace handles both.")}
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
-                <Button size="sm" asChild className="bg-white text-[oklch(0.2_0.02_265)] hover:bg-white/90"><Link to={`/w/${tenant.slug}/query`}><Play className="size-3.5" /> Open query studio</Link></Button>
-                <Button size="sm" variant="ghost" className="text-white/70 hover:bg-white/10 hover:text-white" asChild><Link to={`/w/${tenant.slug}/saved`}>Explore saved queries <ArrowRight className="size-3.5" /></Link></Button>
+                <Button size="sm" asChild className="bg-white text-[oklch(0.2_0.02_265)] hover:bg-white/90"><Link to={`/w/${tenant.slug}/query`}><Play className="size-3.5" /> {t("Open query studio")}</Link></Button>
+                <Button size="sm" variant="ghost" className="text-white/70 hover:bg-white/10 hover:text-white" asChild><Link to={`/w/${tenant.slug}/saved`}>{t("Explore saved queries")} <ArrowRight className="size-3.5" /></Link></Button>
               </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/20 p-4 font-mono text-[11px] leading-[1.9] text-white/70 shadow-xl backdrop-blur">
@@ -179,16 +181,16 @@ export function OverviewPage() {
 
         {readySources.length === 0 && (
           <div className="mt-6 flex flex-col gap-3 surface-quiet px-5 py-4 text-[13px] sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2 text-muted-foreground"><CircleAlert className="size-4 text-warning" /> Connect a data source to unlock the query studio.</div>
-            <Button size="sm" variant="outline" asChild><Link to={`/w/${tenant.slug}/sources`}>Connect data <ArrowRight className="size-3.5" /></Link></Button>
+            <div className="flex items-center gap-2 text-muted-foreground"><CircleAlert className="size-4 text-warning" /> {t("Connect a data source to unlock the query studio.")}</div>
+            <Button size="sm" variant="outline" asChild><Link to={`/w/${tenant.slug}/sources`}>{t("Connect data")} <ArrowRight className="size-3.5" /></Link></Button>
           </div>
         )}
 
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           {[
-            { title: "Connect", body: "Add MongoDB, Postgres, Snowflake, a REST endpoint or CSV file.", to: `/w/${tenant.slug}/sources`, icon: Database },
-            { title: "Explore", body: "Browse schemas, then insert qualified table names into the editor.", to: `/w/${tenant.slug}/query`, icon: Layers },
-            { title: "Collaborate", body: "Invite teammates, save queries, and review activity together.", to: `/w/${tenant.slug}/team`, icon: Users },
+            { title: t("Connect"), body: t("Add MongoDB, Postgres, Snowflake, a REST endpoint or CSV file."), to: `/w/${tenant.slug}/sources`, icon: Database },
+            { title: t("Explore"), body: t("Browse schemas, then insert qualified table names into the editor."), to: `/w/${tenant.slug}/query`, icon: Layers },
+            { title: t("Collaborate"), body: t("Invite teammates, save queries, and review activity together."), to: `/w/${tenant.slug}/team`, icon: Users },
           ].map((item) => (
             <Link key={item.title} to={item.to} className="group surface p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
               <div className="mb-3 grid size-8 place-items-center rounded-lg bg-primary/8 text-primary"><item.icon className="size-4" /></div>
@@ -199,9 +201,9 @@ export function OverviewPage() {
         </div>
 
         <div className="mt-8 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-          <span>Workspace role:</span><Badge variant="outline" className="capitalize">{role satisfies Role}</Badge>
+          <span>{t("Workspace role:")}</span><Badge variant="outline" className="capitalize">{role satisfies Role}</Badge>
           <span className="mx-1">·</span>
-          <span>Use</span><InlineCode>`source.table`</InlineCode><span>to reference any connected table.</span>
+          <span>{t("Use")}</span><InlineCode>`source.table`</InlineCode><span>{t("to reference any connected table.")}</span>
         </div>
       </PageBody>
     </Page>

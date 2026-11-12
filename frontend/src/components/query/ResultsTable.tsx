@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState, ErrorNotice } from "@/components/shared"
 import { formatDuration, formatNumber } from "@/lib/utils"
+import { useI18n } from "@/i18n"
 
 const PAGE_SIZE = 50
 
@@ -23,6 +24,7 @@ export function ResultsTable({
   errorCode?: string | null
   errorHint?: string | null
 }) {
+  const { t } = useI18n()
   const [sort, setSort] = useState<{ column: string; dir: "asc" | "desc" } | null>(null)
   const [page, setPage] = useState(0)
 
@@ -47,8 +49,8 @@ export function ResultsTable({
         <div className="relative grid size-12 place-items-center rounded-2xl border bg-card">
           <Loader2 className="size-5 animate-spin text-primary" />
         </div>
-        <div className="text-sm">Running query…</div>
-        <div className="text-[11px] text-muted-foreground/70">Scanning sources and executing the pipeline</div>
+        <div className="text-sm">{t("Running query…")}</div>
+        <div className="text-[11px] text-muted-foreground/70">{t("Scanning sources and executing the pipeline")}</div>
       </div>
     )
   }
@@ -60,7 +62,7 @@ export function ResultsTable({
         {errorCode && (
           <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
             <Badge variant="destructive" className="font-mono">{errorCode}</Badge>
-            <span>Fix the query and run again.</span>
+            <span>{t("Fix the query and run again.")}</span>
           </div>
         )}
       </div>
@@ -74,9 +76,9 @@ export function ResultsTable({
           <div className="mx-auto mb-4 grid size-11 place-items-center surface text-muted-foreground">
             <Table2 className="size-5" />
           </div>
-          <div className="text-sm font-medium">Results will appear here</div>
+          <div className="text-sm font-medium">{t("Results will appear here")}</div>
           <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
-            Write SQL and press <kbd className="rounded border bg-muted px-1 font-mono text-[10px]">⌘ ↵</kbd> or click Run. Tables are referenced as <span className="font-mono text-[11px]">`source`.`table`</span>.
+            {t("Write SQL and press {shortcut} or click Run. Tables are referenced as {table}.", { shortcut: "⌘ ↵", table: "`source`.`table`" })}
           </p>
         </div>
       </div>
@@ -87,7 +89,7 @@ export function ResultsTable({
     <div className="flex h-full min-h-0 flex-col">
       {result.truncated && (
         <div className="bg-warning/8 px-4 py-2 text-[11.5px] text-warning-foreground dark:text-warning">
-          Results were truncated by the server row limit. Add filters or a LIMIT to refine.
+          {t("Results were truncated by the server row limit. Add filters or a LIMIT to refine.")}
         </div>
       )}
       {!!result.warnings?.length && (
@@ -98,9 +100,9 @@ export function ResultsTable({
 
       <div className="min-h-0 flex-1 overflow-auto scrollbar-thin">
         {result.columns.length === 0 ? (
-          <EmptyState icon={CheckCircle2} title="Query completed" description="No columns were returned." className="m-5 border-0" />
+          <EmptyState icon={CheckCircle2} title={t("Query completed")} description={t("No columns were returned.")} className="m-5 border-0" />
         ) : result.rows.length === 0 ? (
-          <EmptyState icon={Rows3} title="No rows returned" description="The query ran successfully but matched no rows." className="m-5 border-0" />
+          <EmptyState icon={Rows3} title={t("No rows returned")} description={t("The query ran successfully but matched no rows.")} className="m-5 border-0" />
         ) : (
           <table className="w-full border-separate border-spacing-0 text-left text-[12px]">
             <thead className="sticky top-0 z-10">
@@ -144,7 +146,7 @@ export function ResultsTable({
                   <td className="border-b border-border/45 px-1 py-1.5">
                     <button
                       className="grid size-6 place-items-center rounded text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent hover:text-foreground"
-                      onClick={() => void navigator.clipboard.writeText(JSON.stringify(row, null, 2)).then(() => toast.success("Row copied as JSON"))}
+                      onClick={() => void navigator.clipboard.writeText(JSON.stringify(row, null, 2)).then(() => toast.success(t("Row copied as JSON")))}
                       title="Copy row"
                     >
                       <Copy className="size-3" />
@@ -159,7 +161,7 @@ export function ResultsTable({
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 bg-muted/25 px-4 py-2.5 text-[11px] text-muted-foreground">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center gap-1.5"><Rows3 className="size-3" /> {formatNumber(result.rowCount)} rows</span>
+          <span className="inline-flex items-center gap-1.5"><Rows3 className="size-3" /> {t("{count} rows", { count: formatNumber(result.rowCount) })}</span>
           <span className="inline-flex items-center gap-1.5"><Clock3 className="size-3" /> {formatDuration(result.stats.durationMs)}</span>
           {(result.stats.sources ?? []).map((s) => (
             <span key={`${s.source}.${s.table}`} className="hidden items-center gap-1 rounded border bg-background px-1.5 py-0.5 font-mono text-[9.5px] md:inline-flex">
