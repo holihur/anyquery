@@ -379,6 +379,76 @@ jobs:
           print("jsonl join result:", rows)
           PY
 
+      - name: GraphQL connector + cursor pagination
+        run: |
+          cat > /tmp/aq-graphql-server.py <<'PY'
+          import json
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+
+          class Handler(BaseHTTPRequestHandler):
+              def do_POST(self):
+                  length = int(self.headers.get("Content-Length", "0"))
+                  body = json.loads(self.rfile.read(length) or b"{}")
+                  query = body.get("query", "")
+                  variables = body.get("variables") or {}
+                  if "__typename" in query:
+                      data = {"__typename": "Query"}
+                  elif variables.get("after") == "c2":
+                      data = {
+                          "users": [{"id": 3, "name": "Noor"}],
+                          "pageInfo": {"hasNextPage": False, "endCursor": "c3"},
+                      }
+                  else:
+                      data = {
+                          "users": [{"id": 1, "name": "Maya"}, {"id": 2, "name": "Sam"}],
+                          "pageInfo": {"hasNextPage": True, "endCursor": "c2"},
+                      }
+                  payload = json.dumps({"data": data}).encode()
+                  self.send_response(200)
+                  self.send_header("Content-Type", "application/json")
+                  self.send_header("Content-Length", str(len(payload)))
+                  self.end_headers()
+                  self.wfile.write(payload)
+
+              def log_message(self, *args):
+                  pass
+
+          HTTPServer(("127.0.0.1", 18998), Handler).serve_forever()
+          PY
+          python3 /tmp/aq-graphql-server.py >/tmp/graphql-server.log 2>&1 &
+          echo $! > /tmp/graphql-server.pid
+          sleep 1
+          cat > /tmp/graphql-ds.json <<'JSON'
+          {"name":"gql","type":"graphql","config":{
+            "endpoint":"http://127.0.0.1:18998/graphql",
+            "query":"query($limit:Int,$after:String){users(limit:$limit,after:$after){id name} pageInfo{hasNextPage endCursor}}",
+            "table_name":"users",
+            "data_path":"users",
+            "columns":"{\"id\":\"integer\",\"name\":\"string\"}",
+            "cursor_variable":"after",
+            "cursor_path":"pageInfo.endCursor",
+            "has_next_path":"pageInfo.hasNextPage",
+            "max_pages":"5"
+          }}
+          JSON
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/datasources             -H 'Content-Type: application/json' --data-binary @/tmp/graphql-ds.json > /tmp/graphql-ds-result.json
+          cat > /tmp/graphql-query.json <<'JSON'
+          {"sql":"SELECT id, name FROM gql.users ORDER BY id"}
+          JSON
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/queries/execute             -H 'Content-Type: application/json' --data-binary @/tmp/graphql-query.json > /tmp/graphql-result.json
+          python3 - <<'PY'
+          import json
+          ds = json.load(open("/tmp/graphql-ds-result.json"))
+          assert ds.get("status") == "ready", ds
+          table = next(t for t in ds["tables"] if t["name"] == "users")
+          assert [c["name"] for c in table["columns"]] == ["id", "name"], table
+          result = json.load(open("/tmp/graphql-result.json"))
+          assert "error" not in result, result
+          rows = result["result"]["rows"]
+          assert rows == [{"id": 1, "name": "Maya"}, {"id": 2, "name": "Sam"}, {"id": 3, "name": "Noor"}], rows
+          print("graphql cursor pagination verified:", rows)
+          PY
+
       - name: PostgreSQL connector + Mongo↔Postgres join
         run: |
           sudo apt-get update -qq

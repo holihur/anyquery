@@ -1,6 +1,6 @@
 # AnyQuery
 
-**一个自托管的联邦查询平台**：用一套 SQL（以及可组合的 Query Pipeline）把 MongoDB、Redis、PostgreSQL、MySQL、SQLite、Snowflake、Databricks、REST API、CSV、JSONL、InfluxDB、SLS、TDengine、Druid、Excel、Access 等 103 数据源类型连在一起查询。面向团队：多租户工作区、成员角色、邀请、共享查询、审计日志、API Key 与 OIDC 登录。
+**一个自托管的联邦查询平台**：用一套 SQL（以及可组合的 Query Pipeline）把 MongoDB、Redis、PostgreSQL、MySQL、SQLite、Snowflake、Databricks、REST API、CSV、JSONL、InfluxDB、SLS、TDengine、Druid、Excel、Access 等 104 数据源类型连在一起查询。面向团队：多租户工作区、成员角色、邀请、共享查询、审计日志、API Key 与 OIDC 登录。
 
 - 后端：**Go**（标准库 `net/http` + 自研 SQL 解析器 / 执行引擎）
 - 存储：**MongoDB**
@@ -61,7 +61,7 @@ FROM mongo.orders
 
 - **联邦查询**：跨数据源 JOIN（inner / left / right / full / cross / natural）、CTE、标量/IN/EXISTS 子查询、UNION/INTERSECT/EXCEPT 与窗口函数。
 - **自研 SQL 解析器**：没有依赖过时的第三方 MySQL parser；表达式、函数、语句和 pipe stage 都可以本地扩展。
-- **103 种注册数据源类型**：34 个原生连接器、37 个 SQL 兼容预设、32 个 REST/文件模板；完整目录见 [docs/data-sources-top100.md](docs/data-sources-top100.md)。
+- **104 种注册数据源类型**：35 个原生连接器、37 个 SQL 兼容预设、32 个 REST/文件模板；完整目录见 [docs/data-sources-top100.md](docs/data-sources-top100.md)。
 - **多租户**：`workspace` 隔离数据源、查询、成员、审计与 API Key；所有资源都带 `tenantId`。
 - **团队协作**：owner / admin / member / viewer 角色，邮件邀请链接、共享/私有保存查询、最近 100 条查询历史、审计日志。
 - **保存查询上限**：默认每个 workspace 500 条（可配置），达到上限后 API 返回明确错误。
@@ -126,7 +126,7 @@ docker compose up --build
 
 ---
 
-## 内置数据源（103）
+## 内置数据源（104）
 
 > 每个连接器的详细验证进度、限制与 CI 状态见 **[docs/data-sources.md](docs/data-sources.md)**。CI 覆盖 MongoDB + SQLite、Redis、JSONL 与 PostgreSQL 的真实跨源 JOIN。
 
@@ -146,6 +146,7 @@ docker compose up --build
 | Search | Elasticsearch、OpenSearch | HTTP search API |
 | 日志 | Alibaba Cloud SLS | 官方 SDK，SQL / Search 模式 |
 | API | REST / JSON | 通用 HTTP + JSON path |
+| API | GraphQL | 配置 query / variables / cursor 分页；只读 query |
 | File | CSV / TSV URL | 通用 HTTP + `encoding/csv` |
 | File | JSON Lines / NDJSON | 通用 HTTP + 逐行解析 |
 | 时序 | InfluxDB | InfluxQL HTTP（1.x / 2.x 兼容） |
@@ -156,7 +157,7 @@ docker compose up --build
 | File | Microsoft Excel | 本地 `.xlsx` worksheet |
 | File | Microsoft Access | 本地 `.mdb` / `.accdb` + mdbtools |
 
-完整 Top 100 目录（含兼容预设与 REST 模板）见 [docs/data-sources-top100.md](docs/data-sources-top100.md)。SaaS 服务可通过 **REST** 连接器接入，或直接导入 **OpenAPI/Swagger** 文档，把每个 GET operation 变成一张表（见 [docs/openapi.md](docs/openapi.md)）。新增原生连接器见 [docs/connectors.md](docs/connectors.md)。
+完整 Top 100 目录（含兼容预设与 REST 模板）见 [docs/data-sources-top100.md](docs/data-sources-top100.md)。SaaS 服务可通过 **REST** 连接器接入，用 **GraphQL** 连接器查询 GraphQL endpoint（见 [docs/graphql.md](docs/graphql.md)），或直接导入 **OpenAPI/Swagger** 文档，把每个 operation 变成一张表（见 [docs/openapi.md](docs/openapi.md)）。新增原生连接器见 [docs/connectors.md](docs/connectors.md)。
 
 ---
 

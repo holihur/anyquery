@@ -204,6 +204,7 @@ func TestProviderSpec(t *testing.T) {
 | `internal/presets` | 37 个 SQL 兼容预设 + 32 个 REST/SaaS 模板（Aurora、Cloud SQL、Neon、TiDB、GitHub、Slack、Stripe 等） |
 | `internal/cloudsql` | Snowflake、Databricks SQL |
 | `internal/openapi` | OpenAPI 3 / Swagger 2 operations as tables |
+| `internal/graphql` | GraphQL query/variables/columns/cursor pagination |
 | `internal/bigquery` | Google BigQuery（REST） |
 | `internal/cassandra` | Apache Cassandra / ScyllaDB（CQL） |
 | `internal/mongodb` | MongoDB |

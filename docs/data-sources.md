@@ -1,6 +1,6 @@
 # 数据源支持进度
 
-> 版本：MVP · 2026-11 · 共 **103** 个注册数据源类型（34 native / 37 compatible / 32 template）
+> 版本：MVP · 2026-11 · 共 **104** 个注册数据源类型（35 native / 37 compatible / 32 template）
 >
 > 完整 Top 100 目录见 [data-sources-top100.md](data-sources-top100.md)。
 
@@ -17,7 +17,7 @@
 >
 > 当前 MVP 的联邦策略：连接器负责 **连接 / Schema 探测 / 有界取数**，跨源 JOIN、过滤、聚合、排序由 Go 查询引擎完成。SQL 与 MongoDB 连接器支持投影、简单谓词和 LIMIT 下推；其他连接器会安全地忽略不支持的下推。
 >
-> 下表的 31 个原生连接器是已验证/已实现的核心；新增的兼容类型和 REST 模板见 Top 100 目录。
+> 下表的原生连接器是已验证/已实现的核心；新增的兼容类型和 REST 模板见 Top 100 目录。
 
 ## 总览
 
@@ -54,6 +54,7 @@
 | 29 | Apache Druid | 时序 | 🟡 | INFORMATION_SCHEMA | Basic | LIMIT | 编译 + 共享 HTTP 测试 |
 | 30 | Microsoft Excel | File | 🧪 | 首个 worksheet 表头 | 本地文件 | 行数上限 | Go 单测（.xlsx） |
 | 31 | Microsoft Access | File | 🟡 | `mdb-tables` + CSV header | 本地文件 | 行数上限 | 需 mdbtools，单测待补 |
+| 32 | GraphQL | API | 🧪 | 配置 query / 列声明 | Header（Bearer 等） | 客户端行数上限 | Go 单测 + mock endpoint |
 
 ## 分项说明
 
@@ -144,6 +145,14 @@ Redis 不是关系型数据库，AnyQuery 将匹配 `key_pattern` 的 key 映射
 - 嵌套对象会序列化为 JSON 字符串。
 - **无分页协议**：只读取单次响应，最多客户端截断；大 API 建议在网关侧分页或使用专用连接器。
 - 安全问题：URL 由工作区 admin 配置；生产环境请配合出口网络策略防 SSRF。
+
+### GraphQL（32）
+
+- 一张表对应一条已配置的 GraphQL query；支持单查询和 `queries` 多表配置。
+- 自动识别 `data` 下的根数组、单根字段和常见包装；可用 `data_path` 精确指定。
+- 支持 variables、`$limit` 自动注入、cursor 分页、`has_next_path` 和 `max_pages`。
+- 只接受 query 操作，拒绝 mutation/subscription；Header 加密保存。
+- 完整配置见 [graphql.md](graphql.md)。
 
 ### CSV / TSV（22）
 

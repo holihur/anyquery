@@ -1,10 +1,10 @@
 # Top 100 数据源目录
 
-AnyQuery 当前注册 **103** 个数据源类型，覆盖 SQL、NoSQL、搜索、时序、REST/SaaS API 与文件。
+AnyQuery 当前注册 **104** 个数据源类型，覆盖 SQL、NoSQL、搜索、时序、REST/SaaS API 与文件。
 
 | 成熟度 | 数量 | 含义 |
 | --- | ---: | --- |
-| `native` | 34 | 独立连接器实现（含 BigQuery REST、Cassandra CQL、MongoDB、Redis、Excel/Access 等） |
+| `native` | 35 | 独立连接器实现（含 BigQuery REST、Cassandra CQL、MongoDB、Redis、Excel/Access 等） |
 | `compatible` | 37 | 复用现有驱动的兼容类型，例如 Aurora、Cloud SQL、Neon、TiDB、Starburst |
 | `template` | 32 | 基于通用 REST/CSV/JSONL 的配置模板；仍需填写真实 endpoint、认证和 records path |
 
@@ -94,7 +94,7 @@ AnyQuery 当前注册 **103** 个数据源类型，覆盖 SQL、NoSQL、搜索�
 | `timescale-cloud` | compatible | Timescale Cloud |
 | `timescaledb` | native | TimescaleDB |
 
-## REST / SaaS API（33）
+## REST / SaaS API（34）
 
 | 类型 | 成熟度 | 名称 |
 | --- | --- | --- |
@@ -106,6 +106,7 @@ AnyQuery 当前注册 **103** 个数据源类型，覆盖 SQL、NoSQL、搜索�
 | `discord` | template | Discord |
 | `freshdesk` | template | Freshdesk |
 | `github` | template | GitHub |
+| `graphql` | native | GraphQL |
 | `gitlab` | template | GitLab |
 | `google-analytics` | template | Google Analytics |
 | `hubspot` | template | HubSpot |

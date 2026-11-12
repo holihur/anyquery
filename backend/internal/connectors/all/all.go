@@ -10,6 +10,7 @@ import (
 	_ "github.com/anyquery/anyquery/internal/druid"
 	_ "github.com/anyquery/anyquery/internal/elasticsearch"
 	_ "github.com/anyquery/anyquery/internal/excel"
+	_ "github.com/anyquery/anyquery/internal/graphql"
 	_ "github.com/anyquery/anyquery/internal/httpjson"
 	_ "github.com/anyquery/anyquery/internal/influxdb"
 	_ "github.com/anyquery/anyquery/internal/mongodb"
