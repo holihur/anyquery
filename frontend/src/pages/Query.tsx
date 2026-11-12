@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror"
@@ -80,6 +80,28 @@ export function QueryPage() {
   const [saveOpen, setSaveOpen] = useState(false)
   const [schemaOpen, setSchemaOpen] = useState(false)
   const [tab, setTab] = useState("results")
+  const [schemaCollapsed, setSchemaCollapsed] = useState(() => localStorage.getItem("aq-schema-collapsed") === "1")
+  const [schemaWidth, setSchemaWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("aq-schema-width"))
+    return Number.isFinite(saved) && saved >= 220 && saved <= 520 ? saved : 268
+  })
+  const [editorRatio, setEditorRatio] = useState(() => {
+    const saved = Number(localStorage.getItem("aq-editor-ratio"))
+    return Number.isFinite(saved) && saved >= 0.25 && saved <= 0.78 ? saved : 0.43
+  })
+
+  useEffect(() => {
+    localStorage.setItem("aq-schema-collapsed", schemaCollapsed ? "1" : "0")
+  }, [schemaCollapsed])
+
+  useEffect(() => {
+    localStorage.setItem("aq-schema-width", String(Math.round(schemaWidth)))
+  }, [schemaWidth])
+
+  useEffect(() => {
+    localStorage.setItem("aq-editor-ratio", String(editorRatio))
+    editorRef.current?.view?.requestMeasure()
+  }, [editorRatio])
 
   // Restore a saved query from the URL.
   useEffect(() => {
@@ -207,11 +229,54 @@ export function QueryPage() {
     }
   }
 
+  function beginSchemaResize(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = schemaWidth
+    const maxWidth = Math.min(520, Math.max(260, window.innerWidth - 520))
+    document.body.style.userSelect = "none"
+    document.body.style.cursor = "col-resize"
+    const move = (ev: PointerEvent) => {
+      setSchemaWidth(Math.min(maxWidth, Math.max(220, startWidth + ev.clientX - startX)))
+    }
+    const up = () => {
+      document.removeEventListener("pointermove", move)
+      document.removeEventListener("pointerup", up)
+      document.body.style.userSelect = ""
+      document.body.style.cursor = ""
+    }
+    document.addEventListener("pointermove", move)
+    document.addEventListener("pointerup", up)
+  }
+
+  function beginEditorResize(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault()
+    const container = event.currentTarget.parentElement
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    const startY = event.clientY
+    const startRatio = editorRatio
+    document.body.style.userSelect = "none"
+    document.body.style.cursor = "row-resize"
+    const move = (ev: PointerEvent) => {
+      setEditorRatio(Math.min(0.78, Math.max(0.25, startRatio + (ev.clientY - startY) / rect.height)))
+    }
+    const up = () => {
+      document.removeEventListener("pointermove", move)
+      document.removeEventListener("pointerup", up)
+      document.body.style.userSelect = ""
+      document.body.style.cursor = ""
+      editorRef.current?.view?.requestMeasure()
+    }
+    document.addEventListener("pointermove", move)
+    document.addEventListener("pointerup", up)
+  }
+
   const sourceCount = sources.length
   const tableCount = sources.reduce((n, s) => n + s.tables.length, 0)
   const runs = runsData?.runs ?? []
 
-  const schemaPanel = (
+  const renderSchema = (onCollapse: () => void) => (
     <SchemaExplorer
       sources={sources}
       loading={catalogLoading}
@@ -219,6 +284,7 @@ export function QueryPage() {
       onRefresh={() => void refetchCatalog()}
       onAddSource={() => navigate(`/w/${tenant.slug}/sources?new=1`)}
       onManage={() => navigate(`/w/${tenant.slug}/sources`)}
+      onCollapse={onCollapse}
     />
   )
 
@@ -243,7 +309,17 @@ export function QueryPage() {
         <div className="ml-auto flex items-center gap-1.5">
           <Button variant="ghost" size="sm" className="hidden md:inline-flex" onClick={newQuery}><FileCode2 className="size-3.5" /> New</Button>
           <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={formatQuery} title="Format SQL"><WandSparkles className="size-3.5" /> Format</Button>
-          <Button variant="outline" size="sm" className="lg:hidden" onClick={() => setSchemaOpen(true)}><PanelLeft className="size-3.5" /> Schema</Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className={schemaCollapsed ? "inline-flex" : "lg:hidden"}
+            onClick={() => {
+              if (window.innerWidth >= 1024) setSchemaCollapsed(false)
+              else setSchemaOpen(true)
+            }}
+          >
+            <PanelLeft className="size-3.5" /> Schema
+          </Button>
           {canEdit && (
             <Button variant="outline" size="sm" onClick={() => setSaveOpen(true)} disabled={!sqlText.trim()}>
               <Save className="size-3.5" /> <span className="hidden sm:inline">{currentSaved ? "Update" : "Save"}</span>
@@ -257,10 +333,26 @@ export function QueryPage() {
       </header>
 
       <div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
-        <aside className="hidden w-[268px] shrink-0 overflow-hidden surface lg:block">{schemaPanel}</aside>
+        {!schemaCollapsed && (
+          <>
+            <aside style={{ width: schemaWidth }} className="hidden shrink-0 overflow-hidden surface lg:block">
+              {renderSchema(() => setSchemaCollapsed(true))}
+            </aside>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize schema panel"
+              onPointerDown={beginSchemaResize}
+              onDoubleClick={() => setSchemaWidth(268)}
+              className="group -mx-1 hidden w-2 cursor-col-resize touch-none items-center justify-center lg:flex"
+            >
+              <div className="h-10 w-px rounded-full bg-border/70 transition-colors group-hover:bg-primary/60" />
+            </div>
+          </>
+        )}
 
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div className="flex h-[43%] min-h-[190px] flex-col overflow-hidden surface">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div style={{ height: `${editorRatio * 100}%` }} className="flex min-h-[150px] flex-col overflow-hidden surface">
             <div className="flex h-9 shrink-0 items-center justify-between px-3 text-[11px] text-muted-foreground">
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1 font-mono text-[10px]"><span className="size-1.5 rounded-full bg-emerald-500" /> SQL</span>
@@ -293,6 +385,17 @@ export function QueryPage() {
                 className="h-full"
               />
             </div>
+          </div>
+
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize results panel"
+            onPointerDown={beginEditorResize}
+            onDoubleClick={() => setEditorRatio(0.43)}
+            className="group -my-0.5 flex h-3 shrink-0 cursor-row-resize touch-none items-center justify-center"
+          >
+            <div className="h-px w-12 rounded-full bg-border/80 transition-colors group-hover:bg-primary/60" />
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden surface">
@@ -374,7 +477,7 @@ export function QueryPage() {
       <Dialog open={schemaOpen} onOpenChange={setSchemaOpen}>
         <DialogContent className="p-0 sm:max-w-md">
           <DialogHeader className="sr-only"><DialogTitle>Schema explorer</DialogTitle></DialogHeader>
-          <div className="h-[70vh]">{schemaPanel}</div>
+          <div className="h-[70vh]">{renderSchema(() => setSchemaOpen(false))}</div>
         </DialogContent>
       </Dialog>
     </div>

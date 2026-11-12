@@ -68,7 +68,8 @@ FROM mongo.orders
 - **团队 API**：工作区级 API Key 可直接调用执行接口。
 - **查询护栏**：超时、单源行数上限、结果行数上限、JOIN 中间结果上限、截断警示。
 - **Top 100**：查询历史展示最近 100 条；保存查询库每个工作区最多 100 条。
-- **深色/浅色主题**、响应式布局、SQL 自动补全、schema 浏览器、结果排序/分页/CSV 导出。
+- **深色/浅色主题**、响应式布局、可折叠导航、可拖拽 schema 宽度与 SQL/结果分栏、SQL 自动补全、schema 浏览器、结果排序/分页/CSV 导出。
+- **布局状态持久化**：侧边栏折叠、schema 宽度、SQL/结果高度、主题都保存在浏览器本地。
 
 ---
 
@@ -133,7 +134,7 @@ docker compose up --build
 | 云数仓 | Snowflake | 官方 SQL API（OAuth / PAT） |
 | 云数仓 | Databricks SQL | 官方 Statement Execution API |
 | NoSQL | MongoDB | 官方 Go driver |
-| NoSQL | Redis | `go-redis/v9`，Hash/JSON 展开为列 |
+| NoSQL | Redis | `redigo`，Hash/JSON 展开为列 |
 | Search | Elasticsearch、OpenSearch | HTTP search API |
 | API | REST / JSON | 通用 HTTP + JSON path |
 | File | CSV / TSV URL | 通用 HTTP + `encoding/csv` |
@@ -369,6 +370,7 @@ cd backend && go test ./...
 - REST/CSV/Elasticsearch 连接器允许用户填写 URL。生产部署建议配合网络出口策略，限制可访问的内网地址（SSRF 防护）。
 - 平台不执行源端 DDL；连接器应使用只读账号。
 - 生产请关闭开发登录、使用强随机加密密钥、启用 HTTPS，并定期轮换 API Key。
+- 如果通过其他域名/端口访问，优先把 `APP_BASE_URL` 设置为实际访问地址；同源请求会自动通过 CSRF Origin 校验，反向代理场景可追加 `APP_ALLOWED_ORIGINS`。
 
 ---
 

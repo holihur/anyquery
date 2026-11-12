@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,8 +156,8 @@ func (s *Server) authenticate(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if isUnsafe(r.Method) {
-			if origin := r.Header.Get("Origin"); origin != "" && !s.originAllowed(origin) {
-				writeError(w, http.StatusForbidden, "csrf", "Request origin is not allowed")
+			if origin := r.Header.Get("Origin"); origin != "" && !s.originAllowedForRequest(origin, r) {
+				writeError(w, http.StatusForbidden, "csrf", fmt.Sprintf("Request origin %q is not allowed for host %q. Set APP_BASE_URL to the public URL, or add the origin to APP_ALLOWED_ORIGINS.", origin, r.Host))
 				return
 			}
 		}
@@ -232,7 +234,7 @@ func isAPIKey(r *http.Request) bool {
 func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" && s.originAllowed(origin) {
+		if origin != "" && s.originAllowedForRequest(origin, r) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -240,7 +242,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		}
 		if r.Method == http.MethodOptions {
-			if origin != "" && !s.originAllowed(origin) {
+			if origin != "" && !s.originAllowedForRequest(origin, r) {
 				writeError(w, http.StatusForbidden, "csrf", "Origin is not allowed")
 				return
 			}
@@ -258,6 +260,36 @@ func (s *Server) originAllowed(origin string) bool {
 		}
 	}
 	return false
+}
+
+// originAllowedForRequest accepts explicitly configured origins and the
+// browser's own origin when it matches the host serving this request. This
+// keeps cookie-auth CSRF protection working after changing ports or putting
+// the app behind a same-origin reverse proxy without silently allowing every
+// origin.
+func (s *Server) originAllowedForRequest(origin string, r *http.Request) bool {
+	if s.originAllowed(origin) {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := r.Host
+	if forwarded := r.Header.Get("X-Forwarded-Host"); forwarded != "" {
+		host = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+	}
+	if !strings.EqualFold(u.Host, host) {
+		return false
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := r.Header.Get("X-Forwarded-Proto"); forwarded != "" {
+		scheme = strings.ToLower(strings.TrimSpace(strings.Split(forwarded, ",")[0]))
+	}
+	return strings.EqualFold(u.Scheme, scheme)
 }
 
 func isUnsafe(method string) bool {

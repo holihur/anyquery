@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { ChevronRight, Columns3, Database, Plus, RefreshCw, Search, Table2, TriangleAlert } from "lucide-react"
+import { ChevronRight, Columns3, Database, PanelLeftClose, Plus, RefreshCw, Search, Table2, TriangleAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { SourceIcon } from "@/components/shared"
 import { Button } from "@/components/ui/button"
@@ -23,6 +23,7 @@ export function SchemaExplorer({
   onRefresh,
   onAddSource,
   onManage,
+  onCollapse,
 }: {
   sources: CatalogSource[]
   loading?: boolean
@@ -30,6 +31,7 @@ export function SchemaExplorer({
   onRefresh?: () => void
   onAddSource: () => void
   onManage: () => void
+  onCollapse?: () => void
 }) {
   const [query, setQuery] = useState("")
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
@@ -70,6 +72,14 @@ export function SchemaExplorer({
             </TooltipTrigger>
             <TooltipContent>Add data source</TooltipContent>
           </Tooltip>
+          {onCollapse && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon-xs" onClick={onCollapse} aria-label="Collapse schema"><PanelLeftClose className="size-3.5" /></Button>
+              </TooltipTrigger>
+              <TooltipContent>Collapse schema</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </div>
       <div className="px-3 pb-2">

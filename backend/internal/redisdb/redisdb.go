@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/gomodule/redigo/redis"
 
 	"github.com/anyquery/anyquery/internal/connector"
 )
@@ -55,16 +55,16 @@ func (Provider) Open(ctx context.Context, cfg map[string]string) (connector.Conn
 	if rawURL == "" {
 		return nil, fmt.Errorf("Redis URL is required")
 	}
-	opts, err := redis.ParseURL(rawURL)
+	conn, err := redis.DialURL(rawURL,
+		redis.DialConnectTimeout(10*time.Second),
+		redis.DialReadTimeout(30*time.Second),
+		redis.DialWriteTimeout(30*time.Second),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("invalid Redis URL: %w", err)
+		return nil, fmt.Errorf("connect Redis: %w", err)
 	}
-	opts.ReadTimeout = 30 * time.Second
-	opts.WriteTimeout = 30 * time.Second
-	opts.PoolSize = 5
-	client := redis.NewClient(opts)
 	c := &Conn{
-		client:     client,
+		conn:       conn,
 		pattern:    cfg["key_pattern"],
 		table:      cfg["table_name"],
 		scanLimit:  atoiDefault(cfg["scan_limit"], 5000),
@@ -91,22 +91,22 @@ func (Provider) Open(ctx context.Context, cfg map[string]string) (connector.Conn
 	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := c.Ping(pingCtx); err != nil {
-		_ = client.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	return c, nil
 }
 
 type Conn struct {
-	client     *redis.Client
+	conn       redis.Conn
 	pattern    string
 	table      string
 	scanLimit  int
 	sampleSize int
 }
 
-func (c *Conn) Ping(ctx context.Context) error {
-	if err := c.client.Ping(ctx).Err(); err != nil {
+func (c *Conn) Ping(context.Context) error {
+	if _, err := c.conn.Do("PING"); err != nil {
 		return fmt.Errorf("Redis ping failed: %w", err)
 	}
 	return nil
@@ -116,7 +116,7 @@ func (c *Conn) Capabilities() connector.Capabilities {
 	return connector.Capabilities{LimitPushdown: true}
 }
 
-func (c *Conn) Close() error { return c.client.Close() }
+func (c *Conn) Close() error { return c.conn.Close() }
 
 func (c *Conn) Introspect(ctx context.Context) ([]connector.Table, error) {
 	rows, _, err := c.rows(ctx, c.sampleSize)
@@ -147,8 +147,8 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 	}, nil
 }
 
-func (c *Conn) rows(ctx context.Context, limit int) ([]map[string]any, bool, error) {
-	keys, truncated, err := c.scanKeys(ctx, limit)
+func (c *Conn) rows(_ context.Context, limit int) ([]map[string]any, bool, error) {
+	keys, truncated, err := c.scanKeys(limit)
 	if err != nil {
 		return nil, false, err
 	}
@@ -159,11 +159,11 @@ func (c *Conn) rows(ctx context.Context, limit int) ([]map[string]any, bool, err
 			end = len(keys)
 		}
 		chunk := keys[start:end]
-		types, ttls, err := c.keyMeta(ctx, chunk)
+		types, ttls, err := c.keyMeta(chunk)
 		if err != nil {
 			return nil, false, err
 		}
-		chunkRows, err := c.keyRows(ctx, chunk, types, ttls)
+		chunkRows, err := c.keyRows(chunk, types, ttls)
 		if err != nil {
 			return nil, false, err
 		}
@@ -172,16 +172,27 @@ func (c *Conn) rows(ctx context.Context, limit int) ([]map[string]any, bool, err
 	return rows, truncated, nil
 }
 
-func (c *Conn) scanKeys(ctx context.Context, limit int) ([]string, bool, error) {
+func (c *Conn) scanKeys(limit int) ([]string, bool, error) {
 	if limit <= 0 {
 		limit = 1
 	}
-	cursor := uint64(0)
+	cursor := "0"
 	var keys []string
 	for {
-		batch, next, err := c.client.Scan(ctx, cursor, c.pattern, 256).Result()
+		reply, err := redis.Values(c.conn.Do("SCAN", cursor, "MATCH", c.pattern, "COUNT", 256))
 		if err != nil {
 			return nil, false, fmt.Errorf("scan keys: %w", err)
+		}
+		if len(reply) != 2 {
+			return nil, false, fmt.Errorf("unexpected SCAN response")
+		}
+		next, err := redis.String(reply[0], nil)
+		if err != nil {
+			return nil, false, err
+		}
+		batch, err := redis.Strings(reply[1], nil)
+		if err != nil {
+			return nil, false, err
 		}
 		for _, key := range batch {
 			if len(keys) >= limit {
@@ -190,159 +201,268 @@ func (c *Conn) scanKeys(ctx context.Context, limit int) ([]string, bool, error) 
 			keys = append(keys, key)
 		}
 		cursor = next
-		if cursor == 0 {
+		if cursor == "0" {
 			break
 		}
 	}
 	return keys, false, nil
 }
 
-func (c *Conn) keyMeta(ctx context.Context, keys []string) ([]string, []int64, error) {
-	pipe := c.client.Pipeline()
-	typeCmds := make([]*redis.StatusCmd, len(keys))
-	ttlCmds := make([]*redis.DurationCmd, len(keys))
-	for i, key := range keys {
-		typeCmds[i] = pipe.Type(ctx, key)
-		ttlCmds[i] = pipe.TTL(ctx, key)
+func (c *Conn) keyMeta(keys []string) ([]string, []int64, error) {
+	for _, key := range keys {
+		if err := c.conn.Send("TYPE", key); err != nil {
+			return nil, nil, err
+		}
+		if err := c.conn.Send("TTL", key); err != nil {
+			return nil, nil, err
+		}
 	}
-	_, err := pipe.Exec(ctx)
-	if err != nil && !errors.Is(err, redis.Nil) {
-		return nil, nil, fmt.Errorf("read key metadata: %w", err)
+	if err := c.conn.Flush(); err != nil {
+		return nil, nil, err
 	}
 	types := make([]string, len(keys))
 	ttls := make([]int64, len(keys))
 	for i := range keys {
-		types[i] = typeCmds[i].Val()
-		d := ttlCmds[i].Val()
-		if d < 0 {
+		typeReply, err := c.conn.Receive()
+		if err != nil {
+			return nil, nil, err
+		}
+		typ, err := redis.String(typeReply, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		ttlReply, err := c.conn.Receive()
+		if err != nil {
+			return nil, nil, err
+		}
+		ttl, err := redis.Int64(ttlReply, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		types[i] = typ
+		ttls[i] = ttl
+		if ttl < 0 {
 			ttls[i] = -1
-		} else {
-			ttls[i] = int64(d.Seconds())
 		}
 	}
 	return types, ttls, nil
 }
 
-type fetched struct {
-	row map[string]any
-	err error
-}
-
-func (c *Conn) keyRows(ctx context.Context, keys, types []string, ttls []int64) ([]map[string]any, error) {
-	pipe := c.client.Pipeline()
-	getters := make([]func() fetched, len(keys))
+func (c *Conn) keyRows(keys, types []string, ttls []int64) ([]map[string]any, error) {
+	// Pipeline the value commands by type. This keeps key scans practical even
+	// when Redis is a network hop away.
 	for i, key := range keys {
-		key := key
-		typ := types[i]
-		switch typ {
+		switch types[i] {
 		case "string":
-			get := pipe.Get(ctx, key)
-			getters[i] = func() fetched {
-				raw, err := get.Result()
-				if err != nil {
-					return fetched{err: err}
-				}
-				fields, value := flattenString(raw)
-				return fetched{row: map[string]any{"fields": fields, "value": value, "size": int64(len(raw))}}
+			if err := c.conn.Send("GET", key); err != nil {
+				return nil, err
 			}
 		case "hash":
-			size := pipe.HLen(ctx, key)
-			get := pipe.HGetAll(ctx, key)
-			getters[i] = func() fetched {
-				m, err := get.Result()
-				if err != nil {
-					return fetched{err: err}
-				}
-				b, _ := json.Marshal(m)
-				return fetched{row: map[string]any{"fields": stringMap(m), "value": string(b), "size": size.Val()}}
+			if err := c.conn.Send("HLEN", key); err != nil {
+				return nil, err
+			}
+			if err := c.conn.Send("HGETALL", key); err != nil {
+				return nil, err
 			}
 		case "list":
-			size := pipe.LLen(ctx, key)
-			get := pipe.LRange(ctx, key, 0, 999)
-			getters[i] = func() fetched {
-				vals, err := get.Result()
-				if err != nil {
-					return fetched{err: err}
-				}
-				b, _ := json.Marshal(vals)
-				return fetched{row: map[string]any{"fields": nil, "value": string(b), "size": size.Val()}}
+			if err := c.conn.Send("LLEN", key); err != nil {
+				return nil, err
+			}
+			if err := c.conn.Send("LRANGE", key, 0, 999); err != nil {
+				return nil, err
 			}
 		case "set":
-			size := pipe.SCard(ctx, key)
-			get := pipe.SScan(ctx, key, 0, "", 1000)
-			getters[i] = func() fetched {
-				vals, _, err := get.Result()
-				if err != nil {
-					return fetched{err: err}
-				}
-				sort.Strings(vals)
-				b, _ := json.Marshal(vals)
-				return fetched{row: map[string]any{"fields": nil, "value": string(b), "size": size.Val()}}
+			if err := c.conn.Send("SCARD", key); err != nil {
+				return nil, err
+			}
+			if err := c.conn.Send("SSCAN", key, 0, "COUNT", 1000); err != nil {
+				return nil, err
 			}
 		case "zset":
-			size := pipe.ZCard(ctx, key)
-			get := pipe.ZRangeWithScores(ctx, key, 0, 999)
-			getters[i] = func() fetched {
-				vals, err := get.Result()
-				if err != nil {
-					return fetched{err: err}
-				}
-				b, _ := json.Marshal(vals)
-				return fetched{row: map[string]any{"fields": nil, "value": string(b), "size": size.Val()}}
+			if err := c.conn.Send("ZCARD", key); err != nil {
+				return nil, err
+			}
+			if err := c.conn.Send("ZRANGE", key, 0, 999, "WITHSCORES"); err != nil {
+				return nil, err
 			}
 		case "stream":
-			size := pipe.XLen(ctx, key)
-			get := pipe.XRangeN(ctx, key, "-", "+", 1000)
-			getters[i] = func() fetched {
-				msgs, err := get.Result()
-				if err != nil {
-					return fetched{err: err}
-				}
-				type entry struct {
-					ID     string         `json:"id"`
-					Values map[string]any `json:"values"`
-				}
-				out := make([]entry, len(msgs))
-				for j, m := range msgs {
-					out[j] = entry{ID: m.ID, Values: m.Values}
-				}
-				b, _ := json.Marshal(out)
-				return fetched{row: map[string]any{"fields": nil, "value": string(b), "size": size.Val()}}
+			if err := c.conn.Send("XLEN", key); err != nil {
+				return nil, err
 			}
-		default:
-			getters[i] = func() fetched { return fetched{err: redis.Nil} }
+			if err := c.conn.Send("XRANGE", key, "-", "+", "COUNT", 1000); err != nil {
+				return nil, err
+			}
 		}
 	}
-	_, pipeErr := pipe.Exec(ctx)
-	if pipeErr != nil && !errors.Is(pipeErr, redis.Nil) {
-		return nil, fmt.Errorf("read key values: %w", pipeErr)
+	if err := c.conn.Flush(); err != nil {
+		return nil, err
 	}
 
 	var rows []map[string]any
 	for i, key := range keys {
-		f := getters[i]()
-		if f.err != nil {
-			if errors.Is(f.err, redis.Nil) {
-				continue // expired or deleted between SCAN and GET
+		typ := types[i]
+		if typ == "none" {
+			continue
+		}
+		var fields map[string]any
+		var value string
+		var size int64
+		switch typ {
+		case "string":
+			reply, err := c.conn.Receive()
+			if err != nil {
+				return nil, err
 			}
-			return nil, fmt.Errorf("read key %q: %w", key, f.err)
+			raw, err := redis.String(reply, nil)
+			if errors.Is(err, redis.ErrNil) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			fields, value = flattenString(raw)
+			size = int64(len(raw))
+		case "hash":
+			s, err := receiveInt(c.conn)
+			if err != nil {
+				return nil, err
+			}
+			reply, err := c.conn.Receive()
+			if err != nil {
+				return nil, err
+			}
+			m, err := redis.StringMap(reply, nil)
+			if errors.Is(err, redis.ErrNil) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			b, _ := json.Marshal(m)
+			fields = stringMap(m)
+			value = string(b)
+			size = s
+		case "list":
+			s, err := receiveInt(c.conn)
+			if err != nil {
+				return nil, err
+			}
+			reply, err := c.conn.Receive()
+			if err != nil {
+				return nil, err
+			}
+			vals, err := redis.Strings(reply, nil)
+			if errors.Is(err, redis.ErrNil) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			b, _ := json.Marshal(vals)
+			value, size = string(b), s
+		case "set":
+			s, err := receiveInt(c.conn)
+			if err != nil {
+				return nil, err
+			}
+			reply, err := c.conn.Receive()
+			if err != nil {
+				return nil, err
+			}
+			scan, err := redis.Values(reply, nil)
+			if err != nil {
+				return nil, err
+			}
+			var vals []string
+			if len(scan) == 2 {
+				vals, _ = redis.Strings(scan[1], nil)
+			}
+			sort.Strings(vals)
+			b, _ := json.Marshal(vals)
+			value, size = string(b), s
+		case "zset":
+			s, err := receiveInt(c.conn)
+			if err != nil {
+				return nil, err
+			}
+			reply, err := c.conn.Receive()
+			if err != nil {
+				return nil, err
+			}
+			flat, err := redis.Strings(reply, nil)
+			if errors.Is(err, redis.ErrNil) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			type z struct {
+				Member string `json:"member"`
+				Score  string `json:"score"`
+			}
+			zs := make([]z, 0, len(flat)/2)
+			for j := 0; j+1 < len(flat); j += 2 {
+				zs = append(zs, z{Member: flat[j], Score: flat[j+1]})
+			}
+			b, _ := json.Marshal(zs)
+			value, size = string(b), s
+		case "stream":
+			s, err := receiveInt(c.conn)
+			if err != nil {
+				return nil, err
+			}
+			reply, err := c.conn.Receive()
+			if err != nil {
+				return nil, err
+			}
+			if errors.Is(err, redis.ErrNil) {
+				continue
+			}
+			b, _ := json.Marshal(normalizeRedisValue(reply))
+			value, size = string(b), s
+		default:
+			continue
 		}
 		row := map[string]any{
-			"_key": key, "_type": types[i], "_ttl": ttls[i],
-			"_size": f.row["size"], "_value": f.row["value"],
+			"_key": key, "_type": typ, "_ttl": ttls[i], "_size": size, "_value": value,
 		}
-		if fields, ok := f.row["fields"].(map[string]any); ok {
-			for k, v := range fields {
-				if strings.HasPrefix(k, "_") {
-					row["field_"+k] = v
-				} else {
-					row[k] = v
-				}
+		for k, v := range fields {
+			if strings.HasPrefix(k, "_") {
+				row["field_"+k] = v
+			} else {
+				row[k] = v
 			}
 		}
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+func receiveInt(conn redis.Conn) (int64, error) {
+	reply, err := conn.Receive()
+	if err != nil {
+		return 0, err
+	}
+	return redis.Int64(reply, nil)
+}
+
+func normalizeRedisValue(v any) any {
+	switch x := v.(type) {
+	case []byte:
+		return string(x)
+	case int64:
+		return x
+	case []any:
+		out := make([]any, len(x))
+		for i, item := range x {
+			out[i] = normalizeRedisValue(item)
+		}
+		return out
+	case nil:
+		return nil
+	default:
+		return fmt.Sprint(x)
+	}
 }
 
 func flattenString(raw string) (map[string]any, string) {

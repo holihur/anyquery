@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import {
   Activity,
@@ -17,6 +17,8 @@ import {
   Users,
   X,
   Check,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react"
 import { cn, initials } from "@/lib/utils"
 import { api } from "@/lib/api"
@@ -35,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RoleBadge } from "@/components/shared"
@@ -72,6 +75,11 @@ export function AppShell() {
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("aq-sidebar-collapsed") === "1")
+
+  useEffect(() => {
+    localStorage.setItem("aq-sidebar-collapsed", collapsed ? "1" : "0")
+  }, [collapsed])
 
   const otherTenants = me?.tenants.filter((t) => t.id !== tenant.id) ?? []
 
@@ -80,36 +88,70 @@ export function AppShell() {
     navigate("/login", { replace: true })
   }
 
-  const nav = (
+  const renderNav = (compact: boolean) => (
     <div className="flex h-full flex-col">
-      <div className="flex h-16 items-center justify-between px-5">
-        <NavLink to={`/w/${tenant.slug}`} onClick={() => setMobileOpen(false)}>
-          <Logo />
+      <div className={cn("flex h-16 items-center", compact ? "justify-center px-2" : "justify-between px-5")}>
+        <NavLink to={`/w/${tenant.slug}`} onClick={() => setMobileOpen(false)} className="flex items-center">
+          {compact ? <LogoMark /> : <Logo />}
         </NavLink>
-        <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={() => setMobileOpen(false)}>
-          <X className="size-4" />
-        </Button>
+        {!compact && (
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon-sm" className="hidden md:inline-flex" onClick={() => setCollapsed(true)} aria-label="Collapse sidebar">
+                  <PanelLeftClose className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Collapse sidebar</TooltipContent>
+            </Tooltip>
+            <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={() => setMobileOpen(false)} aria-label="Close navigation">
+              <X className="size-4" />
+            </Button>
+          </div>
+        )}
       </div>
 
-      <div className="px-3">
+      {compact && (
+        <div className="flex justify-center pb-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-xs" onClick={() => setCollapsed(false)} aria-label="Expand sidebar">
+                <PanelLeftOpen className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Expand sidebar</TooltipContent>
+          </Tooltip>
+        </div>
+      )}
+
+      <div className={compact ? "px-2" : "px-3"}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="group flex w-full items-center gap-2.5 rounded-lg bg-background/80 px-2.5 py-2 text-left shadow-xs transition-colors hover:bg-background">
-              <div className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-[13px] font-semibold text-primary-foreground">
+            {compact ? (
+              <button
+                className="mx-auto grid size-9 place-items-center rounded-md bg-primary text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+                title={`${tenant.name} · ${role}`}
+              >
                 {tenant.name.slice(0, 1).toUpperCase()}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] font-medium">{tenant.name}</div>
-                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <span className="capitalize">{role}</span>
-                  <span className="size-0.5 rounded-full bg-current" />
-                  <span className="truncate">{tenant.slug}</span>
+              </button>
+            ) : (
+              <button className="group flex w-full items-center gap-2.5 rounded-lg bg-background/80 px-2.5 py-2 text-left shadow-xs transition-colors hover:bg-background">
+                <div className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-[13px] font-semibold text-primary-foreground">
+                  {tenant.name.slice(0, 1).toUpperCase()}
                 </div>
-              </div>
-              <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
-            </button>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium">{tenant.name}</div>
+                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="capitalize">{role}</span>
+                    <span className="size-0.5 rounded-full bg-current" />
+                    <span className="truncate">{tenant.slug}</span>
+                  </div>
+                </div>
+                <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+              </button>
+            )}
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-[232px]">
+          <DropdownMenuContent align="start" side={compact ? "right" : "bottom"} className="w-[232px]">
             <DropdownMenuLabel className="text-[11px]">Workspaces</DropdownMenuLabel>
             {me?.tenants.map((t) => (
               <TenantMenuItem key={t.id} tenant={t} current={t.id === tenant.id} onSelect={() => navigate(`/w/${t.slug}`)} />
@@ -123,10 +165,12 @@ export function AppShell() {
         </DropdownMenu>
       </div>
 
-      <nav className="mt-5 flex-1 space-y-6 overflow-y-auto px-3 scrollbar-thin">
+      <nav className={cn("mt-5 flex-1 overflow-y-auto scrollbar-thin", compact ? "space-y-3 px-2" : "space-y-6 px-3")}>
         {navGroups.map((group) => (
           <div key={group.label}>
-            <div className="mb-1.5 px-2.5 text-[10px] font-medium tracking-[0.13em] text-muted-foreground/80 uppercase">{group.label}</div>
+            {!compact && (
+              <div className="mb-1.5 px-2.5 text-[10px] font-medium tracking-[0.13em] text-muted-foreground/80 uppercase">{group.label}</div>
+            )}
             <div className="space-y-0.5">
               {group.items.map((item) => {
                 const href = item.to ? `/w/${tenant.slug}/${item.to}` : `/w/${tenant.slug}`
@@ -136,9 +180,12 @@ export function AppShell() {
                     to={href}
                     end={item.end}
                     onClick={() => setMobileOpen(false)}
+                    title={compact ? item.label : undefined}
+                    aria-label={compact ? item.label : undefined}
                     className={({ isActive }) =>
                       cn(
                         "group relative flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors",
+                        compact && "justify-center px-0",
                         isActive
                           ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-xs"
                           : "text-sidebar-foreground/75 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground",
@@ -149,7 +196,7 @@ export function AppShell() {
                       <>
                         <span className={cn("absolute left-0 h-4 w-0.5 rounded-full bg-primary transition-opacity", isActive ? "opacity-100" : "opacity-0")} />
                         <item.icon className="size-4 shrink-0 opacity-80" />
-                        {item.label}
+                        <span className={cn("truncate", compact && "sr-only")}>{item.label}</span>
                       </>
                     )}
                   </NavLink>
@@ -160,30 +207,41 @@ export function AppShell() {
         ))}
       </nav>
 
-      <div className="p-4">
-        <div className="mb-2 flex items-center justify-between px-1">
-          <span className="text-[11px] text-muted-foreground">Appearance</span>
-          <div className="flex items-center rounded-md border bg-background p-0.5">
-            <ThemeButton value="light" current={theme} onSelect={setTheme} label="Light"><Sun className="size-3" /></ThemeButton>
-            <ThemeButton value="dark" current={theme} onSelect={setTheme} label="Dark"><Moon className="size-3" /></ThemeButton>
-            <ThemeButton value="system" current={theme} onSelect={setTheme} label="System"><Monitor className="size-3" /></ThemeButton>
+      <div className={compact ? "p-2" : "p-4"}>
+        {!compact && (
+          <div className="mb-2 flex items-center justify-between px-1">
+            <span className="text-[11px] text-muted-foreground">Appearance</span>
+            <div className="flex items-center rounded-md border bg-background p-0.5">
+              <ThemeButton value="light" current={theme} onSelect={setTheme} label="Light"><Sun className="size-3" /></ThemeButton>
+              <ThemeButton value="dark" current={theme} onSelect={setTheme} label="Dark"><Moon className="size-3" /></ThemeButton>
+              <ThemeButton value="system" current={theme} onSelect={setTheme} label="System"><Monitor className="size-3" /></ThemeButton>
+            </div>
           </div>
-        </div>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/60">
-              <Avatar className="size-8">
-                {me?.user.avatarUrl && <AvatarImage src={me.user.avatarUrl} />}
-                <AvatarFallback>{initials(me?.user.name, me?.user.email)}</AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] font-medium">{me?.user.name}</div>
-                <div className="truncate text-[11px] text-muted-foreground">{me?.user.email}</div>
-              </div>
-              <ChevronsUpDown className="size-3.5 text-muted-foreground" />
-            </button>
+            {compact ? (
+              <button className="mx-auto grid size-9 place-items-center rounded-lg transition-colors hover:bg-sidebar-accent/60" title={`${me?.user.name} · ${me?.user.email}`}>
+                <Avatar className="size-7">
+                  {me?.user.avatarUrl && <AvatarImage src={me.user.avatarUrl} />}
+                  <AvatarFallback>{initials(me?.user.name, me?.user.email)}</AvatarFallback>
+                </Avatar>
+              </button>
+            ) : (
+              <button className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/60">
+                <Avatar className="size-8">
+                  {me?.user.avatarUrl && <AvatarImage src={me.user.avatarUrl} />}
+                  <AvatarFallback>{initials(me?.user.name, me?.user.email)}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium">{me?.user.name}</div>
+                  <div className="truncate text-[11px] text-muted-foreground">{me?.user.email}</div>
+                </div>
+                <ChevronsUpDown className="size-3.5 text-muted-foreground" />
+              </button>
+            )}
           </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="start" className="w-[224px]">
+          <DropdownMenuContent side={compact ? "right" : "top"} align={compact ? "end" : "start"} className="w-[224px]">
             <DropdownMenuLabel>
               <div className="flex items-center justify-between">
                 <span className="truncate">{me?.user.name}</span>
@@ -209,6 +267,7 @@ export function AppShell() {
     </div>
   )
 
+
   const title = navGroups.flatMap((g) => g.items).find((item) => {
     const href = item.to ? `/w/${tenant.slug}/${item.to}` : `/w/${tenant.slug}`
     return item.end ? location.pathname === href : location.pathname.startsWith(href)
@@ -216,12 +275,12 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <aside className="hidden w-[252px] shrink-0 bg-sidebar md:block">{nav}</aside>
+      <aside className={cn("hidden shrink-0 bg-sidebar transition-[width] duration-200 ease-out md:block", collapsed ? "w-[76px]" : "w-[252px]")}>{renderNav(collapsed)}</aside>
 
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-[272px] bg-sidebar shadow-2xl">{nav}</aside>
+          <aside className="absolute inset-y-0 left-0 w-[272px] bg-sidebar shadow-2xl">{renderNav(false)}</aside>
         </div>
       )}
 
