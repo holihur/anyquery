@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { api } from "@/lib/api"
 import { useTenant } from "@/providers/tenant"
@@ -25,6 +26,15 @@ export function SaveQueryDialog({
   onSaved: (query: SavedQuery) => void
 }) {
   const { tenant } = useTenant()
+  const queryClient = useQueryClient()
+  const { data: tenantInfo } = useQuery({
+    queryKey: ["tenant", tenant.slug],
+    queryFn: () => api.tenant(tenant.slug),
+    enabled: open,
+  })
+  const savedCount = tenantInfo?.usage?.savedQueries ?? 0
+  const savedLimit = tenantInfo?.limits?.maxSavedQueries ?? 100
+  const atLimit = !editing && savedCount >= savedLimit
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [visibility, setVisibility] = useState<"team" | "private">("team")
@@ -42,6 +52,10 @@ export function SaveQueryDialog({
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return
+    if (atLimit) {
+      setError(`This workspace has reached its limit of ${savedLimit} saved queries. Delete an older query to free a slot.`)
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -49,6 +63,8 @@ export function SaveQueryDialog({
       const saved = editing
         ? await api.updateSavedQuery(tenant.slug, editing.id, payload)
         : await api.createSavedQuery(tenant.slug, payload)
+      void queryClient.invalidateQueries({ queryKey: ["saved-queries", tenant.slug] })
+      void queryClient.invalidateQueries({ queryKey: ["tenant", tenant.slug] })
       toast.success(editing ? "Query updated" : "Query saved to the workspace")
       onSaved(saved)
       onOpenChange(false)
@@ -88,11 +104,20 @@ export function SaveQueryDialog({
                 </SelectContent>
               </Select>
             </div>
+            <div className="flex items-center justify-between rounded-lg bg-muted/35 px-3 py-2 text-[11px]">
+              <span className="text-muted-foreground">Workspace library</span>
+              <span className={atLimit ? "font-medium text-warning-foreground dark:text-warning" : "font-medium"}>{savedCount} / {savedLimit}</span>
+            </div>
+            {atLimit && (
+              <div className="text-[11px] leading-relaxed text-warning-foreground dark:text-warning">
+                The library is full. Delete an older saved query to free a slot.
+              </div>
+            )}
             {error && <ErrorNotice message={error} />}
           </div>
           <DialogFooter className="mt-6">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={busy || !name.trim()}>{busy ? "Saving…" : editing ? "Update query" : "Save query"}</Button>
+            <Button type="submit" disabled={busy || !name.trim() || atLimit}>{busy ? "Saving…" : editing ? "Update query" : "Save query"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

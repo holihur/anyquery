@@ -189,9 +189,17 @@ func (s *Server) handleDataSourceTypes(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTenantGet(w http.ResponseWriter, r *http.Request) {
 	t := currentTenant(r)
+	savedCount, err := s.store.CountSavedQueries(r.Context(), t.ID)
+	if err != nil {
+		savedCount = 0
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tenant": t, "role": currentRole(r),
-		"limits": map[string]any{"maxResultRows": s.cfg.MaxResultRows, "queryTimeoutSeconds": int(s.cfg.QueryTimeout.Seconds())},
+		"limits": map[string]any{
+			"maxResultRows": s.cfg.MaxResultRows, "queryTimeoutSeconds": int(s.cfg.QueryTimeout.Seconds()),
+			"maxSavedQueries": model.MaxSavedQueriesPerWorkspace,
+		},
+		"usage": map[string]any{"savedQueries": savedCount},
 	})
 }
 

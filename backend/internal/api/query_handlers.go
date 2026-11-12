@@ -206,6 +206,19 @@ func (s *Server) handleSavedQueryCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	t := currentTenant(r)
+	count, err := s.store.CountSavedQueries(r.Context(), t.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if count >= model.MaxSavedQueriesPerWorkspace {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": apiError{
+			Code:    "saved_query_limit",
+			Message: fmt.Sprintf("This workspace has reached its limit of %d saved queries", model.MaxSavedQueriesPerWorkspace),
+			Hint:    "Delete an older saved query to free a slot.",
+		}})
+		return
+	}
 	u := currentUser(r)
 	now := store.Now()
 	q := &model.SavedQuery{

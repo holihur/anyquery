@@ -35,6 +35,7 @@ export function SavedQueriesPage() {
   const [deleting, setDeleting] = useState<SavedQuery | null>(null)
 
   const { data, isLoading } = useQuery({ queryKey: ["saved-queries", tenant.slug], queryFn: () => api.savedQueries(tenant.slug) })
+  const { data: tenantInfo } = useQuery({ queryKey: ["tenant", tenant.slug], queryFn: () => api.tenant(tenant.slug) })
   const { data: members } = useQuery({ queryKey: ["members", tenant.slug], queryFn: () => api.members(tenant.slug) })
   const memberById = new Map(members?.members.map((m) => [m.user.id, m.user]) ?? [])
 
@@ -58,19 +59,32 @@ export function SavedQueriesPage() {
     )
   }, [data, query, filter])
 
-  const canEdit = role !== "viewer"
+  const savedCount = tenantInfo?.usage?.savedQueries ?? data?.queries.length ?? 0
+  const savedLimit = tenantInfo?.limits?.maxSavedQueries ?? 100
+  const atLimit = savedCount >= savedLimit
 
   return (
     <Page>
       <PageBody>
         <PageHeader
           eyebrow="Library"
-          title="Saved queries"
+          title={<span className="flex flex-wrap items-center gap-2.5">Saved queries <Badge variant={atLimit ? "warning" : "outline"} className="text-[10px]">{savedCount} / {savedLimit}</Badge></span>}
           description="Reusable analyses shared with your workspace. Open one to run, edit or fork it."
           actions={<Button onClick={() => navigate(`/w/${tenant.slug}/query`)}><Plus className="size-4" /> New query</Button>}
         />
 
-        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-5 flex flex-wrap items-center gap-3 rounded-lg bg-muted/25 px-3 py-2 text-[11px] text-muted-foreground">
+          <div className="h-1.5 w-40 overflow-hidden rounded-full bg-muted">
+            <div
+              className={atLimit ? "h-full rounded-full bg-warning transition-all" : "h-full rounded-full bg-primary transition-all"}
+              style={{ width: `${Math.min(100, (savedCount / savedLimit) * 100)}%` }}
+            />
+          </div>
+          <span>{savedCount} of {savedLimit} query slots used</span>
+          {atLimit && <span className="text-warning-foreground dark:text-warning">Library full — delete a query to save a new one.</span>}
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-xs">
             <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input placeholder="Search saved queries…" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-9" />

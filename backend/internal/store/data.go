@@ -96,7 +96,7 @@ func (s *Store) ListSavedQueries(ctx context.Context, tenantID, userID string, s
 	if !seeAll {
 		filter["$or"] = bson.A{bson.M{"visibility": "team"}, bson.M{"createdBy": userID}}
 	}
-	cur, err := s.SavedQueries().Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "updatedAt", Value: -1}}).SetLimit(500))
+	cur, err := s.SavedQueries().Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "updatedAt", Value: -1}}).SetLimit(model.MaxSavedQueriesPerWorkspace))
 	if err != nil {
 		return nil, err
 	}
@@ -105,6 +105,10 @@ func (s *Store) ListSavedQueries(ctx context.Context, tenantID, userID string, s
 		return nil, err
 	}
 	return out, nil
+}
+
+func (s *Store) CountSavedQueries(ctx context.Context, tenantID string) (int64, error) {
+	return s.SavedQueries().CountDocuments(ctx, bson.M{"tenantId": tenantID})
 }
 
 func (s *Store) GetSavedQuery(ctx context.Context, tenantID, id string) (*model.SavedQuery, error) {
@@ -149,7 +153,7 @@ func (s *Store) CreateRun(ctx context.Context, run *model.QueryRun) error {
 }
 
 func (s *Store) ListRuns(ctx context.Context, tenantID string, limit int64) ([]model.QueryRun, error) {
-	if limit <= 0 || limit > 200 {
+	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
 	cur, err := s.QueryRuns().Find(ctx, bson.M{"tenantId": tenantID}, options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}).SetLimit(limit))

@@ -8,6 +8,10 @@ import (
 	"github.com/anyquery/anyquery/internal/connector"
 )
 
+// MaxSavedQueriesPerWorkspace caps the shared query library. The API returns a
+// clear conflict when the limit is reached.
+const MaxSavedQueriesPerWorkspace = 100
+
 type Role string
 
 const (
@@ -37,14 +41,14 @@ func ValidRole(r Role) bool {
 }
 
 type User struct {
-	ID           string    `bson:"_id" json:"id"`
-	Email        string    `bson:"email" json:"email"`
-	Name         string    `bson:"name" json:"name"`
-	AvatarURL    string    `bson:"avatarUrl,omitempty" json:"avatarUrl,omitempty"`
-	OIDCIssuer   string    `bson:"oidcIssuer,omitempty" json:"-"`
-	OIDCSubject  string    `bson:"oidcSubject,omitempty" json:"-"`
-	CreatedAt    time.Time `bson:"createdAt" json:"createdAt"`
-	LastLoginAt  time.Time `bson:"lastLoginAt" json:"lastLoginAt"`
+	ID          string    `bson:"_id" json:"id"`
+	Email       string    `bson:"email" json:"email"`
+	Name        string    `bson:"name" json:"name"`
+	AvatarURL   string    `bson:"avatarUrl,omitempty" json:"avatarUrl,omitempty"`
+	OIDCIssuer  string    `bson:"oidcIssuer,omitempty" json:"-"`
+	OIDCSubject string    `bson:"oidcSubject,omitempty" json:"-"`
+	CreatedAt   time.Time `bson:"createdAt" json:"createdAt"`
+	LastLoginAt time.Time `bson:"lastLoginAt" json:"lastLoginAt"`
 }
 
 type Tenant struct {
@@ -93,45 +97,45 @@ type OAuthState struct {
 }
 
 type DataSource struct {
-	ID          string            `bson:"_id" json:"id"`
-	TenantID    string            `bson:"tenantId" json:"tenantId"`
-	Name        string            `bson:"name" json:"name"`
-	Type        string            `bson:"type" json:"type"`
-	Config      string            `bson:"config" json:"-"` // encrypted JSON
-	Tables      []connector.Table `bson:"tables" json:"tables"`
-	Status      string            `bson:"status" json:"status"` // ready | error
-	LastError   string            `bson:"lastError,omitempty" json:"lastError,omitempty"`
-	CreatedBy   string            `bson:"createdBy" json:"createdBy"`
-	CreatedAt   time.Time         `bson:"createdAt" json:"createdAt"`
-	UpdatedAt   time.Time         `bson:"updatedAt" json:"updatedAt"`
-	LastSyncedAt *time.Time       `bson:"lastSyncedAt,omitempty" json:"lastSyncedAt,omitempty"`
+	ID           string            `bson:"_id" json:"id"`
+	TenantID     string            `bson:"tenantId" json:"tenantId"`
+	Name         string            `bson:"name" json:"name"`
+	Type         string            `bson:"type" json:"type"`
+	Config       string            `bson:"config" json:"-"` // encrypted JSON
+	Tables       []connector.Table `bson:"tables" json:"tables"`
+	Status       string            `bson:"status" json:"status"` // ready | error
+	LastError    string            `bson:"lastError,omitempty" json:"lastError,omitempty"`
+	CreatedBy    string            `bson:"createdBy" json:"createdBy"`
+	CreatedAt    time.Time         `bson:"createdAt" json:"createdAt"`
+	UpdatedAt    time.Time         `bson:"updatedAt" json:"updatedAt"`
+	LastSyncedAt *time.Time        `bson:"lastSyncedAt,omitempty" json:"lastSyncedAt,omitempty"`
 }
 
 type SavedQuery struct {
-	ID          string    `bson:"_id" json:"id"`
-	TenantID    string    `bson:"tenantId" json:"tenantId"`
-	Name        string    `bson:"name" json:"name"`
-	Description string    `bson:"description,omitempty" json:"description,omitempty"`
-	SQL         string    `bson:"sql" json:"sql"`
-	Visibility  string    `bson:"visibility" json:"visibility"` // team | private
-	CreatedBy   string    `bson:"createdBy" json:"createdBy"`
-	CreatedAt   time.Time `bson:"createdAt" json:"createdAt"`
-	UpdatedAt   time.Time `bson:"updatedAt" json:"updatedAt"`
+	ID          string     `bson:"_id" json:"id"`
+	TenantID    string     `bson:"tenantId" json:"tenantId"`
+	Name        string     `bson:"name" json:"name"`
+	Description string     `bson:"description,omitempty" json:"description,omitempty"`
+	SQL         string     `bson:"sql" json:"sql"`
+	Visibility  string     `bson:"visibility" json:"visibility"` // team | private
+	CreatedBy   string     `bson:"createdBy" json:"createdBy"`
+	CreatedAt   time.Time  `bson:"createdAt" json:"createdAt"`
+	UpdatedAt   time.Time  `bson:"updatedAt" json:"updatedAt"`
 	LastRunAt   *time.Time `bson:"lastRunAt,omitempty" json:"lastRunAt,omitempty"`
 }
 
 type QueryRun struct {
-	ID          string    `bson:"_id" json:"id"`
-	TenantID    string    `bson:"tenantId" json:"tenantId"`
-	UserID      string    `bson:"userId" json:"userId"`
-	SavedQueryID string   `bson:"savedQueryId,omitempty" json:"savedQueryId,omitempty"`
-	SQL         string    `bson:"sql" json:"sql"`
-	Status      string    `bson:"status" json:"status"` // success | error
-	DurationMS  int64     `bson:"durationMs" json:"durationMs"`
-	RowCount    int       `bson:"rowCount" json:"rowCount"`
-	Error       string    `bson:"error,omitempty" json:"error,omitempty"`
-	Sources     []string  `bson:"sources" json:"sources"`
-	CreatedAt   time.Time `bson:"createdAt" json:"createdAt"`
+	ID           string    `bson:"_id" json:"id"`
+	TenantID     string    `bson:"tenantId" json:"tenantId"`
+	UserID       string    `bson:"userId" json:"userId"`
+	SavedQueryID string    `bson:"savedQueryId,omitempty" json:"savedQueryId,omitempty"`
+	SQL          string    `bson:"sql" json:"sql"`
+	Status       string    `bson:"status" json:"status"` // success | error
+	DurationMS   int64     `bson:"durationMs" json:"durationMs"`
+	RowCount     int       `bson:"rowCount" json:"rowCount"`
+	Error        string    `bson:"error,omitempty" json:"error,omitempty"`
+	Sources      []string  `bson:"sources" json:"sources"`
+	CreatedAt    time.Time `bson:"createdAt" json:"createdAt"`
 }
 
 type AuditLog struct {

@@ -61,11 +61,13 @@ FROM mongo.orders
 - **自研 SQL 解析器**：没有依赖过时的第三方 MySQL parser；表达式、函数、语句和 pipe stage 都可以本地扩展。
 - **23 种内置连接器**（见下表），连接器完全抽象，新增数据源只需实现接口并注册。
 - **多租户**：`workspace` 隔离数据源、查询、成员、审计与 API Key；所有资源都带 `tenantId`。
-- **团队协作**：owner / admin / member / viewer 角色，邮件邀请链接、共享/私有保存查询、查询历史、审计日志。
+- **团队协作**：owner / admin / member / viewer 角色，邮件邀请链接、共享/私有保存查询、最近 100 条查询历史、审计日志。
+- **保存查询上限**：每个 workspace 最多 100 条保存查询，达到上限后 API 返回明确错误。
 - **OIDC 登录**：任意标准 OIDC Provider（Auth0、Keycloak、Okta、Entra ID、Google 等）。
 - **安全**：数据源凭据 AES-256-GCM 加密；会话 token 仅存 SHA-256；HttpOnly Cookie；Origin 校验；API Key 只显示一次。
 - **团队 API**：工作区级 API Key 可直接调用执行接口。
 - **查询护栏**：超时、单源行数上限、结果行数上限、JOIN 中间结果上限、截断警示。
+- **Top 100**：查询历史展示最近 100 条；保存查询库每个工作区最多 100 条。
 - **深色/浅色主题**、响应式布局、SQL 自动补全、schema 浏览器、结果排序/分页/CSV 导出。
 
 ---
@@ -290,6 +292,8 @@ GET    /api/v1/tenants/{tenant}/apikeys
 - Pipeline stages：`WHERE`、`SELECT`、`AGGREGATE … GROUP BY`、`ORDER BY`、`LIMIT`、`DISTINCT`、`JOIN`
 
 查询中的表名格式为 `` `source`.`table` ``（schema 可包含在 table 内，例如 `` `pg`.`public.users` ``）。执行器对表名做 catalog 校验并逐方言安全引用。
+
+**保存查询上限**：每个 workspace 100 条；超出时返回 `409 saved_query_limit`，UI 会提示删除旧查询。查询历史最多展示最近 100 条。
 
 **安全护栏**：MVP 将源数据按上限拉入引擎后执行 JOIN/聚合，所有过滤在内存中完成；已实现 LIMIT 下推。谓词下推、列裁剪和更细粒度并行在 roadmap 中。
 

@@ -313,6 +313,49 @@ jobs:
           print("postgres join result:", rows[0])
           PY
 
+      - name: Saved query library top-100 limit
+        run: |
+          python3 - <<'PY'
+          import http.cookiejar
+          import json
+          import urllib.error
+          import urllib.request
+
+          base = "http://localhost:8080/api/v1"
+          jar = http.cookiejar.CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+          def call(method, path, payload=None):
+              data = json.dumps(payload).encode() if payload is not None else None
+              req = urllib.request.Request(base + path, data=data, method=method,
+                                           headers={"Content-Type": "application/json"})
+              try:
+                  res = opener.open(req)
+                  return res.status, json.load(res)
+              except urllib.error.HTTPError as exc:
+                  return exc.code, json.load(exc)
+
+          status, _ = call("POST", "/auth/dev-login", {"email": "admin@anyquery.dev"})
+          assert status == 200, status
+          info = json.load(opener.open(base + "/tenants/acme"))
+          assert info["limits"]["maxSavedQueries"] == 100, info
+          existing = json.load(opener.open(base + "/tenants/acme/queries"))["queries"]
+          assert info["usage"]["savedQueries"] == len(existing), (info, len(existing))
+          for i in range(len(existing), 100):
+              status, body = call("POST", "/tenants/acme/queries", {
+                  "name": f"ci-limit-{i}", "sql": "SELECT 1", "visibility": "team",
+              })
+              assert status == 201, (i, status, body)
+          status, body = call("POST", "/tenants/acme/queries", {
+              "name": "ci-limit-overflow", "sql": "SELECT 1", "visibility": "team",
+          })
+          assert status == 409, (status, body)
+          assert body["error"]["code"] == "saved_query_limit", body
+          info = json.load(opener.open(base + "/tenants/acme"))
+          assert info["usage"]["savedQueries"] == 100, info
+          print("saved query limit verified:", info["usage"], info["limits"])
+          PY
+
       - name: server log
         if: failure()
         run: cat /tmp/anyquery-server.log || true

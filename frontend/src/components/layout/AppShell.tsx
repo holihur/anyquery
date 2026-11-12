@@ -95,7 +95,7 @@ export function AppShell() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="group flex w-full items-center gap-2.5 rounded-lg bg-background/80 px-2.5 py-2 text-left shadow-xs transition-colors hover:bg-background">
-              <div className="grid size-8 shrink-0 place-items-center rounded-md bg-gradient-to-br from-primary to-cyan-500 text-[13px] font-semibold text-white">
+              <div className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-[13px] font-semibold text-primary-foreground">
                 {tenant.name.slice(0, 1).toUpperCase()}
               </div>
               <div className="min-w-0 flex-1">
