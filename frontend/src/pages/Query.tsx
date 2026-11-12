@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror"
 import { sql, StandardSQL } from "@codemirror/lang-sql"
 import { keymap } from "@codemirror/view"
-import { format as formatSQL } from "sql-formatter"
 import {
   Bookmark,
   Braces,
@@ -279,14 +278,15 @@ export function QueryPage() {
     setTab("results")
   }
 
-  function formatQuery() {
+  async function formatQuery() {
     if (!sqlText.trim()) return
     if (sqlText.includes("|>")) {
       toast.info("Pipeline queries are already readable — automatic formatting supports classic SQL.")
       return
     }
     try {
-      setSQLText(formatSQL(sqlText, { language: "sql", keywordCase: "upper", tabWidth: 2 }))
+      const { format } = await import("sql-formatter")
+      setSQLText(format(sqlText, { language: "sql", keywordCase: "upper", tabWidth: 2 }))
     } catch {
       toast.error("Could not format this query")
     }
@@ -376,7 +376,7 @@ export function QueryPage() {
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <Button variant="ghost" size="sm" className="hidden md:inline-flex" onClick={newQuery}><FileCode2 className="size-3.5" /> {t("New")}</Button>
-          <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={formatQuery} title="Format SQL"><WandSparkles className="size-3.5" /> {t("Format")}</Button>
+          <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => void formatQuery()} title="Format SQL"><WandSparkles className="size-3.5" /> {t("Format")}</Button>
           <Button
             variant="outline"
             size="sm"

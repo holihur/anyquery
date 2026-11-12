@@ -108,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/", s.spaHandler())
 
 	var h http.Handler = mux
+	h = s.compress(h)
 	h = s.cors(h)
 	h = s.securityHeaders(h)
 	h = s.recoverer(h)
@@ -413,9 +414,15 @@ func (s *Server) spaHandler() http.Handler {
 			return
 		}
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			if strings.HasPrefix(r.URL.Path, "/assets/") || r.URL.Path == "/favicon.svg" {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else {
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			http.ServeFile(w, r, candidate)
 			return
 		}
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, index)
 	})
 }

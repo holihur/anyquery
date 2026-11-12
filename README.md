@@ -74,6 +74,7 @@ FROM mongo.orders
 - **查询护栏**：超时、单源行数上限、结果行数上限、JOIN 中间结果上限、截断警示。
 - **Top 100**：查询历史展示最近 100 条；保存查询库每个工作区最多 100 条。
 - **i18n**：10 种语言（英/简中/西/印地/阿/葡/俄/日/德/法），自动检测、持久化与 RTL 布局。
+- **加载性能**：路由级按需加载、CodeMirror/sql-formatter 延迟加载、静态资源 gzip + immutable 缓存。
 - **深色/浅色主题**、响应式布局、可折叠导航、可拖拽 schema 宽度与 SQL/结果分栏、SQL 自动补全、schema 浏览器、结果排序/分页/CSV 导出。
 - **布局状态持久化**：侧边栏折叠、schema 宽度、SQL/结果高度、主题都保存在浏览器本地。
 
@@ -387,6 +388,7 @@ PAT 在 **Settings → API keys** 创建，raw token 只显示一次。
 ├── docs/mcp.md              # MCP + PAT scopes
 ├── docs/sql.md              # SQL syntax, functions and limits
 ├── docs/i18n.md             # locales, RTL and translation coverage
+├── docs/performance.md      # bundle splitting, gzip and cache headers
 ├── .github/workflows/ci.yml
 ├── mise.toml
 ├── docker-compose.yml

@@ -40,16 +40,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let alive = true
     async function boot() {
-      try {
-        const cfg = await api.authConfig()
-        if (!alive) return
-        setConfig(cfg)
-        await refresh()
-      } catch (err) {
-        if (alive) setError(err instanceof Error ? err.message : "Could not reach the server")
-      } finally {
-        if (alive) setLoading(false)
+      // Auth configuration and the current session are independent; fetch them
+      // together so the first paint is not serialized behind two round trips.
+      const configPromise = api.authConfig().then((cfg) => {
+        if (alive) setConfig(cfg)
+        return cfg
+      })
+      const sessionPromise = refresh()
+      const results = await Promise.allSettled([configPromise, sessionPromise])
+      if (!alive) return
+      const configResult = results[0]
+      if (configResult.status === "rejected") {
+        setError(configResult.reason instanceof Error ? configResult.reason.message : "Could not reach the server")
       }
+      setLoading(false)
     }
     void boot()
     return () => {

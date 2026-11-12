@@ -1,19 +1,21 @@
+import { lazy, Suspense } from "react"
 import { Navigate, Route, Routes, useLocation } from "react-router-dom"
 import { useAuth } from "@/providers/auth"
 import { TenantProvider } from "@/providers/tenant"
-import { AppShell } from "@/components/layout/AppShell"
 import { FullPageLoader } from "@/components/shared"
 import { LoginPage } from "@/pages/Login"
-import { WelcomePage } from "@/pages/Welcome"
-import { InvitePage } from "@/pages/Invite"
-import { OverviewPage } from "@/pages/Overview"
-import { QueryPage } from "@/pages/Query"
-import { DataSourcesPage } from "@/pages/DataSources"
-import { SavedQueriesPage } from "@/pages/SavedQueries"
-import { TeamPage } from "@/pages/Team"
-import { ActivityPage } from "@/pages/ActivityPage"
-import { SettingsPage } from "@/pages/Settings"
-import { NotFoundPage } from "@/pages/NotFound"
+
+const AppShell = lazy(() => import("@/components/layout/AppShell").then((m) => ({ default: m.AppShell })))
+const WelcomePage = lazy(() => import("@/pages/Welcome").then((m) => ({ default: m.WelcomePage })))
+const InvitePage = lazy(() => import("@/pages/Invite").then((m) => ({ default: m.InvitePage })))
+const OverviewPage = lazy(() => import("@/pages/Overview").then((m) => ({ default: m.OverviewPage })))
+const QueryPage = lazy(() => import("@/pages/Query").then((m) => ({ default: m.QueryPage })))
+const DataSourcesPage = lazy(() => import("@/pages/DataSources").then((m) => ({ default: m.DataSourcesPage })))
+const SavedQueriesPage = lazy(() => import("@/pages/SavedQueries").then((m) => ({ default: m.SavedQueriesPage })))
+const TeamPage = lazy(() => import("@/pages/Team").then((m) => ({ default: m.TeamPage })))
+const ActivityPage = lazy(() => import("@/pages/ActivityPage").then((m) => ({ default: m.ActivityPage })))
+const SettingsPage = lazy(() => import("@/pages/Settings").then((m) => ({ default: m.SettingsPage })))
+const NotFoundPage = lazy(() => import("@/pages/NotFound").then((m) => ({ default: m.NotFoundPage })))
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { me, loading } = useAuth()
@@ -36,6 +38,7 @@ function RootRedirect() {
 
 export default function App() {
   return (
+    <Suspense fallback={<FullPageLoader />}>
     <Routes>
       <Route path="/" element={<RootRedirect />} />
       <Route path="/login" element={<LoginPage />} />
@@ -68,5 +71,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
+    </Suspense>
   )
 }
