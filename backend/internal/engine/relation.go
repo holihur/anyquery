@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -340,41 +341,48 @@ func (ec *execCtx) joinRelations(left, right *relation, typ sql.JoinType, on sql
 
 	leftMatched := make([]bool, len(left.rows))
 	rightMatched := make([]bool, len(right.rows))
-	pairs := 0
-	for li, lr := range left.rows {
-		for ri, rr := range right.rows {
-			row := make(map[string]any, len(combined.fields))
-			for k, v := range lr {
-				row[k] = v
-			}
-			for k, v := range rr {
-				row[k] = v
-			}
-			match := true
-			if len(usingPairs) > 0 {
-				for _, p := range usingPairs {
-					if !valuesEqual(lr[p[0].Key], rr[p[1].Key]) {
-						match = false
-						break
+
+	// Choose a hash join when the join has equi-key columns. This is the
+	// common cross-source case (Mongo _id / SQL integer id / JSON number) and
+	// avoids an O(n*m) nested loop. Any leftover ON predicates are still
+	// evaluated on candidate pairs, and OR conditions fall back to nested loop.
+	joinPairs := usingPairs
+	if len(joinPairs) == 0 && on != nil {
+		joinPairs = equiPairs(on, left, right)
+	}
+	if len(joinPairs) > 0 {
+		if err := ec.hashJoin(combined, left, right, typ, on, joinPairs, leftMatched, rightMatched); err != nil {
+			return nil, err
+		}
+	} else {
+		for li, lr := range left.rows {
+			for ri, rr := range right.rows {
+				row := mergeRows(lr, rr, combined.fields)
+				match := true
+				if len(usingPairs) > 0 {
+					for _, p := range usingPairs {
+						if lr[p[0].Key] == nil || rr[p[1].Key] == nil || !valuesEqual(lr[p[0].Key], rr[p[1].Key]) {
+							match = false
+							break
+						}
 					}
+				} else if on != nil {
+					ctx := &evalCtx{rel: combined, row: row}
+					v, err := evalExpr(ctx, on)
+					if err != nil {
+						return nil, err
+					}
+					match = truthy(v)
 				}
-			} else if on != nil {
-				ctx := &evalCtx{rel: combined, row: row}
-				v, err := evalExpr(ctx, on)
-				if err != nil {
-					return nil, err
+				if !match {
+					continue
 				}
-				match = truthy(v)
-			}
-			if !match {
-				continue
-			}
-			leftMatched[li] = true
-			rightMatched[ri] = true
-			combined.rows = append(combined.rows, row)
-			pairs++
-			if len(combined.rows) > ec.engine.Opts.MaxJoinRows {
-				return nil, &Error{Code: "join_too_large", Message: fmt.Sprintf("join produced more than %d intermediate rows", ec.engine.Opts.MaxJoinRows), Hint: "add join or WHERE conditions"}
+				leftMatched[li] = true
+				rightMatched[ri] = true
+				combined.rows = append(combined.rows, row)
+				if len(combined.rows) > ec.engine.Opts.MaxJoinRows {
+					return nil, &Error{Code: "join_too_large", Message: fmt.Sprintf("join produced more than %d intermediate rows", ec.engine.Opts.MaxJoinRows), Hint: "add join or WHERE conditions"}
+				}
 			}
 		}
 	}
@@ -412,6 +420,132 @@ func (ec *execCtx) joinRelations(left, right *relation, typ sql.JoinType, on sql
 		}
 	}
 	return combined, nil
+}
+
+func mergeRows(left, right map[string]any, fields []field) map[string]any {
+	row := make(map[string]any, len(fields))
+	for k, v := range left {
+		row[k] = v
+	}
+	for k, v := range right {
+		row[k] = v
+	}
+	return row
+}
+
+func (ec *execCtx) hashJoin(combined, left, right *relation, typ sql.JoinType, on sql.Expr, pairs [][2]field, leftMatched, rightMatched []bool) error {
+	index := make(map[string][]int, len(right.rows))
+	for ri, rr := range right.rows {
+		vals := make([]any, len(pairs))
+		for i, p := range pairs {
+			vals[i] = rr[p[1].Key]
+		}
+		key, ok := joinKey(vals)
+		if !ok {
+			continue
+		}
+		index[key] = append(index[key], ri)
+	}
+
+	for li, lr := range left.rows {
+		vals := make([]any, len(pairs))
+		for i, p := range pairs {
+			vals[i] = lr[p[0].Key]
+		}
+		key, ok := joinKey(vals)
+		if !ok {
+			continue
+		}
+		for _, ri := range index[key] {
+			rr := right.rows[ri]
+			row := mergeRows(lr, rr, combined.fields)
+			if on != nil {
+				ctx := &evalCtx{rel: combined, row: row}
+				v, err := evalExpr(ctx, on)
+				if err != nil {
+					return err
+				}
+				if !truthy(v) {
+					continue
+				}
+			}
+			leftMatched[li] = true
+			rightMatched[ri] = true
+			combined.rows = append(combined.rows, row)
+			if len(combined.rows) > ec.engine.Opts.MaxJoinRows {
+				return &Error{Code: "join_too_large", Message: fmt.Sprintf("join produced more than %d intermediate rows", ec.engine.Opts.MaxJoinRows), Hint: "add join or WHERE conditions"}
+			}
+		}
+	}
+	return nil
+}
+
+// splitAnd flattens AND expressions for equi-key detection.
+func splitAnd(e sql.Expr) []sql.Expr {
+	if b, ok := e.(*sql.BinaryExpr); ok && strings.EqualFold(b.Op, "AND") {
+		return append(splitAnd(b.Left), splitAnd(b.Right)...)
+	}
+	return []sql.Expr{e}
+}
+
+// equiPairs finds simple column = column predicates across the two sides.
+func equiPairs(on sql.Expr, left, right *relation) [][2]field {
+	var out [][2]field
+	for _, condition := range splitAnd(on) {
+		cmp, ok := condition.(*sql.CompareExpr)
+		if !ok || cmp.Op != "=" || cmp.Negated {
+			continue
+		}
+		lf, lok := columnField(left, cmp.Left)
+		rf, rok := columnField(right, cmp.Right)
+		if lok && rok {
+			out = append(out, [2]field{lf, rf})
+			continue
+		}
+		lf, lok = columnField(left, cmp.Right)
+		rf, rok = columnField(right, cmp.Left)
+		if lok && rok {
+			out = append(out, [2]field{lf, rf})
+		}
+	}
+	return out
+}
+
+func columnField(rel *relation, e sql.Expr) (field, bool) {
+	ref, ok := e.(*sql.ColumnRef)
+	if !ok {
+		return field{}, false
+	}
+	_, f, err := rel.resolve(ref)
+	if err != nil {
+		return field{}, false
+	}
+	return f, true
+}
+
+// joinKey normalizes values so numeric types from different sources
+// (int64 in SQL, float64 in JSON/Mongo) produce the same hash key.
+func joinKey(vals []any) (string, bool) {
+	parts := make([]string, len(vals))
+	for i, v := range vals {
+		if v == nil {
+			return "", false
+		}
+		if s, ok := v.(string); ok {
+			if f, err := strconv.ParseFloat(s, 64); err == nil && strings.TrimSpace(s) != "" {
+				parts[i] = "n:" + strconv.FormatFloat(f, 'g', -1, 64)
+			} else {
+				parts[i] = "s:" + s
+			}
+			continue
+		}
+		if f, ok := toFloat(v); ok {
+			parts[i] = "n:" + strconv.FormatFloat(f, 'g', -1, 64)
+			continue
+		}
+		parts[i] = fmt.Sprintf("%T:%v", v, v)
+	}
+	return strings.Join(parts, "\x00"), true
 }
 
 func findFieldByName(rel *relation, name string) (field, bool) {

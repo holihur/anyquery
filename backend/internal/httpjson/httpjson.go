@@ -4,6 +4,8 @@
 package httpjson
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -22,6 +24,7 @@ import (
 func init() {
 	connector.Register(restProvider{})
 	connector.Register(csvProvider{})
+	connector.Register(jsonlProvider{})
 }
 
 const maxResponseBytes = 64 << 20
@@ -125,8 +128,10 @@ func (c *restConn) Ping(ctx context.Context) error {
 	return err
 }
 
-func (c *restConn) Capabilities() connector.Capabilities { return connector.Capabilities{LimitPushdown: true} }
-func (c *restConn) Close() error                        { return nil }
+func (c *restConn) Capabilities() connector.Capabilities {
+	return connector.Capabilities{LimitPushdown: true}
+}
+func (c *restConn) Close() error { return nil }
 
 func (c *restConn) Introspect(ctx context.Context) ([]connector.Table, error) {
 	rows, err := c.rows(ctx, 100)
@@ -234,8 +239,8 @@ func flattenJSON(m map[string]any) map[string]any {
 
 func inferColumns(rows []map[string]any) []connector.Column {
 	type acc struct {
-		col      connector.Column
-		nonNull  bool
+		col     connector.Column
+		nonNull bool
 	}
 	m := map[string]*acc{}
 	for _, row := range rows {
@@ -332,7 +337,7 @@ func (c *csvConn) Ping(ctx context.Context) error {
 }
 
 func (c *csvConn) Capabilities() connector.Capabilities { return connector.Capabilities{} }
-func (c *csvConn) Close() error                        { return nil }
+func (c *csvConn) Close() error                         { return nil }
 
 func (c *csvConn) Introspect(ctx context.Context) ([]connector.Table, error) {
 	rows, err := c.rows(ctx, 1000)
@@ -411,4 +416,103 @@ func parseCSVValue(s string) any {
 		return b
 	}
 	return s
+}
+
+// ---- JSON Lines ------------------------------------------------------------
+
+type jsonlProvider struct{}
+
+func (jsonlProvider) Spec() connector.TypeSpec {
+	return connector.TypeSpec{
+		Type:        "jsonl",
+		Name:        "JSON Lines / URL",
+		Category:    connector.CategoryFile,
+		Description: "Newline-delimited JSON (NDJSON) served over HTTP",
+		Icon:        "jsonl",
+		Fields: []connector.ConfigField{
+			{Key: "url", Label: "File URL", Kind: connector.FieldTextarea, Required: true, Placeholder: "https://example.com/events.jsonl"},
+			{Key: "table_name", Label: "Table name", Kind: connector.FieldText, Required: true, Default: "events"},
+			{Key: "headers", Label: "HTTP headers (JSON)", Kind: connector.FieldTextarea, Secret: true, Placeholder: `{"Authorization":"Bearer ..."}`},
+		},
+	}
+}
+
+func (jsonlProvider) Open(_ context.Context, cfg map[string]string) (connector.Connector, error) {
+	if err := validateURL(cfg["url"]); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(cfg["table_name"]) == "" {
+		cfg["table_name"] = "events"
+	}
+	return &jsonlConn{cfg: cfg}, nil
+}
+
+type jsonlConn struct{ cfg map[string]string }
+
+func (c *jsonlConn) Ping(ctx context.Context) error {
+	_, _, err := c.rows(ctx, 1)
+	return err
+}
+
+func (c *jsonlConn) Capabilities() connector.Capabilities { return connector.Capabilities{} }
+func (c *jsonlConn) Close() error                         { return nil }
+
+func (c *jsonlConn) Introspect(ctx context.Context) ([]connector.Table, error) {
+	rows, _, err := c.rows(ctx, 200)
+	if err != nil {
+		return nil, err
+	}
+	return []connector.Table{{Name: c.cfg["table_name"], DisplayName: c.cfg["table_name"], Kind: "file", Columns: inferColumns(rows)}}, nil
+}
+
+func (c *jsonlConn) Fetch(ctx context.Context, req connector.FetchRequest) (*connector.FetchResult, error) {
+	rows, truncated, err := c.rows(ctx, req.Limit)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.FetchResult{Columns: inferColumns(rows), Rows: rows, Truncated: truncated}, nil
+}
+
+func (c *jsonlConn) rows(ctx context.Context, limit int) ([]map[string]any, bool, error) {
+	body, err := doRequest(ctx, c.cfg["url"], c.cfg["headers"])
+	if err != nil {
+		return nil, false, err
+	}
+	if limit <= 0 || limit > 500_000 {
+		limit = 500_000
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, 64*1024), 16<<20)
+	out := make([]map[string]any, 0, min(limit, 1024))
+	truncated := false
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if len(out) >= limit {
+			truncated = true
+			break
+		}
+		var value any
+		if err := json.Unmarshal([]byte(line), &value); err != nil {
+			return nil, false, fmt.Errorf("invalid JSONL at line %d: %w", len(out)+1, err)
+		}
+		if obj, ok := value.(map[string]any); ok {
+			out = append(out, flattenJSON(obj))
+		} else {
+			out = append(out, map[string]any{"value": value})
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, false, err
+	}
+	return out, truncated, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

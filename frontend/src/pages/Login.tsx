@@ -164,7 +164,7 @@ export function LoginPage() {
             </div>
           </div>
           <div className="mt-8 flex flex-wrap gap-2">
-            {["MongoDB", "PostgreSQL", "MySQL", "Snowflake", "REST APIs", "SQLite"].map((s) => (
+            {["MongoDB", "PostgreSQL", "MySQL", "Snowflake", "REST APIs", "Redis", "JSONL"].map((s) => (
               <span key={s} className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10.5px] text-white/55">{s}</span>
             ))}
           </div>

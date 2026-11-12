@@ -102,7 +102,7 @@ func (c *Conn) Introspect(ctx context.Context) ([]connector.Table, error) {
 		}
 		t := connector.Table{Name: name, DisplayName: name, Kind: "collection"}
 		acc := map[string]*connector.Column{}
-		pipeline := mongo.Pipeline{{{"$sample", bson.M{"size": c.sampleSize}}}}
+		pipeline := mongo.Pipeline{{{Key: "$sample", Value: bson.M{"size": c.sampleSize}}}}
 		cur, err := c.db.Collection(name).Aggregate(ctx, pipeline)
 		if err == nil {
 			var docs []bson.M

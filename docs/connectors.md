@@ -203,5 +203,6 @@ func TestProviderSpec(t *testing.T) {
 | `internal/sqlconn` | PostgreSQL、CockroachDB、Redshift、TimescaleDB、YugabyteDB、MySQL、MariaDB、SingleStore、SQL Server、SQLite、ClickHouse、Trino、Presto、Oracle |
 | `internal/cloudsql` | Snowflake、Databricks SQL |
 | `internal/mongodb` | MongoDB |
+| `internal/redisdb` | Redis |
 | `internal/elasticsearch` | Elasticsearch、OpenSearch |
-| `internal/httpjson` | REST / JSON、CSV URL |
+| `internal/httpjson` | REST / JSON、CSV URL、JSON Lines |

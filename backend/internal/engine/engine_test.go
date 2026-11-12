@@ -57,11 +57,12 @@ func testCatalog() *fakeCatalog {
 		{"id": int64(4), "customer_id": int64(1), "total": 25.0, "status": "paid", "region": "US"},
 	}
 	customers := []map[string]any{
-		{"id": int64(1), "name": "Acme", "segment": "enterprise"},
-		{"id": int64(2), "name": "Globex", "segment": "smb"},
+		{"id": int64(1), "name": "Acme", "segment": "enterprise", "region": "US"},
+		{"id": int64(2), "name": "Globex", "segment": "smb", "region": "EU"},
 	}
 	products := []map[string]any{
-		{"id": int64(10), "customer_id": int64(1), "category": "software"},
+		{"id": int64(10), "customer_id": float64(1), "category": "software"},
+		{"id": int64(11), "customer_id": int64(9), "category": "services"},
 	}
 	mongoConn := &fakeConn{tables: map[string][]map[string]any{
 		"orders":    orders,
@@ -79,7 +80,7 @@ func testCatalog() *fakeCatalog {
 		metas: map[string]SourceMeta{
 			"mongo": {Name: "mongo", Type: "mongodb", Tables: []connector.Table{
 				{Name: "orders", Columns: col("id", "customer_id", "total", "status", "region")},
-				{Name: "customers", Columns: col("id", "name", "segment")},
+				{Name: "customers", Columns: col("id", "name", "segment", "region")},
 			}},
 			"shop": {Name: "shop", Type: "postgres", Tables: []connector.Table{
 				{Name: "public.items", Columns: col("id", "customer_id", "category")},
@@ -193,6 +194,38 @@ func TestCTE(t *testing.T) {
 	res := run(t, `WITH paid AS (SELECT * FROM mongo.orders WHERE status = 'paid')
 SELECT region, count(*) AS n FROM paid GROUP BY region ORDER BY region`)
 	if res.RowCount != 2 || res.Rows[0]["n"] != int64(2) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestCompositeEquiJoinWithExtraPredicate(t *testing.T) {
+	res := run(t, `SELECT count(*) AS n
+FROM mongo.orders o
+JOIN mongo.customers c ON o.customer_id = c.id AND o.region = c.region
+WHERE o.status = 'paid'`)
+	if res.Rows[0]["n"] != int64(2) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestCrossSourceFullJoin(t *testing.T) {
+	res := run(t, "SELECT c.name, i.category FROM mongo.customers c FULL JOIN shop.`public.items` i ON c.id = i.customer_id ORDER BY c.name")
+	if res.RowCount != 3 {
+		t.Fatalf("rows = %d %+v", res.RowCount, res.Rows)
+	}
+	if res.Rows[0]["name"] != "Acme" || res.Rows[0]["category"] != "software" {
+		t.Fatalf("first row = %+v", res.Rows[0])
+	}
+	if res.Rows[2]["name"] != nil || res.Rows[2]["category"] != "services" {
+		t.Fatalf("right-unmatched row = %+v", res.Rows[2])
+	}
+}
+
+func TestNumericCrossSourceJoin(t *testing.T) {
+	// Numeric JSON values arrive as float64 while SQL ids are int64; the hash
+	// join normalizes both so cross-source ids still match.
+	res := run(t, "SELECT count(*) AS n FROM mongo.orders o JOIN shop.`public.items` i ON o.customer_id = i.customer_id")
+	if res.Rows[0]["n"] != int64(3) {
 		t.Fatalf("rows = %+v", res.Rows)
 	}
 }

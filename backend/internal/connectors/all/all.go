@@ -7,6 +7,7 @@ import (
 	_ "github.com/anyquery/anyquery/internal/elasticsearch"
 	_ "github.com/anyquery/anyquery/internal/httpjson"
 	_ "github.com/anyquery/anyquery/internal/mongodb"
+	_ "github.com/anyquery/anyquery/internal/redisdb"
 	"github.com/anyquery/anyquery/internal/sqlconn"
 )
 

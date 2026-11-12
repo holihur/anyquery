@@ -1,6 +1,6 @@
 # AnyQuery
 
-**一个自托管的联邦查询平台**：用一套 SQL（以及可组合的 Query Pipeline）把 MongoDB、PostgreSQL、MySQL、SQLite、Snowflake、Databricks、REST API、CSV 等 20+ 数据源连在一起查询。面向团队：多租户工作区、成员角色、邀请、共享查询、审计日志、API Key 与 OIDC 登录。
+**一个自托管的联邦查询平台**：用一套 SQL（以及可组合的 Query Pipeline）把 MongoDB、Redis、PostgreSQL、MySQL、SQLite、Snowflake、Databricks、REST API、CSV、JSONL 等 20+ 数据源连在一起查询。面向团队：多租户工作区、成员角色、邀请、共享查询、审计日志、API Key 与 OIDC 登录。
 
 - 后端：**Go**（标准库 `net/http` + 自研 SQL 解析器 / 执行引擎）
 - 存储：**MongoDB**
@@ -10,6 +10,19 @@
 - 认证：**OIDC**（Authorization Code + PKCE），开发模式提供本地登录
 
 ![AnyQuery](https://img.shields.io/badge/status-MVP-6366f1) ![Go](https://img.shields.io/badge/Go-1.27-00ADD8) ![React](https://img.shields.io/badge/React-19-61DAFB) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
+
+
+## 界面速览
+
+| 工作台 | 查询工作室 |
+| --- | --- |
+| ![Overview](docs/screenshots/overview.png) | ![Query studio](docs/screenshots/query-studio.png) |
+| **登录 / OIDC** | **深色模式** |
+| ![Login](docs/screenshots/login.png) | ![Dark overview](docs/screenshots/overview-dark.png) |
+| **共享查询库** | **团队与权限** |
+| ![Saved queries](docs/screenshots/saved-queries.png) | ![Team](docs/screenshots/team.png) |
+
+> 截图来自本地演示工作区（MongoDB + SQLite 联邦查询）。
 
 ---
 
@@ -46,7 +59,7 @@ FROM mongo.orders
 
 - **联邦查询**：跨数据源 JOIN（inner / left / right / full / cross），CTE、FROM 子查询等常用查询能力。
 - **自研 SQL 解析器**：没有依赖过时的第三方 MySQL parser；表达式、函数、语句和 pipe stage 都可以本地扩展。
-- **21 种内置连接器**（见下表），连接器完全抽象，新增数据源只需实现接口并注册。
+- **23 种内置连接器**（见下表），连接器完全抽象，新增数据源只需实现接口并注册。
 - **多租户**：`workspace` 隔离数据源、查询、成员、审计与 API Key；所有资源都带 `tenantId`。
 - **团队协作**：owner / admin / member / viewer 角色，邮件邀请链接、共享/私有保存查询、查询历史、审计日志。
 - **OIDC 登录**：任意标准 OIDC Provider（Auth0、Keycloak、Okta、Entra ID、Google 等）。
@@ -102,7 +115,9 @@ docker compose up --build
 
 ---
 
-## 内置数据源（21）
+## 内置数据源（23）
+
+> 每个连接器的详细验证进度、限制与 CI 状态见 **[docs/data-sources.md](docs/data-sources.md)**。
 
 | 类别 | 数据源 | 连接方式 |
 | --- | --- | --- |
@@ -116,9 +131,11 @@ docker compose up --build
 | 云数仓 | Snowflake | 官方 SQL API（OAuth / PAT） |
 | 云数仓 | Databricks SQL | 官方 Statement Execution API |
 | NoSQL | MongoDB | 官方 Go driver |
+| NoSQL | Redis | `go-redis/v9`，Hash/JSON 展开为列 |
 | Search | Elasticsearch、OpenSearch | HTTP search API |
 | API | REST / JSON | 通用 HTTP + JSON path |
 | File | CSV / TSV URL | 通用 HTTP + `encoding/csv` |
+| File | JSON Lines / NDJSON | 通用 HTTP + 逐行解析 |
 
 Slack/Google Sheets 等系统可以通过 **REST** 连接器接入；只要 HTTP 能返回 JSON 数组，就能成为一张表。新增专用连接器见 [docs/connectors.md](docs/connectors.md)。
 
@@ -292,6 +309,7 @@ GET    /api/v1/tenants/{tenant}/apikeys
 │       ├── connector         # connector abstraction & registry
 │       ├── sqlconn           # generic database/sql connectors
 │       ├── mongodb           # MongoDB connector
+│       ├── redisdb           # Redis keyspace connector
 │       ├── httpjson          # REST & CSV connectors
 │       ├── elasticsearch     # Elasticsearch / OpenSearch
 │       ├── cloudsql          # Snowflake / Databricks HTTP APIs
@@ -308,6 +326,8 @@ GET    /api/v1/tenants/{tenant}/apikeys
 │       ├── providers         # auth, tenant, theme
 │       └── lib               # API client, types, utils
 ├── docs/connectors.md
+├── docs/data-sources.md     # connector support matrix
+├── .github/workflows/ci.yml
 ├── mise.toml
 ├── docker-compose.yml
 └── Dockerfile
@@ -355,7 +375,7 @@ cd backend && go test ./...
 - 每租户独立 OIDC / SCIM、审计导出、查询排队与并发配额。
 - 邮件发送（邀请/告警）目前只生成链接。
 - 更完整的 SQL：窗口函数、UNION/INTERSECT、参数化查询、物化视图。
-- 更多连接器：BigQuery、Athena、DuckDB、Redis、Google Sheets、Kafka 等。
+- 更多连接器：BigQuery、Athena、DuckDB、Google Sheets、Kafka 等。
 
 ---
 

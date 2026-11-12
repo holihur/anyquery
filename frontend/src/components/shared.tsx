@@ -1,4 +1,4 @@
-import { Copy, Database, FileSpreadsheet, Globe2, Loader2, Network, Search, Snowflake, Boxes, Zap, type LucideIcon } from "lucide-react"
+import { Braces, Copy, Database, FileSpreadsheet, Globe2, Layers, Loader2, Network, Search, Snowflake, Boxes, Zap, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import type { Role } from "@/lib/types"
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 
 const typeMeta: Record<string, { icon: LucideIcon; color: string; bg: string; label: string }> = {
   mongodb: { icon: Database, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10", label: "MongoDB" },
+  redis: { icon: Layers, color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10", label: "Redis" },
   postgres: { icon: Database, color: "text-sky-600 dark:text-sky-400", bg: "bg-sky-500/10", label: "PostgreSQL" },
   cockroachdb: { icon: Database, color: "text-indigo-600 dark:text-indigo-400", bg: "bg-indigo-500/10", label: "CockroachDB" },
   redshift: { icon: Database, color: "text-rose-600 dark:text-rose-400", bg: "bg-rose-500/10", label: "Redshift" },
@@ -27,6 +28,7 @@ const typeMeta: Record<string, { icon: LucideIcon; color: string; bg: string; la
   opensearch: { icon: Search, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10", label: "OpenSearch" },
   rest: { icon: Globe2, color: "text-teal-600 dark:text-teal-400", bg: "bg-teal-500/10", label: "REST / JSON" },
   csv: { icon: FileSpreadsheet, color: "text-green-600 dark:text-green-400", bg: "bg-green-500/10", label: "CSV" },
+  jsonl: { icon: Braces, color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10", label: "JSON Lines" },
 }
 
 export function sourceMeta(type: string) {

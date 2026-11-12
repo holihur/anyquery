@@ -1,0 +1,273 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend · vet, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./... -count=1
+      - name: build binaries
+        run: |
+          go build -trimpath -o /tmp/anyquery ./cmd/server
+          go build -trimpath -o /tmp/anyquery-seed ./cmd/seed
+
+  frontend:
+    name: Frontend · typecheck, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: build
+        run: pnpm build
+      - name: upload SPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  e2e:
+    name: E2E · MongoDB + SQLite federation
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      MONGODB_URI: mongodb://127.0.0.1:27017
+      MONGODB_DB: anyquery_ci
+      APP_BASE_URL: http://localhost:8080
+      PORT: "8080"
+      AUTH_DEV_MODE: "true"
+      QUERY_TIMEOUT_SECONDS: "30"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: wait for services
+        run: |
+          for port in 27017 6379; do
+            for i in $(seq 1 30); do
+              if (echo > /dev/tcp/127.0.0.1/$port) >/dev/null 2>&1; then
+                break
+              fi
+              sleep 1
+            done
+          done
+          sleep 2
+      - name: build
+        working-directory: backend
+        run: |
+          go build -trimpath -o /tmp/anyquery ./cmd/server
+          go build -trimpath -o /tmp/anyquery-seed ./cmd/seed
+      - name: seed demo workspace
+        working-directory: backend
+        run: /tmp/anyquery-seed
+      - name: start API
+        working-directory: backend
+        run: |
+          /tmp/anyquery > /tmp/anyquery-server.log 2>&1 &
+          echo $! > /tmp/anyquery.pid
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/api/v1/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/anyquery-server.log
+          exit 1
+      - name: login
+        run: |
+          curl -fsS -c /tmp/cookies -X POST http://localhost:8080/api/v1/auth/dev-login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"admin@anyquery.dev"}'
+      - name: federated JOIN query
+        run: |
+          cat > /tmp/query.json <<'JSON'
+          {"sql":"SELECT p.category, count(*) AS orders, round(sum(o.total), 2) AS revenue FROM mongo.orders o JOIN shop.products p ON o.product_id = p.id WHERE o.status = 'paid' GROUP BY p.category ORDER BY revenue DESC"}
+          JSON
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/queries/execute \
+            -H 'Content-Type: application/json' --data-binary @/tmp/query.json > /tmp/result.json
+          python3 - <<'PY'
+          import json
+          result = json.load(open("/tmp/result.json"))
+          assert "error" not in result, result
+          rows = result["result"]["rows"]
+          assert len(rows) == 6, rows
+          assert rows[0]["category"] == "Data Engineering", rows[0]
+          assert rows[0]["revenue"] == 17180, rows[0]
+          assert rows[0]["orders"] == 8, rows[0]
+          print("federated result:", rows[0])
+          PY
+      - name: pipeline query
+        run: |
+          cat > /tmp/pipeline.json <<'JSON'
+          {"sql":"FROM mongo.orders |> WHERE status = 'paid' |> AGGREGATE region, count(*) AS orders, round(sum(total), 2) AS revenue GROUP BY region |> ORDER BY revenue DESC"}
+          JSON
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/queries/execute \
+            -H 'Content-Type: application/json' --data-binary @/tmp/pipeline.json > /tmp/pipeline-result.json
+          python3 - <<'PY'
+          import json
+          result = json.load(open("/tmp/pipeline-result.json"))
+          assert "error" not in result, result
+          rows = result["result"]["rows"]
+          assert len(rows) == 3, rows
+          assert rows[0]["region"] == "NA", rows[0]
+          print("pipeline result:", rows[0])
+          PY
+      - name: API key authentication
+        run: |
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/apikeys \
+            -H 'Content-Type: application/json' -d '{"name":"ci"}' > /tmp/key.json
+          KEY=$(python3 -c 'import json; print(json.load(open("/tmp/key.json"))["key"])')
+          curl -fsS -X POST http://localhost:8080/api/v1/tenants/acme/queries/execute \
+            -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+            -d '{"sql":"SELECT 1 AS ok"}' > /tmp/key-result.json
+          python3 - <<'PY'
+          import json
+          result = json.load(open("/tmp/key-result.json"))
+          assert result["result"]["rows"] == [{"ok": 1}], result
+          print("api key result:", result["result"]["rows"])
+          PY
+      - name: Redis connector + Mongo↔Redis join
+        run: |
+          python3 - <<'PY'
+          import socket
+          s = socket.create_connection(("127.0.0.1", 6379))
+          def cmd(*args):
+              payload = ("*%d\r\n" % len(args)).encode()
+              for arg in args:
+                  b = str(arg).encode()
+                  payload += b"$%d\r\n" % len(b) + b + b"\r\n"
+              s.sendall(payload)
+              return s.recv(4096)
+          cmd("HSET", "user:1", "name", "Maya", "role", "owner", "user_id", "1")
+          cmd("HSET", "user:2", "name", "Sam", "role", "member", "user_id", "2")
+          cmd("SET", "config:theme", "dark")
+          cmd("CLOSE")
+          PY
+          cat > /tmp/redis-ds.json <<'JSON'
+          {"name":"cache","type":"redis","config":{"url":"redis://127.0.0.1:6379/0","table_name":"keys","key_pattern":"user:*","scan_limit":"100"}}
+          JSON
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/datasources             -H 'Content-Type: application/json' --data-binary @/tmp/redis-ds.json > /tmp/redis-ds-result.json
+          cat > /tmp/redis-query.json <<'JSON'
+          {"sql":"SELECT c.name, r.role FROM mongo.customers c JOIN cache.keys r ON c.id = r.user_id WHERE r._type = 'hash' ORDER BY c.name"}
+          JSON
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/queries/execute             -H 'Content-Type: application/json' --data-binary @/tmp/redis-query.json > /tmp/redis-result.json
+          python3 - <<'PY'
+          import json
+          ds = json.load(open("/tmp/redis-ds-result.json"))
+          assert ds.get("status") == "ready", ds
+          assert ds["tables"][0]["name"] == "keys", ds
+          cols = {c["name"] for c in ds["tables"][0]["columns"]}
+          assert {"_key", "_type", "_ttl", "_size", "_value", "name", "role", "user_id"} <= cols, cols
+          result = json.load(open("/tmp/redis-result.json"))
+          assert "error" not in result, result
+          rows = result["result"]["rows"]
+          assert rows == [{"name": "Acme", "role": "owner"}, {"name": "Globex", "role": "member"}], rows
+          print("redis join result:", rows)
+          PY
+
+      - name: JSONL connector
+        run: |
+          mkdir -p /tmp/aq-jsonl
+          cat > /tmp/aq-jsonl/events.jsonl <<'JSONL'
+          {"event":"signup","user_id":1,"amount":0}
+          {"event":"purchase","user_id":1,"amount":49.5}
+          {"event":"purchase","user_id":2,"amount":120}
+          JSONL
+          python3 -m http.server 18999 --directory /tmp/aq-jsonl >/tmp/jsonl-http.log 2>&1 &
+          echo $! > /tmp/jsonl-http.pid
+          sleep 1
+          cat > /tmp/jsonl-ds.json <<'JSON'
+          {"name":"events","type":"jsonl","config":{"url":"http://127.0.0.1:18999/events.jsonl","table_name":"events"}}
+          JSON
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/datasources             -H 'Content-Type: application/json' --data-binary @/tmp/jsonl-ds.json > /tmp/jsonl-ds-result.json
+          cat > /tmp/jsonl-query.json <<'JSON'
+          {"sql":"SELECT c.name, count(*) AS events, sum(e.amount) AS total FROM events.events e JOIN mongo.customers c ON e.user_id = c.id WHERE e.event = 'purchase' GROUP BY c.name ORDER BY total DESC"}
+          JSON
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/queries/execute             -H 'Content-Type: application/json' --data-binary @/tmp/jsonl-query.json > /tmp/jsonl-result.json
+          python3 - <<'PY'
+          import json
+          ds = json.load(open("/tmp/jsonl-ds-result.json"))
+          assert ds.get("status") == "ready", ds
+          assert len(ds["tables"][0]["columns"]) >= 3, ds
+          result = json.load(open("/tmp/jsonl-result.json"))
+          assert "error" not in result, result
+          rows = result["result"]["rows"]
+          assert [r["name"] for r in rows] == ["Globex", "Acme"], rows
+          assert rows[0]["total"] == 120, rows
+          print("jsonl join result:", rows)
+          PY
+
+      - name: server log
+        if: failure()
+        run: cat /tmp/anyquery-server.log || true
+
+  docker:
+    name: Docker · production image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: anyquery:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

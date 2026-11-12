@@ -99,6 +99,8 @@ github.com/pierrec/lz4/v4 v4.1.33/go.mod h1:7SE9MC2STkNtL4PIwGhjmyVwvILaGI9/COYQ
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c h1:+mdjkGKdHQG3305AYmdv1U2eRNDiU2ErMBj1gwrq8eQ=
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c/go.mod h1:7rwL4CYBLnjLxUqIJNnCWiEdr3bn6IUYi15bNlnbCCU=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/redis/go-redis/v9 v9.23.0 h1:/TTVdJa8BRNsybwwGGnmiYktHNlUXtbOQxlWpHBPL3s=
+github.com/redis/go-redis/v9 v9.23.0/go.mod h1:EWP2UUk+XDaI1s5nQB5mablZN6vccXlmBQTyfnF87D0=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/segmentio/asm v1.2.1 h1:DTNbBqs57ioxAD4PrArqftgypG4/qNpXoJx8TVXxPR0=
@@ -137,6 +139,8 @@ go.opentelemetry.io/otel v1.47.0 h1:j7ALJ/zgkS7Z6aeJW09p8VC9804bC+PpeTfCD4XPnOM=
 go.opentelemetry.io/otel v1.47.0/go.mod h1:8wS9O2qfXrYrzp6hIF/HOYJJf/wIhFPhR2xLuP+iXQU=
 go.opentelemetry.io/otel/trace v1.47.0 h1:JOjX/Oci8K94QHddo+bbfya/Ai/nf6/dt9ZfrFNWSrM=
 go.opentelemetry.io/otel/trace v1.47.0/go.mod h1:jNaSLa2PZEYFG6fRjJABAu+bw4FS08uDmPg28lTghu0=
+go.uber.org/atomic v1.12.0 h1:BvcXdFKuviU4fTL/f+SxdQ5qJX/Jix8pAkgdUcb3XOE=
+go.uber.org/atomic v1.12.0/go.mod h1:I6c4cg+6HCxRjfjSsYtApoFILnpc0CGUdGkXVqbYVNk=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=
