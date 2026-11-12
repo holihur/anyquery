@@ -4,6 +4,8 @@ package all
 
 import (
 	_ "github.com/anyquery/anyquery/internal/accessdb"
+	_ "github.com/anyquery/anyquery/internal/bigquery"
+	_ "github.com/anyquery/anyquery/internal/cassandra"
 	_ "github.com/anyquery/anyquery/internal/cloudsql"
 	_ "github.com/anyquery/anyquery/internal/druid"
 	_ "github.com/anyquery/anyquery/internal/elasticsearch"
@@ -11,6 +13,7 @@ import (
 	_ "github.com/anyquery/anyquery/internal/httpjson"
 	_ "github.com/anyquery/anyquery/internal/influxdb"
 	_ "github.com/anyquery/anyquery/internal/mongodb"
+	"github.com/anyquery/anyquery/internal/presets"
 	_ "github.com/anyquery/anyquery/internal/redisdb"
 	_ "github.com/anyquery/anyquery/internal/sls"
 	"github.com/anyquery/anyquery/internal/sqlconn"
@@ -19,4 +22,5 @@ import (
 
 func init() {
 	sqlconn.RegisterAll()
+	presets.RegisterAll()
 }

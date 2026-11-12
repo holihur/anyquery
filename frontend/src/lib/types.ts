@@ -84,6 +84,7 @@ export interface ConnectorType {
   category: string
   description: string
   icon: string
+  maturity?: "native" | "compatible" | "template" | string
   fields: ConnectorField[]
 }
 

@@ -67,7 +67,7 @@ export function QueryPage() {
     queryKey: ["catalog", tenant.slug],
     queryFn: () => api.catalog(tenant.slug),
   })
-  const sources: CatalogSource[] = (catalog?.sources ?? []).map((s) => ({ ...s, tables: (s.tables ?? []).map((t) => ({ ...t, columns: t.columns ?? [] })) }))
+  const sources: CatalogSource[] = (catalog?.sources ?? []).map((s) => ({ ...s, icon: s.icon, tables: (s.tables ?? []).map((t) => ({ ...t, columns: t.columns ?? [] })) }))
 
   const { data: runsData } = useQuery({
     queryKey: ["runs", tenant.slug, "studio"],

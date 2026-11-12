@@ -17,7 +17,8 @@ import { api } from "@/lib/api"
 import { useTenant } from "@/providers/tenant"
 import { useI18n } from "@/i18n"
 import { formatDuration, formatNumber, initials, relativeTime, shortRelative, truncate } from "@/lib/utils"
-import { Page, PageBody, PageHeader, SourceIcon, StatCard, StatusBadge, EmptyState, InlineCode } from "@/components/shared"
+import { Page, PageBody, PageHeader, StatCard, StatusBadge, EmptyState, InlineCode } from "@/components/shared"
+import { SourceIcon } from "@/components/SourceIcon"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -131,7 +132,7 @@ export function OverviewPage() {
               <div className="divide-y divide-border/45">
                 {sourceList.slice(0, 5).map((ds) => (
                   <div key={ds.id} className="flex items-center gap-3 px-5 py-3">
-                    <SourceIcon type={ds.type} size="sm" />
+                    <SourceIcon type={ds.type} icon={ds.icon} size="sm" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate text-[13px] font-medium">{ds.name}</span>

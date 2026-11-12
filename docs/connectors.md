@@ -201,7 +201,10 @@ func TestProviderSpec(t *testing.T) {
 | 位置 | 数据源 |
 | --- | --- |
 | `internal/sqlconn` | PostgreSQL、CockroachDB、Redshift、TimescaleDB、YugabyteDB、MySQL、MariaDB、SingleStore、SQL Server、SQLite、ClickHouse、Trino、Presto、Oracle |
+| `internal/presets` | 37 个 SQL 兼容预设 + 32 个 REST/SaaS 模板（Aurora、Cloud SQL、Neon、TiDB、GitHub、Slack、Stripe 等） |
 | `internal/cloudsql` | Snowflake、Databricks SQL |
+| `internal/bigquery` | Google BigQuery（REST） |
+| `internal/cassandra` | Apache Cassandra / ScyllaDB（CQL） |
 | `internal/mongodb` | MongoDB |
 | `internal/influxdb` | InfluxDB |
 | `internal/sls` | Alibaba Cloud SLS |

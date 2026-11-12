@@ -141,7 +141,7 @@ export const api = {
   refreshDataSource: (slug: string, id: string) =>
     request<DataSource>(`/tenants/${slug}/datasources/${id}/refresh`, { method: "POST" }),
   catalog: (slug: string) =>
-    request<{ sources: { name: string; type: string; status: string; error?: string; tables: DataSource["tables"] }[] }>(
+    request<{ sources: { name: string; type: string; icon?: string; status: string; error?: string; tables: DataSource["tables"] }[] }>(
       `/tenants/${slug}/catalog`,
     ),
 

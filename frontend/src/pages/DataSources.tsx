@@ -25,7 +25,8 @@ import { api, ApiError } from "@/lib/api"
 import { useTenant } from "@/providers/tenant"
 import { cn, formatDateTime, relativeTime } from "@/lib/utils"
 import type { ConnectorField, ConnectorType, DataSource } from "@/lib/types"
-import { Page, PageBody, PageHeader, SourceIcon, StatusBadge, EmptyState, ErrorNotice, sourceMeta, CopyButton } from "@/components/shared"
+import { Page, PageBody, PageHeader, StatusBadge, EmptyState, ErrorNotice, CopyButton } from "@/components/shared"
+import { SourceIcon, sourceMeta } from "@/components/SourceIcon"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -179,7 +180,7 @@ export function DataSourcesPage() {
               <div key={ds.id} className="group relative flex flex-col overflow-hidden surface transition-all hover:shadow-md">
                 <div className={cn("h-0.5 w-full", ds.status === "ready" ? "bg-success/70" : "bg-destructive/70")} />
                 <div className="flex items-start gap-3 p-4 pb-3">
-                  <SourceIcon type={ds.type} size="lg" />
+                  <SourceIcon type={ds.type} icon={ds.icon} size="lg" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <h3 className="truncate text-[14px] font-semibold">{ds.name}</h3>
@@ -417,10 +418,13 @@ function DataSourceDialog({
               <div className="grid max-h-[52vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
                 {filtered.map((t) => (
                   <button key={t.type} onClick={() => chooseType(t)} className="group flex items-start gap-3 rounded-lg border border-border/60 bg-card p-3 text-left transition-all hover:border-primary/30 hover:shadow-sm">
-                    <SourceIcon type={t.type} />
+                    <SourceIcon type={t.type} icon={t.icon} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[12.5px] font-medium">{t.name}</span>
+                        {t.maturity && t.maturity !== "native" && (
+                          <Badge variant="outline" className="px-1 py-0 text-[8.5px] font-normal text-muted-foreground">{t.maturity}</Badge>
+                        )}
                         <ChevronRight className="size-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
                       <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-relaxed text-muted-foreground">{t.description}</p>
@@ -435,7 +439,7 @@ function DataSourceDialog({
           <form onSubmit={submit}>
             <DialogHeader>
               <div className="mb-1 flex items-center gap-2.5">
-                <SourceIcon type={selected.type} />
+                <SourceIcon type={selected.type} icon={selected.icon} />
                 <div>
                   <DialogTitle>{isEdit ? `Edit ${source?.name}` : `Connect ${selected.name}`}</DialogTitle>
                   <DialogDescription className="text-[12px]">{selected.description}</DialogDescription>
@@ -566,7 +570,7 @@ function SchemaDialog({ source, open, onOpenChange }: { source: DataSource | nul
       <DialogContent className="max-h-[85vh] overflow-hidden p-0 sm:max-w-2xl">
         <DialogHeader className="px-5 pt-5 pb-2">
           <div className="flex items-center gap-2.5">
-            {source && <SourceIcon type={source.type} />}
+            {source && <SourceIcon type={source.type} icon={source.icon} />}
             <div>
               <DialogTitle>{source?.name} schema</DialogTitle>
               <DialogDescription>{source?.tables?.length ?? 0} tables · {source?.typeName}</DialogDescription>

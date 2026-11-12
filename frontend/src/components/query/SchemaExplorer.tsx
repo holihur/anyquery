@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { ChevronRight, Columns3, Database, PanelLeftClose, Plus, RefreshCw, Search, Table2, TriangleAlert } from "lucide-react"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { cn } from "@/lib/utils"
-import { SourceIcon } from "@/components/shared"
+import { SourceIcon } from "@/components/SourceIcon"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 export interface CatalogSource {
   name: string
   type: string
+  icon?: string
   status: string
   error?: string
   tables: { name: string; displayName?: string; kind: string; columns: { name: string; type: string }[] }[]
@@ -138,7 +139,7 @@ export function SchemaExplorer({
                   onClick={() => setCollapsed((c) => ({ ...c, [source.name]: !c[source.name] }))}
                 >
                   <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", !isCollapsed && "rotate-90")} />
-                  <SourceIcon type={source.type} size="sm" className="size-6 rounded" />
+                  <SourceIcon type={source.type} icon={source.icon} size="sm" className="size-6 rounded" />
                   <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{source.name}</span>
                   {source.status !== "ready" && (
                     <Tooltip>

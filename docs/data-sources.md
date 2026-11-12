@@ -1,6 +1,8 @@
 # 数据源支持进度
 
-> 版本：MVP · 2026-11 · 共 **31** 个内置连接器
+> 版本：MVP · 2026-11 · 共 **102** 个注册数据源类型（33 native / 37 compatible / 32 template）
+>
+> 完整 Top 100 目录见 [data-sources-top100.md](data-sources-top100.md)。
 
 ## 状态图例
 
@@ -13,7 +15,9 @@
 
 > CI 状态：GitHub Actions 已通过 backend/frontend/Docker 构建，以及 MongoDB + SQLite + Redis + JSONL + PostgreSQL 的端到端查询与跨源 JOIN 测试。
 >
-> 当前 MVP 的联邦策略：连接器负责 **连接 / Schema 探测 / 有界取数**，跨源 JOIN、过滤、聚合、排序由 Go 查询引擎完成。已支持 LIMIT 下推；**谓词/投影下推仍在 roadmap**，所以表格中的“查询下推”统一为 LIMIT。
+> 当前 MVP 的联邦策略：连接器负责 **连接 / Schema 探测 / 有界取数**，跨源 JOIN、过滤、聚合、排序由 Go 查询引擎完成。SQL 与 MongoDB 连接器支持投影、简单谓词和 LIMIT 下推；其他连接器会安全地忽略不支持的下推。
+>
+> 下表的 31 个原生连接器是已验证/已实现的核心；新增的兼容类型和 REST 模板见 Top 100 目录。
 
 ## 总览
 

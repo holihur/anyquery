@@ -378,6 +378,7 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 	type source struct {
 		Name   string            `json:"name"`
 		Type   string            `json:"type"`
+		Icon   string            `json:"icon,omitempty"`
 		Status string            `json:"status"`
 		Error  string            `json:"error,omitempty"`
 		Tables []connector.Table `json:"tables"`
@@ -391,7 +392,11 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 			}
 			tables[i] = t
 		}
-		out = append(out, source{Name: ds.Name, Type: ds.Type, Status: ds.Status, Error: ds.LastError, Tables: tables})
+		icon := ds.Type
+		if spec, ok := connector.Get(ds.Type); ok {
+			icon = spec.Spec().Icon
+		}
+		out = append(out, source{Name: ds.Name, Type: ds.Type, Icon: icon, Status: ds.Status, Error: ds.LastError, Tables: tables})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sources": out})
 }

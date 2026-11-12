@@ -56,11 +56,24 @@ func Specs() []TypeSpec {
 	return out
 }
 
+// ConfigDefaulter lets preset providers fill defaults before validation.
+type ConfigDefaulter interface {
+	ApplyDefaults(cfg map[string]string)
+}
+
 // Open validates config then opens a connector.
 func Open(ctx context.Context, typ string, cfg map[string]string) (Connector, error) {
 	p, ok := Get(typ)
 	if !ok {
 		return nil, fmt.Errorf("unknown data source type %q", typ)
+	}
+	if d, ok := p.(ConfigDefaulter); ok {
+		copyCfg := make(map[string]string, len(cfg))
+		for k, v := range cfg {
+			copyCfg[k] = v
+		}
+		d.ApplyDefaults(copyCfg)
+		cfg = copyCfg
 	}
 	if err := ValidateConfig(p.Spec(), cfg); err != nil {
 		return nil, err

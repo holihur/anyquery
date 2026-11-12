@@ -1,67 +1,10 @@
-import { Activity, Braces, Cloud, Copy, Database, FileSpreadsheet, Globe2, Layers, Loader2, Network, Search, Snowflake, Boxes, Zap, type LucideIcon } from "lucide-react"
+import { Copy, Database, Loader2, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import type { Role } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/i18n"
-
-const typeMeta: Record<string, { icon: LucideIcon; color: string; bg: string; label: string }> = {
-  mongodb: { icon: Database, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10", label: "MongoDB" },
-  redis: { icon: Layers, color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10", label: "Redis" },
-  postgres: { icon: Database, color: "text-sky-600 dark:text-sky-400", bg: "bg-sky-500/10", label: "PostgreSQL" },
-  cockroachdb: { icon: Database, color: "text-indigo-600 dark:text-indigo-400", bg: "bg-indigo-500/10", label: "CockroachDB" },
-  redshift: { icon: Database, color: "text-rose-600 dark:text-rose-400", bg: "bg-rose-500/10", label: "Redshift" },
-  timescaledb: { icon: Activity, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10", label: "TimescaleDB" },
-  influxdb: { icon: Activity, color: "text-pink-600 dark:text-pink-400", bg: "bg-pink-500/10", label: "InfluxDB" },
-  questdb: { icon: Activity, color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10", label: "QuestDB" },
-  greptimedb: { icon: Activity, color: "text-lime-600 dark:text-lime-400", bg: "bg-lime-500/10", label: "GreptimeDB" },
-  sls: { icon: Cloud, color: "text-sky-600 dark:text-sky-400", bg: "bg-sky-500/10", label: "Alibaba Cloud SLS" },
-  tdengine: { icon: Activity, color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10", label: "TDengine" },
-  druid: { icon: Activity, color: "text-violet-600 dark:text-violet-400", bg: "bg-violet-500/10", label: "Apache Druid" },
-  excel: { icon: FileSpreadsheet, color: "text-green-600 dark:text-green-400", bg: "bg-green-500/10", label: "Microsoft Excel" },
-  access: { icon: Database, color: "text-blue-700 dark:text-blue-400", bg: "bg-blue-500/10", label: "Microsoft Access" },
-  yugabytedb: { icon: Database, color: "text-lime-600 dark:text-lime-400", bg: "bg-lime-500/10", label: "YugabyteDB" },
-  mysql: { icon: Database, color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10", label: "MySQL" },
-  mariadb: { icon: Database, color: "text-teal-600 dark:text-teal-400", bg: "bg-teal-500/10", label: "MariaDB" },
-  singlestore: { icon: Database, color: "text-fuchsia-600 dark:text-fuchsia-400", bg: "bg-fuchsia-500/10", label: "SingleStore" },
-  sqlserver: { icon: Database, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10", label: "SQL Server" },
-  sqlite: { icon: Database, color: "text-yellow-600 dark:text-yellow-400", bg: "bg-yellow-500/10", label: "SQLite" },
-  clickhouse: { icon: Zap, color: "text-yellow-500", bg: "bg-yellow-500/10", label: "ClickHouse" },
-  trino: { icon: Network, color: "text-violet-600 dark:text-violet-400", bg: "bg-violet-500/10", label: "Trino" },
-  presto: { icon: Network, color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10", label: "Presto" },
-  snowflake: { icon: Snowflake, color: "text-cyan-600 dark:text-cyan-400", bg: "bg-cyan-500/10", label: "Snowflake" },
-  databricks: { icon: Boxes, color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10", label: "Databricks" },
-  oracle: { icon: Database, color: "text-red-700 dark:text-red-400", bg: "bg-red-500/10", label: "Oracle" },
-  elasticsearch: { icon: Search, color: "text-yellow-600 dark:text-yellow-400", bg: "bg-yellow-500/10", label: "Elasticsearch" },
-  opensearch: { icon: Search, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10", label: "OpenSearch" },
-  rest: { icon: Globe2, color: "text-teal-600 dark:text-teal-400", bg: "bg-teal-500/10", label: "REST / JSON" },
-  csv: { icon: FileSpreadsheet, color: "text-green-600 dark:text-green-400", bg: "bg-green-500/10", label: "CSV" },
-  jsonl: { icon: Braces, color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10", label: "JSON Lines" },
-}
-
-export function sourceMeta(type: string) {
-  return typeMeta[type] ?? { icon: Database, color: "text-muted-foreground", bg: "bg-muted", label: type }
-}
-
-export function SourceIcon({ type, className, size = "md" }: { type: string; className?: string; size?: "sm" | "md" | "lg" }) {
-  const meta = sourceMeta(type)
-  const Icon = meta.icon
-  return (
-    <div
-      className={cn(
-        "grid shrink-0 place-items-center rounded-lg border border-transparent",
-        meta.bg,
-        size === "sm" && "size-7 rounded-md",
-        size === "md" && "size-9",
-        size === "lg" && "size-11 rounded-xl",
-        className,
-      )}
-    >
-      <Icon className={cn(meta.color, size === "sm" ? "size-3.5" : size === "md" ? "size-4" : "size-5")} />
-    </div>
-  )
-}
 
 export function PageHeader({
   title,

@@ -71,6 +71,7 @@ type TypeSpec struct {
 	Description string        `json:"description"`
 	Icon        string        `json:"icon"`
 	DocsURL     string        `json:"docsUrl,omitempty"`
+	Maturity    string        `json:"maturity,omitempty"` // native, compatible, template
 	Fields      []ConfigField `json:"fields"`
 }
 
