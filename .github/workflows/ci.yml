@@ -115,6 +115,7 @@ jobs:
       PORT: "8080"
       AUTH_DEV_MODE: "true"
       QUERY_TIMEOUT_SECONDS: "30"
+      MAX_SAVED_QUERIES: "10"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -486,10 +487,10 @@ jobs:
           status, _ = call("POST", "/auth/dev-login", {"email": "admin@anyquery.dev"})
           assert status == 200, status
           info = json.load(opener.open(base + "/tenants/acme"))
-          assert info["limits"]["maxSavedQueries"] == 100, info
+          assert info["limits"]["maxSavedQueries"] == 10, info
           existing = json.load(opener.open(base + "/tenants/acme/queries"))["queries"]
           assert info["usage"]["savedQueries"] == len(existing), (info, len(existing))
-          for i in range(len(existing), 100):
+          for i in range(len(existing), 10):
               status, body = call("POST", "/tenants/acme/queries", {
                   "name": f"ci-limit-{i}", "sql": "SELECT 1", "visibility": "team",
               })
@@ -500,7 +501,7 @@ jobs:
           assert status == 409, (status, body)
           assert body["error"]["code"] == "saved_query_limit", body
           info = json.load(opener.open(base + "/tenants/acme"))
-          assert info["usage"]["savedQueries"] == 100, info
+          assert info["usage"]["savedQueries"] == 10, info
           print("saved query limit verified:", info["usage"], info["limits"])
           PY
 
