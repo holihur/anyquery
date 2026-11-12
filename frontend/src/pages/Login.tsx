@@ -211,7 +211,7 @@ export function LoginPage() {
 
         <div className="flex items-center justify-between text-[10px] text-white/25">
           <span>AnyQuery MVP</span>
-          <span>27 connectors · RBAC · Audit</span>
+          <span>31 connectors · RBAC · Audit</span>
         </div>
       </aside>
     </div>

@@ -186,10 +186,10 @@ export const api = {
   audit: (slug: string, limit = 100) => request<{ logs: AuditLog[] }>(`/tenants/${slug}/audit?limit=${limit}`),
 
   apiKeys: (slug: string) => request<{ apiKeys: APIKey[] }>(`/tenants/${slug}/apikeys`),
-  createApiKey: (slug: string, name: string) =>
+  createApiKey: (slug: string, name: string, scopes: string[]) =>
     request<{ key: string; apiKey: APIKey }>(`/tenants/${slug}/apikeys`, {
       method: "POST",
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, scopes }),
     }),
   revokeApiKey: (slug: string, id: string) =>
     request<void>(`/tenants/${slug}/apikeys/${id}`, { method: "DELETE" }),

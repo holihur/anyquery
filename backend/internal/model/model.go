@@ -152,14 +152,48 @@ type AuditLog struct {
 	CreatedAt  time.Time      `bson:"createdAt" json:"createdAt"`
 }
 
+const (
+	ScopeCatalogRead  = "catalog:read"
+	ScopeQueryExecute = "query:execute"
+	ScopeQueryRead    = "query:read"
+)
+
+// AllScopes is the PAT scope set available in the MVP. API keys created before
+// scopes existed have an empty list and retain full access for compatibility.
+var AllScopes = []string{ScopeCatalogRead, ScopeQueryExecute, ScopeQueryRead}
+
+func ValidScope(scope string) bool {
+	for _, s := range AllScopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
+}
+
 type APIKey struct {
 	ID         string     `bson:"_id" json:"id"`
 	TenantID   string     `bson:"tenantId" json:"tenantId"`
 	Name       string     `bson:"name" json:"name"`
 	Prefix     string     `bson:"prefix" json:"prefix"`
 	KeyHash    string     `bson:"keyHash" json:"-"`
+	Scopes     []string   `bson:"scopes,omitempty" json:"scopes"`
 	CreatedBy  string     `bson:"createdBy" json:"createdBy"`
 	CreatedAt  time.Time  `bson:"createdAt" json:"createdAt"`
 	LastUsedAt *time.Time `bson:"lastUsedAt,omitempty" json:"lastUsedAt,omitempty"`
 	RevokedAt  *time.Time `bson:"revokedAt,omitempty" json:"revokedAt,omitempty"`
+}
+
+// HasScope reports whether this PAT grants a scope. Empty scopes mean a legacy
+// full-access key.
+func (k APIKey) HasScope(scope string) bool {
+	if len(k.Scopes) == 0 {
+		return true
+	}
+	for _, s := range k.Scopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
 }

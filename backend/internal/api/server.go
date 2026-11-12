@@ -49,6 +49,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/v1/healthz", s.handleHealth)
+	mux.HandleFunc("POST /mcp", s.authenticatePAT(s.handleMCP))
 	mux.HandleFunc("GET /api/v1/auth/config", s.handleAuthConfig)
 	mux.HandleFunc("GET /api/v1/auth/oidc/login", s.handleOIDCLogin)
 	mux.HandleFunc("GET /api/v1/auth/oidc/callback", s.handleOIDCCallback)

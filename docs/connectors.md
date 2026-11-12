@@ -205,6 +205,10 @@ func TestProviderSpec(t *testing.T) {
 | `internal/mongodb` | MongoDB |
 | `internal/influxdb` | InfluxDB |
 | `internal/sls` | Alibaba Cloud SLS |
+| `internal/tdengine` | TDengine |
+| `internal/druid` | Apache Druid |
+| `internal/excel` | Microsoft Excel |
+| `internal/accessdb` | Microsoft Access (mdbtools) |
 | `internal/redisdb` | Redis |
 | `internal/elasticsearch` | Elasticsearch、OpenSearch |
 | `internal/httpjson` | REST / JSON、CSV URL、JSON Lines |

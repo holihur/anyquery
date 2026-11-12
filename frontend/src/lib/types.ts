@@ -181,6 +181,7 @@ export interface APIKey {
   tenantId: string
   name: string
   prefix: string
+  scopes: string[]
   createdBy: string
   createdAt: string
   lastUsedAt?: string

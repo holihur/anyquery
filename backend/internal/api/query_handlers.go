@@ -72,6 +72,9 @@ func (c *tenantCatalog) Close() {
 }
 
 func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
+	if !requireScope(w, r, model.ScopeQueryExecute) {
+		return
+	}
 	t := currentTenant(r)
 	if !currentRole(r).CanQuery() {
 		writeError(w, http.StatusForbidden, "forbidden", "You do not have query access")
@@ -169,6 +172,9 @@ func statusForQueryError(err error) int {
 }
 
 func (s *Server) handleSavedQueriesList(w http.ResponseWriter, r *http.Request) {
+	if !requireScope(w, r, model.ScopeQueryRead) {
+		return
+	}
 	t := currentTenant(r)
 	seeAll := currentRole(r).CanAdmin()
 	list, err := s.store.ListSavedQueries(r.Context(), t.ID, currentUser(r).ID, seeAll)
@@ -235,6 +241,9 @@ func (s *Server) handleSavedQueryCreate(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleSavedQueryGet(w http.ResponseWriter, r *http.Request) {
+	if !requireScope(w, r, model.ScopeQueryRead) {
+		return
+	}
 	q, err := s.store.GetSavedQuery(r.Context(), currentTenant(r).ID, r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "Saved query not found")
@@ -319,6 +328,9 @@ func (s *Server) handleSavedQueryDelete(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleRunsList(w http.ResponseWriter, r *http.Request) {
+	if !requireScope(w, r, model.ScopeQueryRead) {
+		return
+	}
 	runs, err := s.store.ListRuns(r.Context(), currentTenant(r).ID, parseLimit(r, 50))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -346,7 +358,8 @@ func (s *Server) handleAPIKeyCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Name string `json:"name"`
+		Name   string   `json:"name"`
+		Scopes []string `json:"scopes"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", err.Error())
@@ -354,6 +367,11 @@ func (s *Server) handleAPIKeyCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(body.Name) == "" {
 		writeError(w, http.StatusBadRequest, "invalid_name", "Key name is required")
+		return
+	}
+	scopes, err := normalizeScopes(body.Scopes)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_scopes", err.Error())
 		return
 	}
 	secret, err := cryptox.RandomToken(32)
@@ -366,13 +384,13 @@ func (s *Server) handleAPIKeyCreate(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	key := &model.APIKey{
 		ID: store.NewID(), TenantID: t.ID, Name: strings.TrimSpace(body.Name),
-		Prefix: raw[:11], KeyHash: cryptox.HashToken(raw), CreatedBy: u.ID, CreatedAt: store.Now(),
+		Prefix: raw[:11], KeyHash: cryptox.HashToken(raw), CreatedBy: u.ID, CreatedAt: store.Now(), Scopes: scopes,
 	}
 	if _, err := s.store.APIKeys().InsertOne(r.Context(), key); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	s.store.Audit(r.Context(), model.AuditLog{TenantID: t.ID, ActorID: u.ID, ActorName: u.Name, Action: "apikey.create", TargetType: "api_key", TargetID: key.ID, Metadata: map[string]any{"name": key.Name}, IP: clientIP(r)})
+	s.store.Audit(r.Context(), model.AuditLog{TenantID: t.ID, ActorID: u.ID, ActorName: u.Name, Action: "apikey.create", TargetType: "api_key", TargetID: key.ID, Metadata: map[string]any{"name": key.Name, "scopes": scopes}, IP: clientIP(r)})
 	writeJSON(w, http.StatusCreated, map[string]any{"key": raw, "apiKey": key})
 }
 

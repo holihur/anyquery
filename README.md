@@ -1,6 +1,6 @@
 # AnyQuery
 
-**一个自托管的联邦查询平台**：用一套 SQL（以及可组合的 Query Pipeline）把 MongoDB、Redis、PostgreSQL、MySQL、SQLite、Snowflake、Databricks、REST API、CSV、JSONL、InfluxDB、SLS 等 27 数据源连在一起查询。面向团队：多租户工作区、成员角色、邀请、共享查询、审计日志、API Key 与 OIDC 登录。
+**一个自托管的联邦查询平台**：用一套 SQL（以及可组合的 Query Pipeline）把 MongoDB、Redis、PostgreSQL、MySQL、SQLite、Snowflake、Databricks、REST API、CSV、JSONL、InfluxDB、SLS、TDengine、Druid、Excel、Access 等 31 数据源连在一起查询。面向团队：多租户工作区、成员角色、邀请、共享查询、审计日志、API Key 与 OIDC 登录。
 
 - 后端：**Go**（标准库 `net/http` + 自研 SQL 解析器 / 执行引擎）
 - 存储：**MongoDB**
@@ -61,15 +61,16 @@ FROM mongo.orders
 
 - **联邦查询**：跨数据源 JOIN（inner / left / right / full / cross），CTE、FROM 子查询等常用查询能力。
 - **自研 SQL 解析器**：没有依赖过时的第三方 MySQL parser；表达式、函数、语句和 pipe stage 都可以本地扩展。
-- **27 种内置连接器**（见下表），连接器完全抽象，新增数据源只需实现接口并注册。
+- **31 种内置连接器**（见下表），连接器完全抽象，新增数据源只需实现接口并注册。
 - **多租户**：`workspace` 隔离数据源、查询、成员、审计与 API Key；所有资源都带 `tenantId`。
 - **团队协作**：owner / admin / member / viewer 角色，邮件邀请链接、共享/私有保存查询、最近 100 条查询历史、审计日志。
 - **保存查询上限**：每个 workspace 最多 100 条保存查询，达到上限后 API 返回明确错误。
 - **账号密码登录**：本地邮箱 + 密码账号，bcrypt 哈希、登录限流、管理员重置；邀请链接可直接设置密码。
 - **OIDC 登录**：任意标准 OIDC Provider（Auth0、Keycloak、Okta、Entra ID、Google 等），可与密码登录共存。
 - **安全**：数据源凭据 AES-256-GCM 加密；会话 token 仅存 SHA-256；HttpOnly Cookie；Origin 校验；API Key 只显示一次。
-- **团队 API**：工作区级 API Key 可直接调用执行接口。
+- **团队 API / PAT**：带 scope 的 Personal Access Token，可限制目录读取、SQL 执行、历史读取。
 - **创建前测试连接**：任何数据源在保存前都可以直接 Test，错误会即时显示。
+- **MCP**：内置 Streamable HTTP MCP Server（`/mcp`），MCP 工具严格使用 PAT 的权限域，只暴露被允许的工具。
 - **查询护栏**：超时、单源行数上限、结果行数上限、JOIN 中间结果上限、截断警示。
 - **Top 100**：查询历史展示最近 100 条；保存查询库每个工作区最多 100 条。
 - **深色/浅色主题**、响应式布局、可折叠导航、可拖拽 schema 宽度与 SQL/结果分栏、SQL 自动补全、schema 浏览器、结果排序/分页/CSV 导出。
@@ -123,7 +124,7 @@ docker compose up --build
 
 ---
 
-## 内置数据源（27）
+## 内置数据源（31）
 
 > 每个连接器的详细验证进度、限制与 CI 状态见 **[docs/data-sources.md](docs/data-sources.md)**。CI 覆盖 MongoDB + SQLite、Redis、JSONL 与 PostgreSQL 的真实跨源 JOIN。
 
@@ -148,6 +149,10 @@ docker compose up --build
 | 时序 | InfluxDB | InfluxQL HTTP（1.x / 2.x 兼容） |
 | 时序 | QuestDB | PostgreSQL wire |
 | 时序 | GreptimeDB | PostgreSQL wire |
+| 时序 | TDengine | REST SQL API |
+| 时序 | Apache Druid | SQL HTTP API |
+| File | Microsoft Excel | 本地 `.xlsx` worksheet |
+| File | Microsoft Access | 本地 `.mdb` / `.accdb` + mdbtools |
 
 Slack/Google Sheets 等系统可以通过 **REST** 连接器接入；只要 HTTP 能返回 JSON 数组，就能成为一张表。新增专用连接器见 [docs/connectors.md](docs/connectors.md)。
 
@@ -275,6 +280,7 @@ curl -X POST http://localhost:8080/api/v1/tenants/acme/queries/execute \
 
 ```
 GET    /api/v1/auth/config
+POST   /mcp
 GET    /api/v1/auth/oidc/login
 GET    /api/v1/auth/oidc/callback
 POST   /api/v1/auth/password-login
@@ -306,6 +312,15 @@ GET    /api/v1/tenants/{tenant}/apikeys
 ```
 
 ---
+
+## MCP 与 PAT
+
+- MCP endpoint：`POST /mcp`（Streamable HTTP，仅接受 `Authorization: Bearer aq_…`）
+- 工具：`get_catalog`（`catalog:read`）、`execute_sql`（`query:execute`）、`list_saved_queries`（`query:read`）
+- `tools/list` 会根据 token scope 自动过滤，未授权工具不会出现
+- 详细配置示例、Claude Code 接入和 curl 测试见 **[docs/mcp.md](docs/mcp.md)**
+
+PAT 在 **Settings → API keys** 创建，raw token 只显示一次。
 
 ## SQL 支持
 
@@ -342,6 +357,10 @@ GET    /api/v1/tenants/{tenant}/apikeys
 │       ├── redisdb           # Redis keyspace connector
 │       ├── influxdb          # InfluxQL HTTP connector
 │       ├── sls               # Alibaba Cloud Log Service connector
+│       ├── tdengine          # TDengine REST connector
+│       ├── druid             # Apache Druid SQL connector
+│       ├── excel             # Excel .xlsx connector
+│       ├── accessdb          # Access connector (mdbtools)
 │       ├── httpjson          # REST & CSV connectors
 │       ├── elasticsearch     # Elasticsearch / OpenSearch
 │       ├── cloudsql          # Snowflake / Databricks HTTP APIs
@@ -359,6 +378,7 @@ GET    /api/v1/tenants/{tenant}/apikeys
 │       └── lib               # API client, types, utils
 ├── docs/connectors.md
 ├── docs/data-sources.md     # connector support matrix
+├── docs/mcp.md              # MCP + PAT scopes
 ├── .github/workflows/ci.yml
 ├── mise.toml
 ├── docker-compose.yml
@@ -393,10 +413,13 @@ cd backend && go test ./...
 - 数据源凭据在 MongoDB 中加密存储；API 仅返回脱敏后的配置。更新时 `••••••••` 会保留旧密钥。
 - 本地密码使用 bcrypt 哈希；登录失败按邮箱 + IP 限流。
 - 会话使用随机 token，仅存 SHA-256 哈希；Cookie 为 HttpOnly / SameSite=Lax，HTTPS 下自动 Secure。
+- PAT 使用 scope 最小权限；MCP 仅接受 PAT，不接受浏览器 Cookie。
 - 浏览器发起的写请求会校验 `Origin`；`APP_ALLOWED_ORIGINS` 控制额外来源。
 - 数据源和邀请只能由 admin/owner 操作；查询执行对所有成员开放（viewer 只读）。
 - REST/CSV/Elasticsearch 连接器允许用户填写 URL。生产部署建议配合网络出口策略，限制可访问的内网地址（SSRF 防护）。
 - 平台不执行源端 DDL；连接器应使用只读账号。
+- Excel / Access 连接器读取服务器本地文件；请将文件放在受控目录，避免使用可被普通用户修改的路径。
+- Access 依赖宿主机安装 `mdbtools`；Docker 镜像已内置。
 - 生产请关闭开发登录、使用强随机加密密钥、启用 HTTPS，并定期轮换 API Key。
 - 如果通过其他域名/端口访问，优先把 `APP_BASE_URL` 设置为实际访问地址；同源请求会自动通过 CSRF Origin 校验，反向代理场景可追加 `APP_ALLOWED_ORIGINS`。
 

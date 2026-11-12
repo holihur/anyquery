@@ -221,6 +221,38 @@ jobs:
           assert result["result"]["rows"] == [{"ok": 1}], result
           print("api key result:", result["result"]["rows"])
           PY
+      - name: PAT scopes and MCP
+        run: |
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/apikeys \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"ci-mcp","scopes":["catalog:read","query:execute"]}' > /tmp/mcp-key.json
+          KEY=$(python3 -c 'import json; print(json.load(open("/tmp/mcp-key.json"))["key"])')
+          curl -fsS -X POST http://localhost:8080/mcp -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}' > /tmp/mcp-init.json
+          curl -fsS -X POST http://localhost:8080/mcp -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' > /tmp/mcp-tools.json
+          curl -fsS -X POST http://localhost:8080/mcp -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"execute_sql","arguments":{"sql":"SELECT count(*) AS n FROM `mongo`.`orders`"}}}' > /tmp/mcp-call.json
+          curl -fsS -b /tmp/cookies -X POST http://localhost:8080/api/v1/tenants/acme/apikeys \
+            -H 'Content-Type: application/json' -d '{"name":"ci-catalog-only","scopes":["catalog:read"]}' > /tmp/restricted-key.json
+          RKEY=$(python3 -c 'import json; print(json.load(open("/tmp/restricted-key.json"))["key"])')
+          status=$(curl -s -o /tmp/restricted-exec.json -w '%{http_code}' -X POST http://localhost:8080/api/v1/tenants/acme/queries/execute \
+            -H "Authorization: Bearer $RKEY" -H 'Content-Type: application/json' -d '{"sql":"SELECT 1"}')
+          python3 - <<'PY2'
+          import json
+          init = json.load(open("/tmp/mcp-init.json"))
+          assert init["result"]["serverInfo"]["name"] == "AnyQuery", init
+          tools = [t["name"] for t in json.load(open("/tmp/mcp-tools.json"))["result"]["tools"]]
+          assert tools == ["get_catalog", "execute_sql"], tools
+          call = json.load(open("/tmp/mcp-call.json"))
+          text = call["result"]["content"][0]["text"]
+          assert '"n":36' in text or '"n": 36' in text, text
+          restricted = json.load(open("/tmp/restricted-exec.json"))
+          assert restricted["error"]["code"] == "scope_required", restricted
+          print("MCP + PAT scopes verified:", tools)
+          PY2
+          test "$status" = "403"
+
       - name: Redis connector + Mongo↔Redis join
         run: |
           python3 - <<'PY'

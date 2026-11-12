@@ -15,9 +15,11 @@ COPY backend/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/anyquery ./cmd/server \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/anyquery-seed ./cmd/seed
 
-FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata \
- && adduser -D -u 10001 anyquery \
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates tzdata mdbtools \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 10001 --home /app --shell /usr/sbin/nologin anyquery \
  && mkdir -p /app/data /app/web
 WORKDIR /app
 COPY --from=api /out/anyquery /app/anyquery

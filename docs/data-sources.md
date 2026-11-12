@@ -1,6 +1,6 @@
 # 数据源支持进度
 
-> 版本：MVP · 2026-11 · 共 **27** 个内置连接器
+> 版本：MVP · 2026-11 · 共 **31** 个内置连接器
 
 ## 状态图例
 
@@ -46,14 +46,20 @@
 | 25 | QuestDB | 时序 | 🟡 | `information_schema` | 用户名/密码 | LIMIT | 编译 + 共享 SQL 测试 |
 | 26 | GreptimeDB | 时序 | 🟡 | `information_schema` | 用户名/密码 | LIMIT | 编译 + 共享 SQL 测试 |
 | 27 | Alibaba Cloud SLS | 日志 | 🟡 | GetIndex + logstore | AccessKey / STS | SQL LIMIT / search 100 | 编译 + 类型单测 |
+| 28 | TDengine | 时序 | 🟡 | SHOW TABLES / DESCRIBE | Basic / Cloud token | LIMIT | 编译 + 共享 HTTP 测试 |
+| 29 | Apache Druid | 时序 | 🟡 | INFORMATION_SCHEMA | Basic | LIMIT | 编译 + 共享 HTTP 测试 |
+| 30 | Microsoft Excel | File | 🧪 | 首个 worksheet 表头 | 本地文件 | 行数上限 | Go 单测（.xlsx） |
+| 31 | Microsoft Access | File | 🟡 | `mdb-tables` + CSV header | 本地文件 | 行数上限 | 需 mdbtools，单测待补 |
 
 ## 分项说明
 
-### 时序 / 日志（24–27）
+### 时序 / 日志（24–29）
 
 - **InfluxDB**：InfluxQL HTTP 接口；measurement 即表，tag 变普通列。默认只查询最近 60 分钟，可通过 `lookback_minutes` 调整。2.x 需要开启 InfluxQL 兼容映射并配置 `org`。
 - **QuestDB / GreptimeDB**：复用 PostgreSQL wire 与 `information_schema` 探测，支持 SQL、跨源 JOIN；适合本地/云端时序分析。
 - **SLS**：使用阿里云官方 SDK，logstore 即表；有索引时走 `* | SELECT * LIMIT n`，无索引可切换 search 模式（单次最多 100 行）。建议使用只读 AccessKey 或 STS。
+- **TDengine**：通过 `/rest/sql/{db}` 读取，`SHOW TABLES` + `DESCRIBE` 探测字段；支持 Basic 或 Cloud token。
+- **Apache Druid**：通过 Broker 的 `/druid/v2/sql`，用 INFORMATION_SCHEMA 探测 datasource 和列。
 
 ### SQL 家族（1–14）
 

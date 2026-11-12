@@ -68,6 +68,9 @@ func (s *Server) decryptConfig(ds *model.DataSource) (map[string]string, error) 
 }
 
 func (s *Server) handleDataSourcesList(w http.ResponseWriter, r *http.Request) {
+	if !requireScope(w, r, model.ScopeCatalogRead) {
+		return
+	}
 	list, err := s.store.ListDataSources(r.Context(), currentTenant(r).ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -81,6 +84,9 @@ func (s *Server) handleDataSourcesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDataSourceGet(w http.ResponseWriter, r *http.Request) {
+	if !requireScope(w, r, model.ScopeCatalogRead) {
+		return
+	}
 	ds, err := s.store.GetDataSource(r.Context(), currentTenant(r).ID, r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "Data source not found")
@@ -361,6 +367,9 @@ func (s *Server) handleDataSourceRefresh(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
+	if !requireScope(w, r, model.ScopeCatalogRead) {
+		return
+	}
 	list, err := s.store.ListDataSources(r.Context(), currentTenant(r).ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())

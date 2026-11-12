@@ -285,6 +285,9 @@ func (s *Server) handleAcceptInvitePassword(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleDataSourceTypes(w http.ResponseWriter, r *http.Request) {
+	if !requireScope(w, r, model.ScopeCatalogRead) {
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"types": connector.Specs()})
 }
 
@@ -332,6 +335,9 @@ func (s *Server) handleTenantUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
+	if !requireScope(w, r, model.ScopeQueryRead) {
+		return
+	}
 	t := currentTenant(r)
 	ds, _ := s.store.ListDataSources(r.Context(), t.ID)
 	queries, _ := s.store.ListSavedQueries(r.Context(), t.ID, currentUser(r).ID, true)

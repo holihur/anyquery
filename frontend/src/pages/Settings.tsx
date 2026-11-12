@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { KeyRound, Lock, Plus, RefreshCw, Settings2, ShieldCheck, Trash2, UserCog, Workflow } from "lucide-react"
+import { CheckCircle2, KeyRound, Lock, Plus, Settings2, ShieldCheck, Trash2, UserCog, Workflow } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/lib/api"
 import { useAuth } from "@/providers/auth"
@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Switch } from "@/components/ui/switch"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorNotice } from "@/components/shared"
@@ -129,8 +130,8 @@ export function SettingsPage() {
               <div className="overflow-hidden surface">
                 <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 pb-2">
                   <div>
-                    <h2 className="text-sm font-semibold">Workspace API keys</h2>
-                    <p className="mt-0.5 text-xs text-muted-foreground">Execute queries from scripts, notebooks or agents.</p>
+                    <h2 className="text-sm font-semibold">Personal access tokens</h2>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Scoped tokens for scripts, notebooks and MCP clients.</p>
                   </div>
                   <Button size="sm" onClick={() => setNewKeyOpen(true)}><Plus className="size-3.5" /> Create key</Button>
                 </div>
@@ -150,7 +151,8 @@ export function SettingsPage() {
                         <div className="min-w-0 flex-1">
                           <div className="text-[12.5px] font-medium">{key.name}</div>
                           <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[10.5px] text-muted-foreground">
-                            <code className="rounded border bg-muted/50 px-1 py-0.5 font-mono">{key.prefix}••••</code>
+                            <code className="rounded bg-muted/50 px-1 py-0.5 font-mono">{key.prefix}••••</code>
+                            {(key.scopes ?? []).length ? (key.scopes ?? []).map((scope) => <Badge key={scope} variant="outline" className="text-[9px] font-mono">{scope}</Badge>) : <Badge variant="muted" className="text-[9px]">full access</Badge>}
                             <span>created {relativeTime(key.createdAt)}</span>
                             <span>·</span>
                             <span>{key.lastUsedAt ? `last used ${relativeTime(key.lastUsedAt)}` : "never used"}</span>
@@ -240,6 +242,7 @@ function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
   const { tenant } = useTenant()
   const queryClient = useQueryClient()
   const [name, setName] = useState("")
+  const [scopes, setScopes] = useState<string[]>(["catalog:read", "query:execute", "query:read"])
   const [busy, setBusy] = useState(false)
   const [raw, setRaw] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -249,7 +252,7 @@ function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
     setBusy(true)
     setError(null)
     try {
-      const res = await api.createApiKey(tenant.slug, name.trim())
+      const res = await api.createApiKey(tenant.slug, name.trim(), scopes)
       setRaw(res.key)
       void queryClient.invalidateQueries({ queryKey: ["apikeys", tenant.slug] })
     } catch (err) {
@@ -261,6 +264,7 @@ function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
 
   function close() {
     setName("")
+    setScopes(["catalog:read", "query:execute", "query:read"])
     setRaw(null)
     setError(null)
     onOpenChange(false)
@@ -288,13 +292,35 @@ function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
               <DialogDescription>Give the key a descriptive name so teammates know where it’s used.</DialogDescription>
             </DialogHeader>
             <div className="mt-5 space-y-1.5">
-              <Label htmlFor="key-name">Key name</Label>
-              <Input id="key-name" autoFocus placeholder="e.g. Warehouse sync" value={name} onChange={(e) => setName(e.target.value)} />
+              <Label htmlFor="key-name">Token name</Label>
+              <Input id="key-name" autoFocus placeholder="e.g. Claude MCP / notebook" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="mt-5 space-y-2.5">
+              <Label>Scopes</Label>
+              {[
+                ["catalog:read", "Read data sources, tables and columns"],
+                ["query:execute", "Execute federated SQL queries"],
+                ["query:read", "Read saved queries and query history"],
+              ].map(([scope, description]) => (
+                <div key={scope} className="flex items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-2">
+                  <div>
+                    <div className="font-mono text-[11px]">{scope}</div>
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">{description}</div>
+                  </div>
+                  <Switch
+                    checked={scopes.includes(scope)}
+                    onCheckedChange={(checked) =>
+                      setScopes((current) => checked ? [...current, scope] : current.filter((s) => s !== scope))
+                    }
+                  />
+                </div>
+              ))}
+              <p className="text-[10px] text-muted-foreground">MCP clients only see tools allowed by these scopes.</p>
             </div>
             {error && <div className="mt-3"><ErrorNotice message={error} /></div>}
             <DialogFooter className="mt-6">
               <Button type="button" variant="outline" onClick={close}>Cancel</Button>
-              <Button type="submit" disabled={busy || !name.trim()}>{busy ? "Creating…" : "Create key"}</Button>
+              <Button type="submit" disabled={busy || !name.trim() || scopes.length === 0}>{busy ? "Creating…" : "Create token"}</Button>
             </DialogFooter>
           </form>
         )}

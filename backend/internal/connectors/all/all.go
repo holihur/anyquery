@@ -3,14 +3,18 @@
 package all
 
 import (
+	_ "github.com/anyquery/anyquery/internal/accessdb"
 	_ "github.com/anyquery/anyquery/internal/cloudsql"
+	_ "github.com/anyquery/anyquery/internal/druid"
 	_ "github.com/anyquery/anyquery/internal/elasticsearch"
+	_ "github.com/anyquery/anyquery/internal/excel"
 	_ "github.com/anyquery/anyquery/internal/httpjson"
 	_ "github.com/anyquery/anyquery/internal/influxdb"
 	_ "github.com/anyquery/anyquery/internal/mongodb"
 	_ "github.com/anyquery/anyquery/internal/redisdb"
 	_ "github.com/anyquery/anyquery/internal/sls"
 	"github.com/anyquery/anyquery/internal/sqlconn"
+	_ "github.com/anyquery/anyquery/internal/tdengine"
 )
 
 func init() {
