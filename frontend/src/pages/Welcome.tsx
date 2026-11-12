@@ -78,7 +78,7 @@ export function WelcomePage() {
                   {busy ? "Creating…" : "Create workspace"} <ArrowRight className="size-4" />
                 </Button>
               </form>
-              <div className="mt-6 grid grid-cols-2 gap-3 pt-2">
+              <div className="mt-6 grid grid-cols-2 gap-3 border-t border-border/50 pt-5">
                 <div className="flex items-start gap-2 text-[11.5px] leading-relaxed text-muted-foreground">
                   <Users className="mt-0.5 size-3.5 shrink-0" /> Invite teammates with roles
                 </div>

@@ -105,11 +105,11 @@ export function ResultsTable({
           <table className="w-full border-separate border-spacing-0 text-left text-[12px]">
             <thead className="sticky top-0 z-10">
               <tr>
-                <th className="sticky left-0 z-20 w-12 bg-muted/90 px-2 py-2 text-right font-mono text-[10px] font-normal text-muted-foreground backdrop-blur">#</th>
+                <th className="sticky left-0 z-20 w-12 border-r border-border/50 border-b border-border/60 bg-muted/80 px-2 py-2 text-right font-mono text-[10px] font-normal text-muted-foreground backdrop-blur">#</th>
                 {result.columns.map((col) => (
                   <th
                     key={col.name}
-                    className="min-w-[160px] cursor-pointer bg-muted/90 px-3 py-2 font-normal whitespace-nowrap backdrop-blur select-none hover:bg-muted"
+                    className="min-w-[160px] cursor-pointer border-b border-border/60 bg-muted/80 px-3 py-2 font-normal whitespace-nowrap backdrop-blur select-none hover:bg-muted"
                     onClick={() =>
                       setSort((s) =>
                         s?.column === col.name ? (s.dir === "asc" ? { column: col.name, dir: "desc" } : null) : { column: col.name, dir: "asc" },
@@ -127,21 +127,21 @@ export function ResultsTable({
                     </div>
                   </th>
                 ))}
-                <th className="w-9 bg-muted/90" />
+                <th className="w-9 border-b border-border/60 bg-muted/80" />
               </tr>
             </thead>
             <tbody>
               {rows.map((row, i) => (
-                <tr key={i} className="group transition-colors even:bg-muted/20 hover:bg-primary/[0.045]">
-                  <td className="sticky left-0 z-[5] bg-background px-2 py-1.5 text-right font-mono text-[10px] text-muted-foreground/60 group-even:bg-muted/20 group-hover:bg-[color-mix(in_oklch,var(--background),var(--primary)_4%)]">
+                <tr key={i} className="group transition-colors hover:bg-primary/[0.035]">
+                  <td className="sticky left-0 z-[5] border-r border-border/40 border-b border-border/45 bg-background px-2 py-1.5 text-right font-mono text-[10px] text-muted-foreground/60 group-hover:bg-[color-mix(in_oklch,var(--background),var(--primary)_4%)]">
                     {current * PAGE_SIZE + i + 1}
                   </td>
                   {result.columns.map((col) => (
-                    <td key={col.name} className="max-w-[420px] truncate px-3 py-1.5 align-top">
+                    <td key={col.name} className="max-w-[420px] truncate border-b border-border/45 px-3 py-1.5 align-top">
                       <CellValue value={row[col.name]} type={col.type} />
                     </td>
                   ))}
-                  <td className="px-1 py-1.5">
+                  <td className="border-b border-border/45 px-1 py-1.5">
                     <button
                       className="grid size-6 place-items-center rounded text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent hover:text-foreground"
                       onClick={() => void navigator.clipboard.writeText(JSON.stringify(row, null, 2)).then(() => toast.success("Row copied as JSON"))}
@@ -157,7 +157,7 @@ export function ResultsTable({
         )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/25 px-4 py-2.5 text-[11px] text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 bg-muted/25 px-4 py-2.5 text-[11px] text-muted-foreground">
         <div className="flex flex-wrap items-center gap-3">
           <span className="inline-flex items-center gap-1.5"><Rows3 className="size-3" /> {formatNumber(result.rowCount)} rows</span>
           <span className="inline-flex items-center gap-1.5"><Clock3 className="size-3" /> {formatDuration(result.stats.durationMs)}</span>

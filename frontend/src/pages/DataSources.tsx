@@ -147,15 +147,15 @@ export function DataSourcesPage() {
         />
 
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border bg-card px-4 py-3">
+          <div className="surface px-4 py-3">
             <div className="text-[11px] text-muted-foreground">Connected</div>
             <div className="mt-1 text-lg font-semibold">{ready} <span className="text-xs font-normal text-muted-foreground">/ {sources.length}</span></div>
           </div>
-          <div className="rounded-lg border bg-card px-4 py-3">
+          <div className="surface px-4 py-3">
             <div className="text-[11px] text-muted-foreground">Tables available</div>
             <div className="mt-1 text-lg font-semibold">{sources.reduce((n, s) => n + s.tables.length, 0)}</div>
           </div>
-          <div className="rounded-lg border bg-card px-4 py-3">
+          <div className="surface px-4 py-3">
             <div className="text-[11px] text-muted-foreground">Connector types</div>
             <div className="mt-1 text-lg font-semibold">{types?.types.length ?? "20+"} <span className="text-xs font-normal text-muted-foreground">built in</span></div>
           </div>
@@ -391,7 +391,7 @@ function DataSourceDialog({
               </div>
               <div className="grid max-h-[52vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
                 {filtered.map((t) => (
-                  <button key={t.type} onClick={() => chooseType(t)} className="group flex items-start gap-3 rounded-lg border bg-card p-3 text-left transition-all hover:border-primary/30 hover:shadow-sm">
+                  <button key={t.type} onClick={() => chooseType(t)} className="group flex items-start gap-3 rounded-lg border border-border/60 bg-card p-3 text-left transition-all hover:border-primary/30 hover:shadow-sm">
                     <SourceIcon type={t.type} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
@@ -540,7 +540,7 @@ function SchemaDialog({ source, open, onOpenChange }: { source: DataSource | nul
           {source?.lastSyncedAt && <p className="mb-3 text-[11px] text-muted-foreground">Last synced {formatDateTime(source.lastSyncedAt)}</p>}
           <div className="space-y-2">
             {(source?.tables ?? []).map((table) => (
-              <details key={table.name} className="group rounded-lg border bg-card">
+              <details key={table.name} className="group rounded-lg border border-border/60 bg-card">
                 <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-[12.5px] font-medium marker:hidden">
                   <Table2 className="size-3.5 text-muted-foreground" />
                   <span className="font-mono">{table.name}</span>

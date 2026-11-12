@@ -57,7 +57,7 @@ export function ActivityPage() {
               ) : !(runs?.runs ?? []).length ? (
                 <EmptyState icon={History} title="No query runs yet" description="Run a query in the studio to start building history." className="border-0" />
               ) : (
-                <div className="space-y-0.5 p-1.5">
+                <div className="divide-y divide-border/45">
                   {(runs?.runs ?? []).map((run) => {
                     const user = memberById.get(run.userId)
                     return (
@@ -109,7 +109,7 @@ export function ActivityPage() {
                 ) : !(audit?.logs ?? []).length ? (
                   <EmptyState icon={ScrollText} title="No audit events" description="Workspace activity will appear here." className="border-0" />
                 ) : (
-                  <div className="space-y-0.5 p-1.5">
+                  <div className="divide-y divide-border/45">
                     {(audit?.logs ?? []).map((log) => (
                       <div key={log.id} className="flex items-start gap-3 px-5 py-3">
                         <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">

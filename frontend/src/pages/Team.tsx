@@ -111,12 +111,12 @@ export function TeamPage() {
             {isLoading ? (
               <div className="space-y-2 p-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14" />)}</div>
             ) : (
-              <div className="space-y-0.5 p-1.5">
+              <div className="divide-y divide-border/45">
                 {members.map((member) => {
                   const isSelf = member.user.id === me?.user.id
                   const canChange = canAdmin && (member.role !== "owner" || role === "owner")
                   return (
-                    <div key={member.user.id} className="flex items-center gap-3 px-5 py-3.5">
+                    <div key={member.user.id} className="flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-muted/30">
                       <Avatar className="size-9">
                         {member.user.avatarUrl && <AvatarImage src={member.user.avatarUrl} />}
                         <AvatarFallback>{initials(member.user.name, member.user.email)}</AvatarFallback>
@@ -173,7 +173,7 @@ export function TeamPage() {
                   <p className="mt-2 text-[12px] text-muted-foreground">No pending invitations</p>
                 </div>
               ) : (
-                <div className="space-y-0.5 p-1.5">
+                <div className="divide-y divide-border/45">
                   {invites.map((invite) => (
                     <div key={invite.id} className="flex items-center gap-2.5 px-4 py-3">
                       <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><MailPlus className="size-3.5" /></div>

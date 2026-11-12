@@ -57,7 +57,7 @@ export function SchemaExplorer({
 
   return (
     <div className="flex h-full flex-col bg-sidebar/45">
-      <div className="flex h-11 items-center justify-between px-4">
+      <div className="flex h-11 items-center justify-between border-b border-border/45 px-4">
         <div className="flex items-center gap-1.5 text-[11px] font-medium tracking-[0.12em] text-muted-foreground uppercase">Schema</div>
         <div className="flex items-center gap-0.5">
           <Tooltip>
@@ -82,7 +82,7 @@ export function SchemaExplorer({
           )}
         </div>
       </div>
-      <div className="px-3 pb-2">
+      <div className="border-b border-border/45 px-3 pb-2.5">
         <div className="relative">
           <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input placeholder="Search tables & columns" value={query} onChange={(e) => setQuery(e.target.value)} className="h-8 bg-background pl-8 text-xs" />
@@ -168,7 +168,7 @@ export function SchemaExplorer({
           })
         )}
       </div>
-      <div className="px-3 py-3">
+      <div className="border-t border-border/45 px-3 py-3">
         <Button variant="ghost" size="xs" className="w-full justify-between text-muted-foreground" onClick={onManage}>
           Manage sources <Badge variant="muted" className="text-[9px]">{sources.length}</Badge>
         </Button>

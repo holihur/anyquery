@@ -275,7 +275,7 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <aside className={cn("hidden shrink-0 bg-sidebar transition-[width] duration-200 ease-out md:block", collapsed ? "w-[76px]" : "w-[252px]")}>{renderNav(collapsed)}</aside>
+      <aside className={cn("sidebar-shell hidden shrink-0 bg-sidebar transition-[width] duration-200 ease-out md:block", collapsed ? "w-[76px]" : "w-[252px]")}>{renderNav(collapsed)}</aside>
 
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">

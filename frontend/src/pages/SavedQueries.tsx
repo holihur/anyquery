@@ -73,18 +73,13 @@ export function SavedQueriesPage() {
           actions={<Button onClick={() => navigate(`/w/${tenant.slug}/query`)}><Plus className="size-4" /> New query</Button>}
         />
 
-        <div className="mt-5 flex flex-wrap items-center gap-3 rounded-lg bg-muted/25 px-3 py-2 text-[11px] text-muted-foreground">
-          <div className="h-1.5 w-40 overflow-hidden rounded-full bg-muted">
-            <div
-              className={atLimit ? "h-full rounded-full bg-warning transition-all" : "h-full rounded-full bg-primary transition-all"}
-              style={{ width: `${Math.min(100, (savedCount / savedLimit) * 100)}%` }}
-            />
+        {atLimit && (
+          <div className="mt-4 rounded-lg bg-warning/10 px-3 py-2 text-[11.5px] text-warning-foreground dark:text-warning">
+            Library full — {savedCount} of {savedLimit} slots used. Delete a saved query to create another.
           </div>
-          <span>{savedCount} of {savedLimit} query slots used</span>
-          {atLimit && <span className="text-warning-foreground dark:text-warning">Library full — delete a query to save a new one.</span>}
-        </div>
+        )}
 
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-xs">
             <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input placeholder="Search saved queries…" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-9" />

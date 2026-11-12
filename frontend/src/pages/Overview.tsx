@@ -66,9 +66,9 @@ export function OverviewPage() {
           )}
         </div>
 
-        <div className="mt-8 grid gap-5 xl:grid-cols-[1.45fr_1fr]">
+        <div className="mt-8 grid items-start gap-5 xl:grid-cols-[1.45fr_1fr]">
           <section className="surface">
-            <div className="flex items-center justify-between px-5 pt-5 pb-2">
+            <div className="flex items-center justify-between border-b border-border/55 px-5 pt-5 pb-3">
               <div>
                 <h2 className="text-sm font-semibold">Recent query activity</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">The latest runs across this workspace</p>
@@ -80,11 +80,11 @@ export function OverviewPage() {
             ) : !(overview?.recentRuns ?? []).length ? (
               <EmptyState icon={Activity} title="No queries yet" description="Run your first federated query to see it here." className="border-0 bg-transparent py-12" action={<Button asChild size="sm"><Link to={`/w/${tenant.slug}/query`}>Open query studio</Link></Button>} />
             ) : (
-              <div className="space-y-0.5 p-1.5">
+              <div className="divide-y divide-border/45">
                 {(overview?.recentRuns ?? []).map((run) => {
                   const user = memberById.get(run.userId)
                   return (
-                    <Link key={run.id} to={`/w/${tenant.slug}/query`} className="flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-muted/35">
+                    <Link key={run.id} to={`/w/${tenant.slug}/query`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/35">
                       <div className={cn("grid size-8 shrink-0 place-items-center rounded-lg", run.status === "success" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>
                         {run.status === "success" ? <CheckCircle2 className="size-4" /> : <CircleAlert className="size-4" />}
                       </div>
@@ -111,7 +111,7 @@ export function OverviewPage() {
           </section>
 
           <section className="surface">
-            <div className="flex items-center justify-between px-5 pt-5 pb-2">
+            <div className="flex items-center justify-between border-b border-border/55 px-5 pt-5 pb-3">
               <div>
                 <h2 className="text-sm font-semibold">Source health</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">{readySources.length} of {sourceList.length} connected</p>
@@ -126,9 +126,9 @@ export function OverviewPage() {
                 <Button size="sm" className="mt-3" asChild><Link to={`/w/${tenant.slug}/sources`}><Database className="size-4" /> Connect a source</Link></Button>
               </div>
             ) : (
-              <div className="space-y-0.5 p-1.5">
+              <div className="divide-y divide-border/45">
                 {sourceList.slice(0, 5).map((ds) => (
-                  <div key={ds.id} className="flex items-center gap-3 px-5 py-3.5">
+                  <div key={ds.id} className="flex items-center gap-3 px-5 py-3">
                     <SourceIcon type={ds.type} size="sm" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">

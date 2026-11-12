@@ -290,7 +290,7 @@ export function QueryPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-[52px] shrink-0 items-center gap-2 bg-background px-3 md:px-4">
+      <header className="flex h-[52px] shrink-0 items-center gap-2 border-b border-border/45 bg-background px-3 md:px-4">
         <div className="flex min-w-0 items-center gap-2">
           <div className="hidden size-7 place-items-center rounded-md bg-primary/10 text-primary sm:grid">
             <SquareTerminal className="size-3.5" />
@@ -346,14 +346,14 @@ export function QueryPage() {
               onDoubleClick={() => setSchemaWidth(268)}
               className="group -mx-1 hidden w-2 cursor-col-resize touch-none items-center justify-center lg:flex"
             >
-              <div className="h-10 w-px rounded-full bg-border/70 transition-colors group-hover:bg-primary/60" />
+              <div className="h-10 w-px rounded-full bg-border transition-colors group-hover:bg-primary/60" />
             </div>
           </>
         )}
 
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div style={{ height: `${editorRatio * 100}%` }} className="flex min-h-[150px] flex-col overflow-hidden surface">
-            <div className="flex h-9 shrink-0 items-center justify-between px-3 text-[11px] text-muted-foreground">
+            <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/45 px-3 text-[11px] text-muted-foreground">
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1 font-mono text-[10px]"><span className="size-1.5 rounded-full bg-emerald-500" /> SQL</span>
                 {currentSaved && <span className="hidden items-center gap-1 sm:inline-flex"><Bookmark className="size-3" /> saved</span>}
@@ -395,12 +395,12 @@ export function QueryPage() {
             onDoubleClick={() => setEditorRatio(0.43)}
             className="group -my-0.5 flex h-3 shrink-0 cursor-row-resize touch-none items-center justify-center"
           >
-            <div className="h-px w-12 rounded-full bg-border/80 transition-colors group-hover:bg-primary/60" />
+            <div className="h-px w-12 rounded-full bg-border transition-colors group-hover:bg-primary/60" />
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden surface">
             <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
-              <div className="flex h-10 shrink-0 items-center justify-between px-3">
+              <div className="flex h-10 shrink-0 items-center justify-between border-b border-border/45 px-3">
                 <TabsList className="h-7 bg-transparent p-0">
                   <TabsTrigger value="results" className="gap-1.5 px-2.5 data-[state=active]:bg-accent/70">
                     Results
