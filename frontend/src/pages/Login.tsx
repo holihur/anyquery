@@ -1,23 +1,47 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { Loader2, LockKeyhole, ShieldCheck } from "lucide-react"
+import { Loader2, LockKeyhole, Network, ShieldCheck } from "lucide-react"
 import { api } from "@/lib/api"
 import { useAuth } from "@/providers/auth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Logo } from "@/components/layout/Logo"
+import { SourceIcon } from "@/components/SourceIcon"
 import { ErrorNotice } from "@/components/shared"
 import { LanguageMenu } from "@/components/layout/LanguageMenu"
 import { useI18n } from "@/i18n"
 
-const sourceRows = [
-  ["MongoDB", "documents"],
-  ["PostgreSQL", "relational"],
-  ["Redis", "keyspace"],
-  ["Snowflake", "warehouse"],
-  ["REST / JSON", "API"],
+const topologySources = [
+  { type: "mongodb", name: "MongoDB", kind: "documents", color: "text-emerald-400" },
+  { type: "postgres", name: "PostgreSQL", kind: "relational", color: "text-sky-400" },
+  { type: "redis", name: "Redis", kind: "keyspace", color: "text-red-400" },
+  { type: "snowflake", name: "Snowflake", kind: "warehouse", color: "text-cyan-400" },
+  { type: "graphql", name: "GraphQL", kind: "API", color: "text-pink-400" },
+  { type: "rest", name: "REST / JSON", kind: "API", color: "text-teal-400" },
 ]
+
+const moreSources = ["sqlite", "bigquery", "clickhouse", "github", "elasticsearch", "csv"]
+
+function SourceNode({ type, name, kind, color, index = 0 }: { type: string; name: string; kind: string; color: string; index?: number }) {
+  return (
+    <div
+      className="aq-login-node group flex min-w-0 flex-col items-center gap-2 rounded-md border border-white/10 bg-white/[0.035] px-1.5 py-2.5 text-center transition-colors hover:border-white/15 hover:bg-white/[0.055]"
+      style={{ animationDelay: `${80 + index * 55}ms` }}
+    >
+      <SourceIcon
+        type={type}
+        size="lg"
+        className="size-9 rounded-md border border-white/10 bg-white/[0.055] transition-transform duration-300 group-hover:-translate-y-0.5"
+        glyphClassName={color}
+      />
+      <div className="min-w-0">
+        <div className="truncate font-mono text-[10px] text-white/75">{name}</div>
+        <div className="truncate text-[8.5px] tracking-[0.08em] text-white/28 uppercase">{kind}</div>
+      </div>
+    </div>
+  )
+}
 
 export function LoginPage() {
   const { t } = useI18n()
@@ -182,6 +206,20 @@ export function LoginPage() {
                 />
               </div>
             )}
+
+            <div className="mt-9 flex items-center gap-1.5 lg:hidden">
+              {topologySources.map((source) => (
+                <SourceIcon
+                  key={source.type}
+                  type={source.type}
+                  size="sm"
+                  className="size-7"
+                  glyphClassName={source.color}
+                  title={source.name}
+                />
+              ))}
+              <span className="ml-1 text-[10px] text-muted-foreground">104 data sources</span>
+            </div>
           </div>
         </div>
 
@@ -205,19 +243,56 @@ export function LoginPage() {
             {t("Query the databases, caches and APIs you already run. Join them without copying data into another warehouse.")}
           </p>
 
-          <div className="mt-9 border-y border-white/10">
-            {sourceRows.map(([name, kind]) => (
-              <div key={name} className="flex items-center justify-between border-b border-white/8 py-2.5 last:border-b-0">
-                <span className="font-mono text-[11px] text-white/75">{name}</span>
-                <span className="text-[10px] tracking-wide text-white/30">{kind}</span>
+          <div className="mt-8">
+            <div className="grid grid-cols-3 gap-2">
+              {topologySources.slice(0, 3).map((source, index) => <SourceNode key={source.type} {...source} index={index} />)}
+            </div>
+
+            <div className="relative my-1.5 h-14">
+              <svg className="absolute inset-0 size-full" viewBox="0 0 300 56" fill="none" preserveAspectRatio="none" aria-hidden>
+                <path className="aq-login-flow" d="M50 0V14C50 21 70 20 82 28H134" stroke="currentColor" strokeOpacity=".22" vectorEffect="non-scaling-stroke" />
+                <path className="aq-login-flow" d="M150 0V18" stroke="currentColor" strokeOpacity=".22" vectorEffect="non-scaling-stroke" style={{ animationDelay: "-0.45s" }} />
+                <path className="aq-login-flow" d="M250 0V14C250 21 230 20 218 28H166" stroke="currentColor" strokeOpacity=".22" vectorEffect="non-scaling-stroke" style={{ animationDelay: "-0.9s" }} />
+                <path className="aq-login-flow" d="M50 56V42C50 35 70 36 82 28H134" stroke="currentColor" strokeOpacity=".22" vectorEffect="non-scaling-stroke" style={{ animationDelay: "-1.35s" }} />
+                <path className="aq-login-flow" d="M150 56V38" stroke="currentColor" strokeOpacity=".22" vectorEffect="non-scaling-stroke" style={{ animationDelay: "-1.8s" }} />
+                <path className="aq-login-flow" d="M250 56V42C250 35 230 36 218 28H166" stroke="currentColor" strokeOpacity=".22" vectorEffect="non-scaling-stroke" style={{ animationDelay: "-2.25s" }} />
+              </svg>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                <div className="relative flex items-center gap-1.5 rounded-md border border-white/15 bg-[oklch(0.185_0.018_265)] px-2.5 py-1.5 font-mono text-[9px] tracking-[0.08em] text-white/60 shadow-sm">
+                  <span className="aq-login-hub-pulse pointer-events-none absolute -inset-px rounded-md border border-emerald-400/50" />
+                  <Network className="size-3 text-emerald-400/80" />
+                  <span className="aq-login-dot size-1 rounded-full bg-emerald-400" />
+                  FEDERATED SQL
+                </div>
               </div>
-            ))}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {topologySources.slice(3).map((source, index) => <SourceNode key={source.type} {...source} index={index + 3} />)}
+            </div>
+
+            <div className="mt-4 flex items-center justify-between border-t border-white/8 pt-3">
+              <span className="text-[8.5px] font-medium tracking-[0.16em] text-white/25 uppercase">Also connects</span>
+              <div className="flex items-center gap-1">
+                {moreSources.map((type, index) => (
+                  <SourceIcon
+                    key={type}
+                    type={type}
+                    size="sm"
+                    className="size-6 rounded border border-white/8 bg-white/[0.035]"
+                    glyphClassName="text-white/55"
+                    title={type}
+                  />
+                ))}
+                <span className="ml-1 font-mono text-[9px] text-white/25">+98</span>
+              </div>
+            </div>
           </div>
         </div>
 
         <div className="flex items-center justify-between text-[10px] text-white/25">
           <span>AnyQuery MVP</span>
-          <span>31 connectors · RBAC · Audit</span>
+          <span>104 connectors · RBAC · Audit</span>
         </div>
       </aside>
     </div>

@@ -164,10 +164,25 @@ function BrandGlyph({ meta, className }: { meta: SourceIconMeta; className: stri
   return <Icon className={className} />
 }
 
-export function SourceIcon({ type, icon, className, size = "md" }: { type: string; icon?: string; className?: string; size?: "sm" | "md" | "lg" }) {
+export function SourceIcon({
+  type,
+  icon,
+  className,
+  glyphClassName,
+  size = "md",
+  title,
+}: {
+  type: string
+  icon?: string
+  className?: string
+  glyphClassName?: string
+  size?: "sm" | "md" | "lg"
+  title?: string
+}) {
   const meta = sourceMeta(type, icon)
   return (
     <div
+      title={title}
       className={cn(
         "grid shrink-0 place-items-center rounded-lg border border-transparent",
         meta.bg,
@@ -177,7 +192,7 @@ export function SourceIcon({ type, icon, className, size = "md" }: { type: strin
         className,
       )}
     >
-      <BrandGlyph meta={meta} className={cn(meta.color, size === "sm" ? "size-3.5" : size === "md" ? "size-4" : "size-5")} />
+      <BrandGlyph meta={meta} className={cn(meta.color, size === "sm" ? "size-3.5" : size === "md" ? "size-4" : "size-5", glyphClassName)} />
     </div>
   )
 }
