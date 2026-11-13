@@ -12,6 +12,7 @@ import (
 type gqlField struct {
 	ResponseName string
 	Name         string
+	Spread       string
 	Children     []*gqlField
 }
 
@@ -86,8 +87,9 @@ func isNamePart(c byte) bool {
 }
 
 type gqlParser struct {
-	tokens []gqlToken
-	pos    int
+	tokens    []gqlToken
+	pos       int
+	fragments map[string][]*gqlField
 }
 
 func (p *gqlParser) peek() string {
@@ -117,7 +119,34 @@ func (p *gqlParser) skipBalanced(open, close string) {
 	}
 }
 
+func (p *gqlParser) scanFragments() {
+	for p.pos < len(p.tokens) {
+		if !strings.EqualFold(p.peek(), "fragment") {
+			p.pos++
+			continue
+		}
+		p.pos++
+		name := p.peek()
+		p.pos++
+		if !strings.EqualFold(p.peek(), "on") {
+			continue
+		}
+		p.pos++
+		if p.pos < len(p.tokens) && p.peek() != "{" {
+			p.pos++ // type condition
+		}
+		if p.peek() == "{" {
+			p.fragments[name] = p.parseSelection()
+		}
+	}
+}
+
 func (p *gqlParser) parseDocument() []*gqlField {
+	if p.fragments == nil {
+		p.fragments = map[string][]*gqlField{}
+	}
+	p.scanFragments()
+	p.pos = 0
 	for p.pos < len(p.tokens) {
 		switch strings.ToLower(p.peek()) {
 		case "query", "mutation", "subscription":
@@ -139,7 +168,7 @@ func (p *gqlParser) parseDocument() []*gqlField {
 				}
 			}
 		case "{":
-			return p.parseSelection()
+			return expandFields(p.parseSelection(), p.fragments, map[string]bool{})
 		case "fragment":
 			// Skip a fragment definition; query operations are normally first.
 			for p.pos < len(p.tokens) && p.peek() != "{" {
@@ -182,8 +211,9 @@ func (p *gqlParser) parseSelection() []*gqlField {
 					out = append(out, p.parseSelection()...)
 				}
 			} else {
-				// Fragment spread: skip its name and directives. The fragment
-				// definition may appear later, but this is not resolved.
+				// Fragment spread: resolve it after all fragment definitions have
+				// been scanned. Forward references are supported.
+				name := p.peek()
 				if p.pos < len(p.tokens) {
 					p.pos++
 				}
@@ -196,6 +226,7 @@ func (p *gqlParser) parseSelection() []*gqlField {
 						p.skipBalanced("(", ")")
 					}
 				}
+				out = append(out, &gqlField{Spread: name})
 			}
 			continue
 		}
@@ -233,6 +264,24 @@ func (p *gqlParser) parseSelection() []*gqlField {
 	}
 	if p.peek() == "}" {
 		p.pos++
+	}
+	return out
+}
+
+func expandFields(fields []*gqlField, fragments map[string][]*gqlField, seen map[string]bool) []*gqlField {
+	var out []*gqlField
+	for _, f := range fields {
+		if f.Spread != "" {
+			if seen[f.Spread] {
+				continue
+			}
+			seen[f.Spread] = true
+			out = append(out, expandFields(fragments[f.Spread], fragments, seen)...)
+			delete(seen, f.Spread)
+			continue
+		}
+		f.Children = expandFields(f.Children, fragments, seen)
+		out = append(out, f)
 	}
 	return out
 }

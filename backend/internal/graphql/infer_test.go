@@ -15,6 +15,8 @@ func TestInferQueryColumns(t *testing.T) {
 		{"edges", `query { orders { edges { node { id total } } } }`, "", []string{"id", "total"}},
 		{"path", `query { orders { nodes { id } } }`, "orders.nodes", []string{"id"}},
 		{"nested object", `query { users { id profile { city } } }`, "", []string{"id", "profile"}},
+		{"fragment", `query { users { ...UserFields } } fragment UserFields on User { id name email }`, "", []string{"id", "name", "email"}},
+		{"forward fragment", `query { users { ...UserFields } } fragment UserFields on User { ...NameFields id } fragment NameFields on User { name }`, "", []string{"name", "id"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
