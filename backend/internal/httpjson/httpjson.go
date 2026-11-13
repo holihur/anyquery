@@ -104,7 +104,9 @@ func (restProvider) Spec() connector.TypeSpec {
 		Description: "Any JSON HTTP endpoint (one table per endpoint)",
 		Icon:        "rest",
 		Fields: []connector.ConfigField{
-			{Key: "url", Label: "Endpoint URL", Kind: connector.FieldTextarea, Required: true, Placeholder: "https://api.example.com/v1/orders", Help: "GET should return a JSON array, or an object containing one (set Records path)."},
+			{Key: "url", Label: "Endpoint URL", Kind: connector.FieldTextarea, Required: true, Placeholder: "https://api.example.com/v1/orders", Help: "The endpoint should return a JSON array, or an object containing one (set Records path)."},
+			{Key: "http_method", Label: "HTTP method", Kind: connector.FieldSelect, Default: "GET", Options: []connector.Option{{Value: "GET", Label: "GET"}, {Value: "POST", Label: "POST"}}, Help: "Use POST for search endpoints that require a JSON request body."},
+			{Key: "body_template", Label: "POST body (JSON)", Kind: connector.FieldTextarea, Placeholder: `{"query":"..."}`, Help: "Optional static JSON body for POST. Pagination parameters currently stay in the URL."},
 			{Key: "records_path", Label: "Records path", Kind: connector.FieldText, Placeholder: "data.items", Help: "Dot path to the array inside the JSON response. Leave empty for a root array."},
 			{Key: "table_name", Label: "Table name", Kind: connector.FieldText, Required: true, Default: "records"},
 			{Key: "headers", Label: "HTTP headers (JSON)", Kind: connector.FieldTextarea, Secret: true, Placeholder: `{"Authorization":"Bearer ..."}`},
@@ -148,14 +150,27 @@ func (restProvider) Open(_ context.Context, cfg map[string]string) (connector.Co
 	if err != nil {
 		return nil, err
 	}
-	return &restConn{cfg: cfg, headers: headers, auth: httpauth.NewProvider(authCfg), page: page}, nil
+	method := strings.ToUpper(strings.TrimSpace(cfg["http_method"]))
+	if method == "" {
+		method = http.MethodGet
+	}
+	if method != http.MethodGet && method != http.MethodPost {
+		return nil, fmt.Errorf("http_method must be GET or POST")
+	}
+	bodyTemplate := strings.TrimSpace(cfg["body_template"])
+	if bodyTemplate != "" && !json.Valid([]byte(bodyTemplate)) {
+		return nil, fmt.Errorf("body_template must be valid JSON")
+	}
+	return &restConn{cfg: cfg, headers: headers, auth: httpauth.NewProvider(authCfg), page: page, method: method, bodyTemplate: bodyTemplate}, nil
 }
 
 type restConn struct {
-	cfg     map[string]string
-	headers map[string]string
-	auth    *httpauth.Provider
-	page    restPage
+	cfg          map[string]string
+	headers      map[string]string
+	auth         *httpauth.Provider
+	page         restPage
+	method       string
+	bodyTemplate string
 }
 
 type restPage struct {
@@ -251,7 +266,11 @@ func (c *restConn) DescribeFetch(req connector.FetchRequest) (string, []any, err
 	if err != nil {
 		return "", nil, err
 	}
-	return "GET " + rawURL, nil, nil
+	statement := c.method + " " + rawURL
+	if c.method == http.MethodPost && c.bodyTemplate != "" {
+		statement += "\n\n" + c.bodyTemplate
+	}
+	return statement, nil, nil
 }
 
 func (c *restConn) rows(ctx context.Context, limit int) ([]map[string]any, bool, error) {
@@ -358,9 +377,16 @@ func (c *restConn) rows(ctx context.Context, limit int) ([]map[string]any, bool,
 
 func (c *restConn) get(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
 	for attempt := 0; attempt < 3; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+		var requestBody io.Reader
+		if c.method == http.MethodPost && c.bodyTemplate != "" {
+			requestBody = strings.NewReader(c.bodyTemplate)
+		}
+		req, err := http.NewRequestWithContext(ctx, c.method, rawURL, requestBody)
 		if err != nil {
 			return nil, nil, err
+		}
+		if requestBody != nil {
+			req.Header.Set("Content-Type", "application/json")
 		}
 		req.Header.Set("Accept", "application/json, text/csv;q=0.9, */*;q=0.8")
 		req.Header.Set("User-Agent", "AnyQuery/0.1")
@@ -426,10 +452,8 @@ func (p restPage) url(base string, page, offset int, cursor string, size int) (s
 	if p.mode == "cursor" && cursor != "" {
 		q.Set(p.cursorParam, cursor)
 	}
-	if p.mode == "page" || p.mode == "offset" || p.mode == "cursor" {
-		if p.sizeParam != "" {
-			q.Set(p.sizeParam, strconv.Itoa(size))
-		}
+	if p.mode != "none" && p.sizeParam != "" {
+		q.Set(p.sizeParam, strconv.Itoa(size))
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil

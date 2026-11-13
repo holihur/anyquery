@@ -17,6 +17,13 @@ type AliasProvider struct {
 func (a AliasProvider) Spec() TypeSpec { return a.SpecData }
 
 func (a AliasProvider) ApplyDefaults(cfg map[string]string) {
+	// Spec defaults (including preset recipes) are part of the UI contract;
+	// apply them server-side too so API-created sources behave like the form.
+	for _, field := range a.SpecData.Fields {
+		if field.Default != "" && cfg[field.Key] == "" {
+			cfg[field.Key] = field.Default
+		}
+	}
 	for k, v := range a.Defaults {
 		if cfg[k] == "" {
 			cfg[k] = v

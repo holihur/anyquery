@@ -88,6 +88,40 @@ var restPresets = []restPreset{
 	{"twitter", "X / Twitter", "X API v2", "twitter", "data", "posts", "https://api.x.com/2/tweets/search/recent?query=..."},
 }
 
+type restRecipe struct {
+	Method        string
+	Body          string
+	Pagination    string
+	PageParam     string
+	PageSizeParam string
+	OffsetParam   string
+	CursorParam   string
+	CursorPath    string
+	NextPath      string
+}
+
+// Recipes are best-effort defaults for popular APIs. They remain templates
+// until a connector has been verified against a real endpoint, but they save
+// users from guessing pagination and auth field names.
+var restRecipes = map[string]restRecipe{
+	"github":     {Pagination: "link", PageSizeParam: "per_page"},
+	"gitlab":     {Pagination: "page", PageParam: "page", PageSizeParam: "per_page"},
+	"jira":       {Pagination: "offset", OffsetParam: "startAt", PageSizeParam: "maxResults"},
+	"slack":      {Pagination: "cursor", CursorParam: "cursor", CursorPath: "response_metadata.next_cursor", PageSizeParam: "limit"},
+	"notion":     {Method: "POST", Body: `{"query":""}`},
+	"airtable":   {Pagination: "cursor", CursorParam: "offset", CursorPath: "offset"},
+	"salesforce": {Pagination: "link", NextPath: "nextRecordsUrl"},
+	"hubspot":    {Pagination: "cursor", CursorParam: "after", CursorPath: "paging.next.after", PageSizeParam: "limit"},
+	"shopify":    {Pagination: "link", PageSizeParam: "limit"},
+	"zendesk":    {Pagination: "link", PageSizeParam: "per_page"},
+	"intercom":   {Pagination: "link", NextPath: "pages.next", PageSizeParam: "per_page"},
+	"pagerduty":  {Pagination: "offset", OffsetParam: "offset", PageSizeParam: "limit"},
+	"asana":      {Pagination: "cursor", CursorParam: "offset", CursorPath: "next_page.offset", PageSizeParam: "limit"},
+	"twitter":    {Pagination: "cursor", CursorParam: "pagination_token", CursorPath: "meta.next_token", PageSizeParam: "max_results"},
+	"telegram":   {Pagination: "offset", OffsetParam: "offset", PageSizeParam: "limit"},
+	"clickup":    {Pagination: "page", PageParam: "page", PageSizeParam: "page_size"},
+}
+
 func sqlIcon(typ, fallback string) string {
 	switch typ {
 	case "aurora-postgresql", "aurora-mysql", "rds-postgresql", "rds-mysql", "rds-sqlserver", "rds-oracle", "redshift-serverless":
@@ -132,6 +166,49 @@ func sqlIcon(typ, fallback string) string {
 		return "oracle"
 	default:
 		return fallback
+	}
+}
+
+func applyRestRecipe(spec *connector.TypeSpec, recipe restRecipe) {
+	for i := range spec.Fields {
+		switch spec.Fields[i].Key {
+		case "http_method":
+			if recipe.Method != "" {
+				spec.Fields[i].Default = recipe.Method
+			}
+		case "body_template":
+			if recipe.Body != "" {
+				spec.Fields[i].Default = recipe.Body
+			}
+		case "pagination":
+			if recipe.Pagination != "" {
+				spec.Fields[i].Default = recipe.Pagination
+			}
+		case "page_param":
+			if recipe.PageParam != "" {
+				spec.Fields[i].Default = recipe.PageParam
+			}
+		case "page_size_param":
+			if recipe.PageSizeParam != "" {
+				spec.Fields[i].Default = recipe.PageSizeParam
+			}
+		case "offset_param":
+			if recipe.OffsetParam != "" {
+				spec.Fields[i].Default = recipe.OffsetParam
+			}
+		case "cursor_param":
+			if recipe.CursorParam != "" {
+				spec.Fields[i].Default = recipe.CursorParam
+			}
+		case "cursor_path":
+			if recipe.CursorPath != "" {
+				spec.Fields[i].Default = recipe.CursorPath
+			}
+		case "next_path":
+			if recipe.NextPath != "" {
+				spec.Fields[i].Default = recipe.NextPath
+			}
+		}
 	}
 }
 
@@ -180,6 +257,9 @@ func RegisterAll() {
 			case "headers":
 				spec.Fields[i].Help = "Authorization header/API key, for example {\"Authorization\":\"Bearer ...\"}"
 			}
+		}
+		if recipe, ok := restRecipes[p.Type]; ok {
+			applyRestRecipe(&spec, recipe)
 		}
 		connector.RegisterAlias("rest", spec, nil)
 	}

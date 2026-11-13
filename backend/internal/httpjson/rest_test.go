@@ -136,3 +136,30 @@ func TestRESTCursorPagination(t *testing.T) {
 		t.Fatalf("rows = %+v", res.Rows)
 	}
 }
+
+func TestRESTPostBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["query"] != "test" {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"id": 1}})
+	}))
+	defer srv.Close()
+	c, err := (restProvider{}).Open(context.Background(), map[string]string{
+		"url": srv.URL, "table_name": "items", "http_method": "POST",
+		"body_template": `{"query":"test"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := c.Fetch(context.Background(), connector.FetchRequest{Table: "items", Limit: 10})
+	if err != nil || len(res.Rows) != 1 {
+		t.Fatalf("rows=%+v err=%v", res, err)
+	}
+}

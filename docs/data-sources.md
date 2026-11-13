@@ -140,10 +140,22 @@ Redis 不是关系型数据库，AnyQuery 将匹配 `key_pattern` 的 key 映射
 
 ### REST / JSON（21）
 
-- GET 一个 JSON endpoint；根数组或自动识别 `data/items/records/results/rows/values`，也可配置 `records_path`。
+- 默认 GET，也可切换 POST 并配置静态 JSON `body_template`（适合搜索型 API）；根数组或自动识别 `data/items/records/results/rows/values`，也可配置 `records_path`。
 - Header 使用 JSON 配置（Secret 加密），适合 Bearer Token/API Key。
 - 支持 `page` / `offset` / `cursor` / `Link` header 四种分页，自动跟随并可设置 `max_pages`。
-- 支持 OAuth2 `client_credentials` 和 `refresh_token`，access token 会缓存并在过期前刷新。
+- 支持 OAuth2 `client_credentials` 和 `refresh_token`，access token 会缓存并在过期前刷新：
+
+```json
+{
+  "auth_type": "client_credentials",
+  "token_url": "https://auth.example.com/oauth/token",
+  "client_id": "...",
+  "client_secret": "...",
+  "scope": "read:data"
+}
+```
+
+- 内置 GitHub、GitLab、Jira、Slack、Notion、Airtable、HubSpot、Zendesk、Intercom、PagerDuty、Asana、X、Telegram、ClickUp 等常用分页 recipe 默认值；它们仍标记为 template，需真实凭据验证。
 - 429/5xx 自动重试，支持 `Retry-After`；嵌套对象会序列化为 JSON 字符串。
 - 安全问题：URL 由工作区 admin 配置；生产环境请配合出口网络策略防 SSRF。
 
