@@ -83,7 +83,8 @@ formatter are intended to stay stable.
 - Rejected constructs that previously misparsed silently: `DISTINCT ON`,
   `ARRAY[...]`, numeric array subscripts, `NATURAL CROSS JOIN`, and multiple
   grouping constructs.
-- Added parser fuzz coverage.
+- Added parser fuzz coverage and CI fuzz smoke targets for lexer, parser and
+  formatter round trips.
 
 ## Remaining work, in priority order
 

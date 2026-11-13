@@ -35,6 +35,12 @@ jobs:
         run: |
           go vet ./...
           go test ./... -count=1
+      - name: SQL fuzz smoke
+        working-directory: sql
+        run: |
+          go test -run=^$ -fuzz=FuzzLexer -fuzztime=5s
+          go test -run=^$ -fuzz=FuzzParse -fuzztime=5s
+          go test -run=^$ -fuzz=FuzzFormatRoundTrip -fuzztime=5s
       - name: build binaries
         run: |
           go build -trimpath -o /tmp/anyquery ./cmd/server

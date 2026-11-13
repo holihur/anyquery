@@ -11,6 +11,12 @@ func FuzzFormatRoundTrip(f *testing.F) {
 		"SELECT sum(total) OVER (PARTITION BY region ORDER BY id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM mongo.orders",
 		"FROM mongo.orders |> WHERE status = 'paid' |> LEFT JOIN shop.products p ON o.id = p.id |> LIMIT 5",
 		"WITH RECURSIVE nums(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM nums WHERE n < 3) SELECT * FROM nums",
+		"SHOW TABLES FROM mongo",
+		"DESCRIBE mongo.orders",
+		"EXPLAIN SELECT * FROM mongo.orders",
+		"SELECT * FROM mongo.orders MATCH_RECOGNIZE (PARTITION BY region ORDER BY id MEASURES id AS id ONE ROW PER MATCH PATTERN ((A | B)+ C) DEFINE A AS status = 'paid', B AS total > 1, C AS total > 0) AS mr",
+		"SELECT * FROM JSON_TABLE('{\"items\":[{\"id\":1}]}', '$.items[*]' COLUMNS (id INT PATH '$.id')) AS jt",
+		"SELECT INTERVAL '1 day' + INTERVAL '2 hours'",
 	} {
 		f.Add(seed)
 	}

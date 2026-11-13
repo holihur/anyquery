@@ -29,9 +29,7 @@ func Parse(src string) (Statement, error) {
 		return nil, err
 	}
 	if p.cur.IsPunct(";") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	if p.cur.Kind != TokEOF {
 		return nil, p.errf("unexpected %s after statement", p.cur)
@@ -56,9 +54,7 @@ func (p *Parser) parseStatement() (Statement, error) {
 	case p.cur.IsKeyword("DESCRIBE"), p.cur.IsKeyword("DESC"):
 		return p.parseDescribe()
 	case p.cur.IsKeyword("EXPLAIN"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		stmt, err := p.parseStatement()
 		if err != nil {
 			return nil, err
@@ -95,16 +91,13 @@ func (p *Parser) parseSetOperations(left *SelectStmt, minPrec int) (*SelectStmt,
 		if !ok || prec < minPrec {
 			return left, nil
 		}
+		p.advance()
 		all := false
 		if p.cur.IsKeyword("ALL") {
 			all = true
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		} else if p.cur.IsKeyword("DISTINCT") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 		right, err := p.parseSetTerm(prec + 1)
 		if err != nil {
@@ -116,9 +109,7 @@ func (p *Parser) parseSetOperations(left *SelectStmt, minPrec int) (*SelectStmt,
 
 func (p *Parser) parseSetTerm(minPrec int) (*SelectStmt, error) {
 	if p.cur.IsPunct("(") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		right, err := p.parseSelect()
 		if err != nil {
 			return nil, err
@@ -141,7 +132,6 @@ func (p *Parser) parseSetOperator() (string, int, bool) {
 		prec int
 	}{{"UNION", 1}, {"EXCEPT", 1}, {"INTERSECT", 2}} {
 		if p.cur.IsKeyword(op.name) {
-			_ = p.advance()
 			return op.name, op.prec, true
 		}
 	}
@@ -160,22 +150,16 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 	if !p.cur.IsKeyword("SELECT") {
 		return nil, p.errf("expected SELECT, got %s", p.cur)
 	}
-	if err := p.advance(); err != nil {
-		return nil, err
-	}
+	p.advance()
 	if p.cur.IsKeyword("DISTINCT") {
 		s.Distinct = true
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.IsKeyword("ON") {
 			return nil, p.errf("SELECT DISTINCT ON is not supported")
 		}
 	} else if p.cur.IsKeyword("ALL") {
 		// SELECT ALL is the explicit spelling of the default.
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	items, err := p.parseSelectItems()
 	if err != nil {
@@ -183,9 +167,7 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 	}
 	s.Projections = items
 	if p.cur.IsKeyword("FROM") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		from, err := p.parseFromList()
 		if err != nil {
 			return nil, err
@@ -204,17 +186,13 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 func (p *Parser) parseSelectClauses(s *SelectStmt) error {
 	var err error
 	if p.cur.IsKeyword("WHERE") {
-		if err := p.advance(); err != nil {
-			return err
-		}
+		p.advance()
 		if s.Where, err = p.parseExpr(0); err != nil {
 			return err
 		}
 	}
 	if p.cur.IsKeyword("GROUP") {
-		if err := p.expectKeyword("GROUP"); err != nil {
-			return err
-		}
+		p.advance()
 		if err := p.expectKeyword("BY"); err != nil {
 			return err
 		}
@@ -223,17 +201,13 @@ func (p *Parser) parseSelectClauses(s *SelectStmt) error {
 		}
 	}
 	if p.cur.IsKeyword("HAVING") {
-		if err := p.advance(); err != nil {
-			return err
-		}
+		p.advance()
 		if s.Having, err = p.parseExpr(0); err != nil {
 			return err
 		}
 	}
 	if p.cur.IsKeyword("WINDOW") {
-		if err := p.advance(); err != nil {
-			return err
-		}
+		p.advance()
 		for {
 			name, err := p.parseIdent()
 			if err != nil {
@@ -250,9 +224,7 @@ func (p *Parser) parseSelectClauses(s *SelectStmt) error {
 			if !p.cur.IsPunct(",") {
 				break
 			}
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 		}
 	}
 	return nil
@@ -262,9 +234,7 @@ func (p *Parser) parseSelectClauses(s *SelectStmt) error {
 //
 //	FROM mongo.orders |> WHERE status = 'paid' |> AGGREGATE count(*) AS n
 func (p *Parser) parseFromFirst() (*SelectStmt, error) {
-	if err := p.advance(); err != nil { // FROM
-		return nil, err
-	}
+	p.advance()
 	from, err := p.parseFromList()
 	if err != nil {
 		return nil, err
@@ -275,9 +245,6 @@ func (p *Parser) parseFromFirst() (*SelectStmt, error) {
 	}
 	if p.cur.IsPunct("|>") {
 		if err := p.parsePipes(s); err != nil {
-			return nil, err
-		}
-		if err := p.resolveWindowReferences(s); err != nil {
 			return nil, err
 		}
 		return s, nil
@@ -294,9 +261,7 @@ func (p *Parser) parseFromFirst() (*SelectStmt, error) {
 func (p *Parser) parseSelectTail(s *SelectStmt) error {
 	var err error
 	if p.cur.IsKeyword("ORDER") {
-		if err := p.advance(); err != nil {
-			return err
-		}
+		p.advance()
 		if err := p.expectKeyword("BY"); err != nil {
 			return err
 		}
@@ -305,13 +270,9 @@ func (p *Parser) parseSelectTail(s *SelectStmt) error {
 		}
 	}
 	if p.cur.IsKeyword("LIMIT") {
-		if err := p.advance(); err != nil {
-			return err
-		}
+		p.advance()
 		if p.cur.IsKeyword("ALL") {
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 		} else {
 			first, firstExpr, err := p.parseRowCount("LIMIT")
 			if err != nil {
@@ -321,9 +282,7 @@ func (p *Parser) parseSelectTail(s *SelectStmt) error {
 				if first == nil {
 					return p.errf("LIMIT offset,count requires integer literals")
 				}
-				if err := p.advance(); err != nil {
-					return err
-				}
+				p.advance()
 				second, err := p.parseIntLiteral("LIMIT")
 				if err != nil {
 					return err
@@ -335,28 +294,20 @@ func (p *Parser) parseSelectTail(s *SelectStmt) error {
 		}
 	}
 	if p.cur.IsKeyword("OFFSET") {
-		if err := p.advance(); err != nil {
-			return err
-		}
+		p.advance()
 		n, expr, err := p.parseRowCount("OFFSET")
 		if err != nil {
 			return err
 		}
 		if p.cur.IsKeyword("ROW") || p.cur.IsKeyword("ROWS") {
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 		}
 		s.Offset, s.OffsetExpr = n, expr
 	}
 	if p.cur.IsKeyword("FETCH") {
-		if err := p.advance(); err != nil {
-			return err
-		}
+		p.advance()
 		if p.cur.IsKeyword("FIRST") || p.cur.IsKeyword("NEXT") {
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 		}
 		// FETCH FIRST ROW ONLY defaults to one row.
 		if p.cur.IsKeyword("ROW") || p.cur.IsKeyword("ROWS") {
@@ -371,19 +322,13 @@ func (p *Parser) parseSelectTail(s *SelectStmt) error {
 			s.Limit, s.LimitExpr = n, expr
 		}
 		if p.cur.IsKeyword("ROW") || p.cur.IsKeyword("ROWS") {
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 		}
 		switch {
 		case p.cur.IsKeyword("ONLY"):
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 		case p.cur.IsKeyword("WITH"):
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 			if err := p.expectKeyword("TIES"); err != nil {
 				return err
 			}
@@ -414,9 +359,7 @@ func (p *Parser) parseRowCount(what string) (*int, Expr, error) {
 
 func (p *Parser) parsePipes(s *SelectStmt) error {
 	for p.cur.IsPunct("|>") {
-		if err := p.advance(); err != nil {
-			return err
-		}
+		p.advance()
 		stage, err := p.parsePipeStage()
 		if err != nil {
 			return err
@@ -429,24 +372,18 @@ func (p *Parser) parsePipes(s *SelectStmt) error {
 func (p *Parser) parsePipeStage() (PipeStage, error) {
 	switch {
 	case p.cur.IsKeyword("WHERE"), p.cur.IsKeyword("FILTER"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		e, err := p.parseExpr(0)
 		if err != nil {
 			return nil, err
 		}
 		return &PipeWhere{Expr: e}, nil
 	case p.cur.IsKeyword("SELECT"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		distinct := false
 		if p.cur.IsKeyword("DISTINCT") {
 			distinct = true
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 		items, err := p.parseSelectItems()
 		if err != nil {
@@ -454,18 +391,14 @@ func (p *Parser) parsePipeStage() (PipeStage, error) {
 		}
 		return &PipeSelect{Items: items, Distinct: distinct}, nil
 	case p.cur.IsKeyword("AGGREGATE"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		items, err := p.parseSelectItems()
 		if err != nil {
 			return nil, err
 		}
 		var groups []Expr
 		if p.cur.IsKeyword("GROUP") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if err := p.expectKeyword("BY"); err != nil {
 				return nil, err
 			}
@@ -473,18 +406,14 @@ func (p *Parser) parsePipeStage() (PipeStage, error) {
 				return nil, err
 			}
 		} else if p.cur.IsKeyword("BY") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if groups, err = p.parseExprList(); err != nil {
 				return nil, err
 			}
 		}
 		return &PipeAggregate{Items: items, GroupBy: groups}, nil
 	case p.cur.IsKeyword("ORDER"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if err := p.expectKeyword("BY"); err != nil {
 			return nil, err
 		}
@@ -507,9 +436,7 @@ func (p *Parser) parsePipeStage() (PipeStage, error) {
 		}
 		return &PipeLimit{Limit: *limit, Offset: off}, nil
 	case p.cur.IsKeyword("DISTINCT"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		return &PipeDistinct{}, nil
 	case p.cur.IsKeyword("JOIN"), p.cur.IsKeyword("INNER"), p.cur.IsKeyword("LEFT"), p.cur.IsKeyword("RIGHT"), p.cur.IsKeyword("FULL"), p.cur.IsKeyword("CROSS"), p.cur.IsKeyword("NATURAL"):
 		return p.parsePipeJoin()
@@ -523,53 +450,35 @@ func (p *Parser) parsePipeJoin() (PipeStage, error) {
 	natural := false
 	if p.cur.IsKeyword("NATURAL") {
 		natural = true
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	switch {
 	case p.cur.IsKeyword("INNER"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	case p.cur.IsKeyword("LEFT"):
 		jt = JoinLeft
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.IsKeyword("OUTER") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 	case p.cur.IsKeyword("RIGHT"):
 		jt = JoinRight
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.IsKeyword("OUTER") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 	case p.cur.IsKeyword("FULL"):
 		jt = JoinFull
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.IsKeyword("OUTER") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 	case p.cur.IsKeyword("CROSS"):
 		if natural {
 			return nil, p.errf("NATURAL CROSS JOIN is not valid")
 		}
 		jt = JoinCross
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	if err := p.expectKeyword("JOIN"); err != nil {
 		return nil, err
@@ -581,16 +490,12 @@ func (p *Parser) parsePipeJoin() (PipeStage, error) {
 	stage := &PipeJoin{Right: right, Type: jt, Natural: natural}
 	if jt != JoinCross {
 		if p.cur.IsKeyword("ON") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if stage.On, err = p.parseExpr(0); err != nil {
 				return nil, err
 			}
 		} else if p.cur.IsKeyword("USING") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if stage.Using, err = p.parseIdentList(); err != nil {
 				return nil, err
 			}
@@ -606,9 +511,7 @@ func (p *Parser) parseCTEs() ([]*CTE, error) {
 	recursive := false
 	if p.cur.IsKeyword("RECURSIVE") {
 		recursive = true
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	var out []*CTE
 	for {
@@ -618,9 +521,7 @@ func (p *Parser) parseCTEs() ([]*CTE, error) {
 		}
 		c := &CTE{Name: name, Recursive: recursive}
 		if p.cur.IsPunct("(") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			for {
 				col, err := p.parseIdent()
 				if err != nil {
@@ -630,9 +531,7 @@ func (p *Parser) parseCTEs() ([]*CTE, error) {
 				if !p.cur.IsPunct(",") {
 					break
 				}
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			}
 			if err := p.expectPunct(")"); err != nil {
 				return nil, err
@@ -656,9 +555,7 @@ func (p *Parser) parseCTEs() ([]*CTE, error) {
 		if !p.cur.IsPunct(",") {
 			break
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	return out, nil
 }
@@ -674,21 +571,14 @@ func (p *Parser) parseSelectItems() ([]SelectItem, error) {
 		if !p.cur.IsPunct(",") {
 			break
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
-	}
-	if len(out) == 0 {
-		return nil, p.errf("expected at least one select expression")
+		p.advance()
 	}
 	return out, nil
 }
 
 func (p *Parser) parseSelectItem() (SelectItem, error) {
 	if p.cur.IsPunct("*") {
-		if err := p.advance(); err != nil {
-			return SelectItem{}, err
-		}
+		p.advance()
 		return SelectItem{Star: true}, nil
 	}
 	// Detect table.* / source.table.* with lookahead, then rewind. This keeps
@@ -696,29 +586,19 @@ func (p *Parser) parseSelectItem() (SelectItem, error) {
 	if p.cur.Kind == TokIdent {
 		save := p.pos
 		parts := []string{p.cur.Value}
-		if err := p.advance(); err != nil {
-			return SelectItem{}, err
-		}
+		p.advance()
 		for p.cur.IsPunct(".") {
 			if p.peek.IsPunct("*") {
-				if err := p.advance(); err != nil { // dot
-					return SelectItem{}, err
-				}
-				if err := p.advance(); err != nil { // star
-					return SelectItem{}, err
-				}
+				p.advance()
+				p.advance()
 				return SelectItem{Star: true, StarTable: strings.Join(parts, ".")}, nil
 			}
 			if p.peek.Kind != TokIdent {
 				break
 			}
-			if err := p.advance(); err != nil { // dot
-				return SelectItem{}, err
-			}
+			p.advance()
 			parts = append(parts, p.cur.Value)
-			if err := p.advance(); err != nil {
-				return SelectItem{}, err
-			}
+			p.advance()
 		}
 		p.pos = save
 		p.sync()
@@ -733,9 +613,7 @@ func (p *Parser) parseSelectItem() (SelectItem, error) {
 func (p *Parser) finishSelectItem(expr Expr) (SelectItem, error) {
 	item := SelectItem{Expr: expr}
 	if p.cur.IsKeyword("AS") {
-		if err := p.advance(); err != nil {
-			return SelectItem{}, err
-		}
+		p.advance()
 		alias, err := p.parseIdent()
 		if err != nil {
 			return SelectItem{}, err
@@ -746,9 +624,7 @@ func (p *Parser) finishSelectItem(expr Expr) (SelectItem, error) {
 			return SelectItem{}, p.errf("array subscripts are not supported")
 		}
 		item.Alias = p.cur.Value
-		if err := p.advance(); err != nil {
-			return SelectItem{}, err
-		}
+		p.advance()
 	}
 	return item, nil
 }
@@ -764,9 +640,7 @@ func (p *Parser) parseFromList() ([]TableExpr, error) {
 		if !p.cur.IsPunct(",") {
 			break
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	return out, nil
 }
@@ -787,56 +661,40 @@ func (p *Parser) parseTableExpr() (TableExpr, error) {
 		natural := false
 		if p.cur.IsKeyword("NATURAL") && (p.peek.IsKeyword("JOIN") || p.peek.IsKeyword("INNER") || p.peek.IsKeyword("LEFT") || p.peek.IsKeyword("RIGHT") || p.peek.IsKeyword("FULL") || p.peek.IsKeyword("CROSS")) {
 			natural = true
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 		switch {
 		case p.cur.IsKeyword("JOIN"), p.cur.IsKeyword("INNER"):
 			jt = JoinInner
 			if p.cur.IsKeyword("INNER") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			}
 			if err := p.expectKeyword("JOIN"); err != nil {
 				return nil, err
 			}
 		case p.cur.IsKeyword("LEFT"):
 			jt = JoinLeft
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if p.cur.IsKeyword("OUTER") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			}
 			if err := p.expectKeyword("JOIN"); err != nil {
 				return nil, err
 			}
 		case p.cur.IsKeyword("RIGHT"):
 			jt = JoinRight
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if p.cur.IsKeyword("OUTER") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			}
 			if err := p.expectKeyword("JOIN"); err != nil {
 				return nil, err
 			}
 		case p.cur.IsKeyword("FULL"):
 			jt = JoinFull
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if p.cur.IsKeyword("OUTER") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			}
 			if err := p.expectKeyword("JOIN"); err != nil {
 				return nil, err
@@ -846,9 +704,7 @@ func (p *Parser) parseTableExpr() (TableExpr, error) {
 				return nil, p.errf("NATURAL CROSS JOIN is not valid")
 			}
 			jt = JoinCross
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if err := p.expectKeyword("JOIN"); err != nil {
 				return nil, err
 			}
@@ -862,16 +718,12 @@ func (p *Parser) parseTableExpr() (TableExpr, error) {
 		j := &JoinExpr{Left: left, Right: right, Type: jt, Natural: natural}
 		if jt != JoinCross {
 			if p.cur.IsKeyword("ON") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 				if j.On, err = p.parseExpr(0); err != nil {
 					return nil, err
 				}
 			} else if p.cur.IsKeyword("USING") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 				if j.Using, err = p.parseIdentList(); err != nil {
 					return nil, err
 				}
@@ -882,9 +734,7 @@ func (p *Parser) parseTableExpr() (TableExpr, error) {
 }
 
 func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
-	if err := p.advance(); err != nil { // MATCH_RECOGNIZE
-		return nil, err
-	}
+	p.advance()
 	if err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
@@ -892,9 +742,7 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 	for !p.cur.IsPunct(")") {
 		switch {
 		case p.cur.IsKeyword("PARTITION"):
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if err := p.expectKeyword("BY"); err != nil {
 				return nil, err
 			}
@@ -903,9 +751,7 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 				return nil, err
 			}
 		case p.cur.IsKeyword("ORDER"):
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if err := p.expectKeyword("BY"); err != nil {
 				return nil, err
 			}
@@ -914,9 +760,7 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 				return nil, err
 			}
 		case p.cur.IsKeyword("MEASURES"):
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			for {
 				expr, err := p.parseExpr(0)
 				if err != nil {
@@ -933,9 +777,7 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 				if !p.cur.IsPunct(",") {
 					break
 				}
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			}
 		case p.cur.IsKeyword("ONE"), p.cur.IsKeyword("ALL"):
 			if p.cur.IsKeyword("ALL") {
@@ -943,17 +785,11 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 			} else {
 				m.RowsMode = "one"
 			}
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if p.cur.IsKeyword("ROW") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			} else if p.cur.IsKeyword("ROWS") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			} else {
 				return nil, p.errf("expected ROW or ROWS")
 			}
@@ -964,9 +800,7 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 				return nil, err
 			}
 		case p.cur.IsKeyword("AFTER"):
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if err := p.expectKeyword("MATCH"); err != nil {
 				return nil, err
 			}
@@ -974,9 +808,7 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 				return nil, err
 			}
 			if p.cur.IsKeyword("TO") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 				if err := p.expectKeyword("NEXT"); err != nil {
 					return nil, err
 				}
@@ -997,9 +829,7 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 				m.AfterSkip = "past_last"
 			}
 		case p.cur.IsKeyword("PATTERN"):
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if err := p.expectPunct("("); err != nil {
 				return nil, err
 			}
@@ -1011,9 +841,7 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 				return nil, err
 			}
 		case p.cur.IsKeyword("DEFINE"):
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			for {
 				name, err := p.parseIdent()
 				if err != nil {
@@ -1030,17 +858,13 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 				if !p.cur.IsPunct(",") {
 					break
 				}
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			}
 		default:
 			return nil, p.errf("unexpected %s in MATCH_RECOGNIZE", p.cur)
 		}
 	}
-	if err := p.expectPunct(")"); err != nil {
-		return nil, err
-	}
+	p.expectPunct(")")
 	alias, _, err := p.parseTableAlias(false)
 	if err != nil {
 		return nil, err
@@ -1059,9 +883,7 @@ func (p *Parser) parseMatchPattern() (*MatchPattern, error) {
 	}
 	alt := &MatchPattern{Kind: "alt", Children: []*MatchPattern{left}}
 	for p.cur.IsPunct("|") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		right, err := p.parseMatchSequence()
 		if err != nil {
 			return nil, err
@@ -1073,7 +895,7 @@ func (p *Parser) parseMatchPattern() (*MatchPattern, error) {
 
 func (p *Parser) parseMatchSequence() (*MatchPattern, error) {
 	seq := &MatchPattern{Kind: "seq"}
-	for !p.cur.IsPunct(")") && !p.cur.IsPunct("|") {
+	for !p.cur.IsPunct(")") && !p.cur.IsPunct("|") && p.cur.Kind != TokEOF {
 		term, err := p.parseMatchTerm()
 		if err != nil {
 			return nil, err
@@ -1092,9 +914,7 @@ func (p *Parser) parseMatchSequence() (*MatchPattern, error) {
 func (p *Parser) parseMatchTerm() (*MatchPattern, error) {
 	var term *MatchPattern
 	if p.cur.IsPunct("(") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		inner, err := p.parseMatchPattern()
 		if err != nil {
 			return nil, err
@@ -1102,7 +922,7 @@ func (p *Parser) parseMatchTerm() (*MatchPattern, error) {
 		if err := p.expectPunct(")"); err != nil {
 			return nil, err
 		}
-		term = inner
+		term = &MatchPattern{Kind: "group", Children: []*MatchPattern{inner}}
 	} else {
 		name, err := p.parseIdent()
 		if err != nil {
@@ -1112,14 +932,10 @@ func (p *Parser) parseMatchTerm() (*MatchPattern, error) {
 	}
 	if p.cur.IsPunct("*") || p.cur.IsPunct("+") || p.cur.IsPunct("?") {
 		term.Quantifier = p.cur.Value
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.IsPunct("?") {
 			term.Lazy = true
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 	}
 	return term, nil
@@ -1127,9 +943,7 @@ func (p *Parser) parseMatchTerm() (*MatchPattern, error) {
 
 func (p *Parser) parseTablePrimary() (TableExpr, error) {
 	if p.cur.IsKeyword("LATERAL") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		inner, err := p.parseTablePrimary()
 		if err != nil {
 			return nil, err
@@ -1137,9 +951,7 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 		return &LateralTable{Table: inner}, nil
 	}
 	if p.cur.IsPunct("(") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.IsKeyword("VALUES") {
 			return p.parseValuesTable()
 		}
@@ -1201,9 +1013,7 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 }
 
 func (p *Parser) parseJSONTable() (TableExpr, error) {
-	if err := p.advance(); err != nil { // JSON_TABLE
-		return nil, err
-	}
+	p.advance()
 	if err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
@@ -1225,33 +1035,7 @@ func (p *Parser) parseJSONTable() (TableExpr, error) {
 	if err != nil {
 		return nil, err
 	}
-	// PLAN and ON ERROR are accepted syntactically but not executed yet.
-	for p.cur.IsKeyword("PLAN") || p.cur.IsKeyword("ON") {
-		if p.cur.IsKeyword("PLAN") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
-			if p.cur.IsKeyword("DEFAULT") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
-			}
-			continue
-		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
-		if p.cur.IsKeyword("ERROR") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
-			break
-		}
-		break
-	}
-	if err := p.expectPunct(")"); err != nil {
-		return nil, err
-	}
+	p.expectPunct(")")
 	alias, _, err := p.parseTableAlias(false)
 	if err != nil {
 		return nil, err
@@ -1269,13 +1053,9 @@ func (p *Parser) parseJSONTableColumns() ([]JSONTableColumn, error) {
 			break
 		}
 		if p.cur.IsKeyword("NESTED") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if p.cur.IsKeyword("PATH") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			}
 			path, err := p.parseExpr(0)
 			if err != nil {
@@ -1296,9 +1076,7 @@ func (p *Parser) parseJSONTableColumns() ([]JSONTableColumn, error) {
 			}
 			col := JSONTableColumn{Name: name}
 			if p.cur.IsKeyword("FOR") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 				if err := p.expectKeyword("ORDINALITY"); err != nil {
 					return nil, err
 				}
@@ -1310,9 +1088,7 @@ func (p *Parser) parseJSONTableColumns() ([]JSONTableColumn, error) {
 				}
 				col.Type = typ
 				if p.cur.IsKeyword("PATH") {
-					if err := p.advance(); err != nil {
-						return nil, err
-					}
+					p.advance()
 					col.Path, err = p.parseExpr(0)
 					if err != nil {
 						return nil, err
@@ -1321,17 +1097,11 @@ func (p *Parser) parseJSONTableColumns() ([]JSONTableColumn, error) {
 				// Consume column error/empty/default options.
 				for {
 					if p.cur.IsKeyword("NULL") || p.cur.IsKeyword("ERROR") || p.cur.IsKeyword("DEFAULT") {
-						if err := p.advance(); err != nil {
-							return nil, err
-						}
+						p.advance()
 						if p.cur.IsKeyword("ON") {
-							if err := p.advance(); err != nil {
-								return nil, err
-							}
+							p.advance()
 							if p.cur.IsKeyword("EMPTY") || p.cur.IsKeyword("ERROR") {
-								if err := p.advance(); err != nil {
-									return nil, err
-								}
+								p.advance()
 							}
 						}
 						continue
@@ -1344,9 +1114,7 @@ func (p *Parser) parseJSONTableColumns() ([]JSONTableColumn, error) {
 		if !p.cur.IsPunct(",") {
 			break
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	if err := p.expectPunct(")"); err != nil {
 		return nil, err
@@ -1376,18 +1144,14 @@ func (p *Parser) parseTableAlias(required bool) (string, []string, error) {
 	alias := ""
 	var err error
 	if p.cur.IsKeyword("AS") {
-		if err := p.advance(); err != nil {
-			return "", nil, err
-		}
+		p.advance()
 		alias, err = p.parseIdent()
 		if err != nil {
 			return "", nil, err
 		}
 	} else if p.cur.Kind == TokIdent && !isClauseKeyword(p.cur.Value) {
 		alias = p.cur.Value
-		if err := p.advance(); err != nil {
-			return "", nil, err
-		}
+		p.advance()
 	} else if required {
 		return "", nil, p.errf("subquery in FROM must have an alias")
 	}
@@ -1411,9 +1175,7 @@ func (p *Parser) parseTemporalClause() (*TemporalClause, error) {
 	t := &TemporalClause{}
 	switch {
 	case p.cur.IsKeyword("AS"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if err := p.expectKeyword("OF"); err != nil {
 			return nil, err
 		}
@@ -1423,9 +1185,7 @@ func (p *Parser) parseTemporalClause() (*TemporalClause, error) {
 		}
 		t.Mode, t.AsOf = "as_of", expr
 	case p.cur.IsKeyword("FROM"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		from, err := p.parseExpr(precAnd + 1)
 		if err != nil {
 			return nil, err
@@ -1439,9 +1199,7 @@ func (p *Parser) parseTemporalClause() (*TemporalClause, error) {
 		}
 		t.Mode, t.From, t.To = "from_to", from, to
 	case p.cur.IsKeyword("BETWEEN"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		from, err := p.parseExpr(precAnd + 1)
 		if err != nil {
 			return nil, err
@@ -1456,9 +1214,7 @@ func (p *Parser) parseTemporalClause() (*TemporalClause, error) {
 		t.Mode, t.From, t.To = "between", from, to
 	case p.cur.IsKeyword("ALL"):
 		t.Mode = "all"
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	default:
 		return nil, p.errf("expected AS OF, FROM, BETWEEN or ALL after FOR SYSTEM_TIME")
 	}
@@ -1487,22 +1243,16 @@ func (p *Parser) parseTableSample() (*TableSample, error) {
 	if err != nil || percent < 0 || percent > 100 {
 		return nil, p.errf("TABLESAMPLE percentage must be between 0 and 100")
 	}
-	if err := p.advance(); err != nil {
-		return nil, err
-	}
+	p.advance()
 	if p.cur.IsKeyword("PERCENT") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	if err := p.expectPunct(")"); err != nil {
 		return nil, err
 	}
 	sample := &TableSample{Method: method, Percent: percent}
 	if p.cur.IsKeyword("REPEATABLE") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if err := p.expectPunct("("); err != nil {
 			return nil, err
 		}
@@ -1520,9 +1270,7 @@ func (p *Parser) parseTableSample() (*TableSample, error) {
 }
 
 func (p *Parser) parseValuesStatement() (Statement, error) {
-	if err := p.advance(); err != nil { // VALUES
-		return nil, err
-	}
+	p.advance()
 	rows, err := p.parseValuesRows()
 	if err != nil {
 		return nil, err
@@ -1531,9 +1279,7 @@ func (p *Parser) parseValuesStatement() (Statement, error) {
 }
 
 func (p *Parser) parseTableStatement() (Statement, error) {
-	if err := p.advance(); err != nil { // TABLE
-		return nil, err
-	}
+	p.advance()
 	parts, err := p.parseQualifiedName()
 	if err != nil {
 		return nil, err
@@ -1564,9 +1310,7 @@ func (p *Parser) parseValuesRows() ([][]Expr, error) {
 			if !p.cur.IsPunct(",") {
 				break
 			}
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 		if err := p.expectPunct(")"); err != nil {
 			return nil, err
@@ -1575,17 +1319,13 @@ func (p *Parser) parseValuesRows() ([][]Expr, error) {
 		if !p.cur.IsPunct(",") {
 			break
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	return rows, nil
 }
 
 func (p *Parser) parseValuesTable() (TableExpr, error) {
-	if err := p.advance(); err != nil { // VALUES
-		return nil, err
-	}
+	p.advance()
 	vt := &ValuesTable{}
 	for {
 		if err := p.expectPunct("("); err != nil {
@@ -1601,9 +1341,7 @@ func (p *Parser) parseValuesTable() (TableExpr, error) {
 			if !p.cur.IsPunct(",") {
 				break
 			}
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 		if err := p.expectPunct(")"); err != nil {
 			return nil, err
@@ -1612,9 +1350,7 @@ func (p *Parser) parseValuesTable() (TableExpr, error) {
 		if !p.cur.IsPunct(",") {
 			break
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	if err := p.expectPunct(")"); err != nil {
 		return nil, err
@@ -1650,9 +1386,7 @@ func (p *Parser) parseQualifiedName() ([]string, error) {
 		if !p.cur.IsPunct(".") {
 			break
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	return parts, nil
 }
@@ -1671,9 +1405,7 @@ func (p *Parser) parseIdentList() ([]string, error) {
 		if !p.cur.IsPunct(",") {
 			break
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	if err := p.expectPunct(")"); err != nil {
 		return nil, err
@@ -1708,9 +1440,7 @@ func (p *Parser) parseGroupBy() ([]Expr, [][]Expr, error) {
 		if !p.cur.IsPunct(",") {
 			break
 		}
-		if err := p.advance(); err != nil {
-			return nil, nil, err
-		}
+		p.advance()
 	}
 	if !hasSets {
 		return base, nil, nil
@@ -1728,9 +1458,7 @@ func (p *Parser) parseGroupBy() ([]Expr, [][]Expr, error) {
 
 func (p *Parser) parseGroupingSets() ([][]Expr, error) {
 	if p.cur.IsKeyword("GROUPING") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if err := p.expectKeyword("SETS"); err != nil {
 			return nil, err
 		}
@@ -1756,9 +1484,7 @@ func (p *Parser) parseGroupingSets() ([][]Expr, error) {
 			if !p.cur.IsPunct(",") {
 				break
 			}
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 		if err := p.expectPunct(")"); err != nil {
 			return nil, err
@@ -1766,9 +1492,7 @@ func (p *Parser) parseGroupingSets() ([][]Expr, error) {
 		return sets, nil
 	}
 	kind := strings.ToUpper(p.cur.Value)
-	if err := p.advance(); err != nil {
-		return nil, err
-	}
+	p.advance()
 	if err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
@@ -1820,9 +1544,7 @@ func (p *Parser) parseExprList() ([]Expr, error) {
 		if !p.cur.IsPunct(",") {
 			break
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	return out, nil
 }
@@ -1836,19 +1558,13 @@ func (p *Parser) parseOrderItems() ([]OrderItem, error) {
 		}
 		item := OrderItem{Expr: e}
 		if p.cur.IsKeyword("ASC") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		} else if p.cur.IsKeyword("DESC") {
 			item.Desc = true
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 		if p.cur.IsKeyword("NULLS") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			switch {
 			case p.cur.IsKeyword("FIRST"):
 				item.Nulls = "first"
@@ -1857,17 +1573,13 @@ func (p *Parser) parseOrderItems() ([]OrderItem, error) {
 			default:
 				return nil, p.errf("expected FIRST or LAST after NULLS")
 			}
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 		out = append(out, item)
 		if !p.cur.IsPunct(",") {
 			break
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	return out, nil
 }
@@ -1877,9 +1589,7 @@ func (p *Parser) parseLimit() (*int, *int, error) {
 		return nil, nil, err
 	}
 	if p.cur.IsKeyword("ALL") {
-		if err := p.advance(); err != nil {
-			return nil, nil, err
-		}
+		p.advance()
 		return nil, nil, nil
 	}
 	first, err := p.parseIntLiteral("LIMIT")
@@ -1887,9 +1597,7 @@ func (p *Parser) parseLimit() (*int, *int, error) {
 		return nil, nil, err
 	}
 	if p.cur.IsPunct(",") {
-		if err := p.advance(); err != nil {
-			return nil, nil, err
-		}
+		p.advance()
 		second, err := p.parseIntLiteral("LIMIT")
 		if err != nil {
 			return nil, nil, err
@@ -1898,9 +1606,7 @@ func (p *Parser) parseLimit() (*int, *int, error) {
 		return &second, &first, nil
 	}
 	if p.cur.IsKeyword("OFFSET") {
-		if err := p.advance(); err != nil {
-			return nil, nil, err
-		}
+		p.advance()
 		off, err := p.parseIntLiteral("OFFSET")
 		if err != nil {
 			return nil, nil, err
@@ -1919,9 +1625,7 @@ func (p *Parser) parseIntLiteral(what string) (int, error) {
 		return 0, p.errf("%s expects a non-negative integer", what)
 	}
 	n := int(f)
-	if err := p.advance(); err != nil {
-		return 0, err
-	}
+	p.advance()
 	return n, nil
 }
 
@@ -1950,36 +1654,28 @@ func (p *Parser) parseExpr(minPrec int) (Expr, error) {
 		if precNot < minPrec {
 			return nil, p.errf("unexpected NOT")
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		operand, err := p.parseExpr(precNot)
 		if err != nil {
 			return nil, err
 		}
 		left = &UnaryExpr{Op: "NOT", Expr: operand}
 	case p.cur.IsPunct("-"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		operand, err := p.parseExpr(precMul)
 		if err != nil {
 			return nil, err
 		}
 		left = &UnaryExpr{Op: "-", Expr: operand}
 	case p.cur.IsPunct("+"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		operand, err := p.parseExpr(precMul)
 		if err != nil {
 			return nil, err
 		}
 		left = &UnaryExpr{Op: "+", Expr: operand}
 	case p.cur.IsPunct("~"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		operand, err := p.parseExpr(precMul)
 		if err != nil {
 			return nil, err
@@ -1994,9 +1690,7 @@ func (p *Parser) parseExpr(minPrec int) (Expr, error) {
 
 	// Postfix CAST, including chained forms such as value::int::text.
 	for p.cur.IsPunct("::") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		typ, err := p.parseTypeName()
 		if err != nil {
 			return nil, err
@@ -2004,12 +1698,8 @@ func (p *Parser) parseExpr(minPrec int) (Expr, error) {
 		left = &CastExpr{Expr: left, Type: typ}
 	}
 	if p.cur.IsKeyword("AT") && p.peek.IsKeyword("TIME") {
-		if err := p.advance(); err != nil { // AT
-			return nil, err
-		}
-		if err := p.expectKeyword("TIME"); err != nil {
-			return nil, err
-		}
+		p.advance()
+		p.advance() // TIME
 		if err := p.expectKeyword("ZONE"); err != nil {
 			return nil, err
 		}
@@ -2023,9 +1713,7 @@ func (p *Parser) parseExpr(minPrec int) (Expr, error) {
 	for {
 		// Arithmetic / boolean infix.
 		if prec, op, ok := binaryOp(p.cur); ok && prec >= minPrec {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			right, err := p.parseExpr(prec + 1)
 			if err != nil {
 				return nil, err
@@ -2056,9 +1744,7 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 			return nil, nil
 		}
 		negated = true
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 
 	switch {
@@ -2071,14 +1757,10 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 		if op == "<>" {
 			op = "!="
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.IsKeyword("ANY") || p.cur.IsKeyword("SOME") || p.cur.IsKeyword("ALL") {
 			all := p.cur.IsKeyword("ALL")
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if err := p.expectPunct("("); err != nil {
 				return nil, err
 			}
@@ -2099,9 +1781,7 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 					if !p.cur.IsPunct(",") {
 						break
 					}
-					if err := p.advance(); err != nil {
-						return nil, err
-					}
+					p.advance()
 				}
 			}
 			if err := p.expectPunct(")"); err != nil {
@@ -2117,9 +1797,7 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 
 	case p.cur.IsKeyword("LIKE"), p.cur.IsKeyword("ILIKE"), p.cur.IsKeyword("REGEXP"):
 		op := strings.ToUpper(p.cur.Value)
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		right, err := p.parseExpr(precCompare + 1)
 		if err != nil {
 			return nil, err
@@ -2127,9 +1805,7 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 		return &CompareExpr{Op: op, Left: left, Right: right, Negated: negated}, nil
 
 	case p.cur.IsKeyword("IN"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if err := p.expectPunct("("); err != nil {
 			return nil, err
 		}
@@ -2150,9 +1826,7 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 				if !p.cur.IsPunct(",") {
 					break
 				}
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			}
 		}
 		if err := p.expectPunct(")"); err != nil {
@@ -2161,9 +1835,7 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 		return in, nil
 
 	case p.cur.IsKeyword("BETWEEN"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		low, err := p.parseExpr(precCompare + 1)
 		if err != nil {
 			return nil, err
@@ -2178,20 +1850,14 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 		return &BetweenExpr{Left: left, Low: low, High: high, Negated: negated}, nil
 
 	case p.cur.IsKeyword("IS"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		isNeg := false
 		if p.cur.IsKeyword("NOT") {
 			isNeg = true
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 		if p.cur.IsKeyword("DISTINCT") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if err := p.expectKeyword("FROM"); err != nil {
 				return nil, err
 			}
@@ -2202,21 +1868,15 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 			return &IsExpr{Left: left, Right: right, What: "distinct", Negated: isNeg}, nil
 		}
 		if p.cur.IsKeyword("JSON") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			is := &IsExpr{Left: left, What: "json", Negated: isNeg}
 			if p.cur.IsKeyword("VALUE") || p.cur.IsKeyword("SCALAR") || p.cur.IsKeyword("ARRAY") || p.cur.IsKeyword("OBJECT") {
 				is.JSONType = strings.ToUpper(p.cur.Value)
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			}
 			if p.cur.IsKeyword("WITH") || p.cur.IsKeyword("WITHOUT") {
 				is.JSONUnique = p.cur.IsKeyword("WITH")
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 				if err := p.expectKeyword("UNIQUE"); err != nil {
 					return nil, err
 				}
@@ -2240,15 +1900,10 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 		default:
 			return nil, p.errf("expected NULL, TRUE, FALSE or UNKNOWN after IS")
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		return &IsExpr{Left: left, What: what, Negated: isNeg}, nil
 	}
 
-	if negated {
-		return nil, p.errf("expected IN, LIKE, ILIKE or BETWEEN after NOT")
-	}
 	return nil, nil
 }
 
@@ -2293,37 +1948,27 @@ func (p *Parser) parsePrimary() (Expr, error) {
 			if err != nil {
 				return nil, p.errf("invalid number %q", t.Value)
 			}
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			return &Literal{Kind: LitFloat, Value: f}, nil
 		}
 		n, err := strconv.ParseInt(t.Value, 10, 64)
 		if err != nil {
 			return nil, p.errf("invalid integer %q", t.Value)
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		return &Literal{Kind: LitInt, Value: n}, nil
 
 	case t.Kind == TokString:
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		return &Literal{Kind: LitString, Value: t.Value}, nil
 
 	case t.IsKeyword("TRUE"), t.IsKeyword("FALSE"):
 		val := strings.EqualFold(t.Value, "TRUE")
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		return &Literal{Kind: LitBool, Value: val}, nil
 
 	case t.IsKeyword("NULL"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		return &Literal{Kind: LitNull}, nil
 
 	case t.IsKeyword("EXTRACT"):
@@ -2337,15 +1982,11 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		return nil, p.errf("expected '(' after %s", strings.ToUpper(t.Value))
 	case t.IsPunct("?"):
 		p.paramCount++
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		return &Parameter{Index: p.paramCount, Style: "?"}, nil
 
 	case t.IsPunct("$"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.Kind != TokNumber {
 			return nil, p.errf("expected a parameter number after $")
 		}
@@ -2353,20 +1994,14 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		if err != nil || n <= 0 {
 			return nil, p.errf("invalid parameter number %q", p.cur.Value)
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		return &Parameter{Index: n, Style: "$"}, nil
 
 	case (t.IsKeyword("DATE") || t.IsKeyword("TIME") || t.IsKeyword("TIMESTAMP") || t.IsKeyword("TIMESTAMPTZ") || t.IsKeyword("DATETIME")) && p.peek.Kind == TokString:
 		typ := strings.ToLower(t.Value)
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		lit := &Literal{Kind: LitString, Value: p.cur.Value}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		return &CastExpr{Expr: lit, Type: typ}, nil
 	case t.IsKeyword("INTERVAL"):
 		return p.parseInterval()
@@ -2381,9 +2016,7 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		return p.parseCast()
 
 	case t.IsKeyword("EXISTS"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if err := p.expectPunct("("); err != nil {
 			return nil, err
 		}
@@ -2397,9 +2030,7 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		return &ExistsExpr{Query: sub}, nil
 
 	case t.IsKeyword("CURRENT_TIMESTAMP"), t.IsKeyword("CURRENT_DATE"), t.IsKeyword("CURRENT_TIME"), t.IsKeyword("NOW"):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.IsPunct("(") {
 			args, err := p.parseCallArgs()
 			if err != nil {
@@ -2410,9 +2041,7 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		return &FuncCall{Name: strings.ToLower(t.Value)}, nil
 
 	case t.IsPunct("("):
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.IsKeyword("SELECT") || p.cur.IsKeyword("WITH") {
 			sub, err := p.parseSelect()
 			if err != nil {
@@ -2442,18 +2071,14 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		// Function call?
 		if p.peek.IsPunct("(") {
 			name := t.Value
-			if err := p.advance(); err != nil { // name
-				return nil, err
-			}
+			p.advance()
 			args, distinct, err := p.parseCallArgsDistinct()
 			if err != nil {
 				return nil, err
 			}
 			fn := &FuncCall{Name: name, Args: args, Distinct: distinct}
 			if p.cur.IsKeyword("WITHIN") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 				if err := p.expectKeyword("GROUP"); err != nil {
 					return nil, err
 				}
@@ -2474,9 +2099,7 @@ func (p *Parser) parsePrimary() (Expr, error) {
 				}
 			}
 			if p.cur.IsKeyword("FILTER") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 				if err := p.expectPunct("("); err != nil {
 					return nil, err
 				}
@@ -2491,9 +2114,7 @@ func (p *Parser) parsePrimary() (Expr, error) {
 				}
 			}
 			if p.cur.IsKeyword("OVER") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 				if fn.Window, err = p.parseWindowSpec(); err != nil {
 					return nil, err
 				}
@@ -2511,28 +2132,20 @@ func (p *Parser) parsePrimary() (Expr, error) {
 }
 
 func (p *Parser) parseInterval() (Expr, error) {
-	if err := p.advance(); err != nil { // INTERVAL
-		return nil, err
-	}
+	p.advance()
 	if p.cur.Kind != TokString {
 		return nil, p.errf("INTERVAL expects a string literal")
 	}
 	value := p.cur.Value
-	if err := p.advance(); err != nil {
-		return nil, err
-	}
+	p.advance()
 	qualifier := ""
 	if p.cur.Kind == TokIdent && !p.cur.Quoted {
 		switch strings.ToUpper(p.cur.Value) {
 		case "YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND":
 			qualifier = strings.ToUpper(p.cur.Value)
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if p.cur.IsKeyword("TO") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 				end, err := p.parseIdent()
 				if err != nil {
 					return nil, err
@@ -2546,9 +2159,7 @@ func (p *Parser) parseInterval() (Expr, error) {
 
 func (p *Parser) parseTrim() (Expr, error) {
 	var err error
-	if err := p.advance(); err != nil { // TRIM
-		return nil, err
-	}
+	p.advance()
 	if err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
@@ -2560,16 +2171,12 @@ func (p *Parser) parseTrim() (Expr, error) {
 		case "TRAILING":
 			mode = "rtrim"
 		}
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	var source Expr
 	var chars Expr
 	if p.cur.IsKeyword("FROM") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		source, err = p.parseExpr(0)
 		if err != nil {
 			return nil, err
@@ -2580,9 +2187,7 @@ func (p *Parser) parseTrim() (Expr, error) {
 			return nil, err
 		}
 		if p.cur.IsKeyword("FROM") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			chars = first
 			source, err = p.parseExpr(0)
 			if err != nil {
@@ -2591,9 +2196,7 @@ func (p *Parser) parseTrim() (Expr, error) {
 		} else {
 			source = first
 			if p.cur.IsPunct(",") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 				chars, err = p.parseExpr(0)
 				if err != nil {
 					return nil, err
@@ -2612,9 +2215,7 @@ func (p *Parser) parseTrim() (Expr, error) {
 }
 
 func (p *Parser) parseOverlay() (Expr, error) {
-	if err := p.advance(); err != nil { // OVERLAY
-		return nil, err
-	}
+	p.advance()
 	if err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
@@ -2638,9 +2239,7 @@ func (p *Parser) parseOverlay() (Expr, error) {
 	}
 	args := []Expr{str, repl, start}
 	if p.cur.IsKeyword("FOR") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		n, err := p.parseExpr(0)
 		if err != nil {
 			return nil, err
@@ -2663,9 +2262,7 @@ func isJSONFunctionName(name string) bool {
 
 func (p *Parser) parseJSONFunction() (Expr, error) {
 	name := strings.ToUpper(p.cur.Value)
-	if err := p.advance(); err != nil { // name
-		return nil, err
-	}
+	p.advance()
 	if err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
@@ -2698,9 +2295,7 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 				return nil, err
 			}
 			if p.cur.IsKeyword("VALUE") {
-				if err := p.advance(); err != nil {
-					return nil, err
-				}
+				p.advance()
 			} else if err := p.expectPunct(":"); err != nil {
 				return nil, err
 			}
@@ -2712,9 +2307,7 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 			if !p.cur.IsPunct(",") {
 				break
 			}
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 		if err := p.parseJSONOptions(fn); err != nil {
 			return nil, err
@@ -2729,9 +2322,7 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 			if !p.cur.IsPunct(",") {
 				break
 			}
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 		if err := p.parseJSONOptions(fn); err != nil {
 			return nil, err
@@ -2743,9 +2334,7 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 		}
 		fn.Args = []Expr{v}
 		if p.cur.IsKeyword("ORDER") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if err := p.expectKeyword("BY"); err != nil {
 				return nil, err
 			}
@@ -2762,9 +2351,7 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 			return nil, err
 		}
 		if p.cur.IsKeyword("VALUE") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		} else if err := p.expectPunct(":"); err != nil {
 			return nil, err
 		}
@@ -2774,9 +2361,7 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 		}
 		fn.JSONPairs = []JSONPair{{Key: key, Value: value}}
 		if p.cur.IsKeyword("ORDER") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if err := p.expectKeyword("BY"); err != nil {
 				return nil, err
 			}
@@ -2798,9 +2383,7 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 	for {
 		switch {
 		case p.cur.IsKeyword("NULL"):
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 			if err := p.expectKeyword("ON"); err != nil {
 				return err
 			}
@@ -2809,9 +2392,7 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 			}
 			fn.JSONNullBehavior = "null"
 		case p.cur.IsKeyword("ABSENT"):
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 			if err := p.expectKeyword("ON"); err != nil {
 				return err
 			}
@@ -2821,9 +2402,7 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 			fn.JSONNullBehavior = "absent"
 		case p.cur.IsKeyword("WITH") || p.cur.IsKeyword("WITHOUT"):
 			with := p.cur.IsKeyword("WITH")
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 			if err := p.expectKeyword("UNIQUE"); err != nil {
 				return err
 			}
@@ -2832,18 +2411,14 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 			}
 			fn.JSONUnique = with
 		case p.cur.IsKeyword("RETURNING"):
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 			typ, err := p.parseTypeName()
 			if err != nil {
 				return err
 			}
 			fn.JSONReturning = typ
 		case p.cur.IsKeyword("ON"):
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 			var field *string
 			switch {
 			case p.cur.IsKeyword("EMPTY"):
@@ -2853,25 +2428,17 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 			default:
 				return p.errf("expected EMPTY or ERROR after ON")
 			}
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 			switch {
 			case p.cur.IsKeyword("ERROR"):
 				*field = "error"
-				if err := p.advance(); err != nil {
-					return err
-				}
+				p.advance()
 			case p.cur.IsKeyword("NULL"):
 				*field = "null"
-				if err := p.advance(); err != nil {
-					return err
-				}
+				p.advance()
 			case p.cur.IsKeyword("DEFAULT"):
 				*field = "default"
-				if err := p.advance(); err != nil {
-					return err
-				}
+				p.advance()
 				if _, err := p.parseExpr(0); err != nil {
 					return err
 				}
@@ -2879,14 +2446,10 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 				return p.errf("expected ERROR, NULL or DEFAULT")
 			}
 		case p.cur.IsKeyword("WRAPPER"):
-			if err := p.advance(); err != nil {
-				return err
-			}
+			p.advance()
 			if p.cur.IsKeyword("CONDITIONAL") || p.cur.IsKeyword("UNCONDITIONAL") {
 				fn.JSONWrapper = strings.ToUpper(p.cur.Value)
-				if err := p.advance(); err != nil {
-					return err
-				}
+				p.advance()
 			}
 		default:
 			return nil
@@ -2897,10 +2460,8 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 func (p *Parser) parseWindowSpec() (*WindowSpec, error) {
 	// OVER name and OVER (name ...) both reference a WINDOW definition.
 	if p.cur.Kind == TokIdent && !p.cur.IsPunct("(") {
-		name, err := p.parseIdent()
-		if err != nil {
-			return nil, err
-		}
+		name := p.cur.Value
+		p.advance()
 		return &WindowSpec{Base: name}, nil
 	}
 	if err := p.expectPunct("("); err != nil {
@@ -2908,16 +2469,11 @@ func (p *Parser) parseWindowSpec() (*WindowSpec, error) {
 	}
 	w := &WindowSpec{}
 	if p.cur.Kind == TokIdent && !isWindowClauseKeyword(p.cur.Value) {
-		base, err := p.parseIdent()
-		if err != nil {
-			return nil, err
-		}
-		w.Base = base
+		w.Base = p.cur.Value
+		p.advance()
 	}
 	if p.cur.IsKeyword("PARTITION") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if err := p.expectKeyword("BY"); err != nil {
 			return nil, err
 		}
@@ -2927,9 +2483,7 @@ func (p *Parser) parseWindowSpec() (*WindowSpec, error) {
 		}
 	}
 	if p.cur.IsKeyword("ORDER") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if err := p.expectKeyword("BY"); err != nil {
 			return nil, err
 		}
@@ -2940,13 +2494,9 @@ func (p *Parser) parseWindowSpec() (*WindowSpec, error) {
 	}
 	if p.cur.IsKeyword("ROWS") || p.cur.IsKeyword("RANGE") || p.cur.IsKeyword("GROUPS") {
 		w.FrameKind = strings.ToUpper(p.cur.Value)
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.IsKeyword("BETWEEN") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			start, off, err := p.parseFrameBound()
 			if err != nil {
 				return nil, err
@@ -2970,32 +2520,22 @@ func (p *Parser) parseWindowSpec() (*WindowSpec, error) {
 		}
 	}
 	if p.cur.IsKeyword("EXCLUDE") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		switch {
 		case p.cur.IsKeyword("CURRENT"):
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if err := p.expectKeyword("ROW"); err != nil {
 				return nil, err
 			}
 			w.FrameExclusion = "current_row"
 		case p.cur.IsKeyword("GROUP"):
 			w.FrameExclusion = "group"
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		case p.cur.IsKeyword("TIES"):
 			w.FrameExclusion = "ties"
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		case p.cur.IsKeyword("NO"):
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			if err := p.expectKeyword("OTHERS"); err != nil {
 				return nil, err
 			}
@@ -3123,27 +2663,19 @@ func (p *Parser) resolveWindowReferences(s *SelectStmt) error {
 
 func (p *Parser) parseFrameBound() (string, int, error) {
 	if p.cur.IsKeyword("UNBOUNDED") {
-		if err := p.advance(); err != nil {
-			return "", 0, err
-		}
+		p.advance()
 		switch {
 		case p.cur.IsKeyword("PRECEDING"):
-			if err := p.advance(); err != nil {
-				return "", 0, err
-			}
+			p.advance()
 			return "unbounded_preceding", 0, nil
 		case p.cur.IsKeyword("FOLLOWING"):
-			if err := p.advance(); err != nil {
-				return "", 0, err
-			}
+			p.advance()
 			return "unbounded_following", 0, nil
 		}
 		return "", 0, p.errf("expected PRECEDING or FOLLOWING after UNBOUNDED")
 	}
 	if p.cur.IsKeyword("CURRENT") {
-		if err := p.advance(); err != nil {
-			return "", 0, err
-		}
+		p.advance()
 		if err := p.expectKeyword("ROW"); err != nil {
 			return "", 0, err
 		}
@@ -3158,14 +2690,10 @@ func (p *Parser) parseFrameBound() (string, int, error) {
 	}
 	switch {
 	case p.cur.IsKeyword("PRECEDING"):
-		if err := p.advance(); err != nil {
-			return "", 0, err
-		}
+		p.advance()
 		return "preceding", n, nil
 	case p.cur.IsKeyword("FOLLOWING"):
-		if err := p.advance(); err != nil {
-			return "", 0, err
-		}
+		p.advance()
 		return "following", n, nil
 	}
 	return "", 0, p.errf("expected PRECEDING or FOLLOWING after frame offset")
@@ -3181,23 +2709,17 @@ func (p *Parser) parseCallArgsDistinct() ([]Expr, bool, error) {
 		return nil, false, err
 	}
 	if p.cur.IsPunct(")") {
-		if err := p.advance(); err != nil {
-			return nil, false, err
-		}
+		p.advance()
 		return nil, false, nil
 	}
 	distinct := false
 	if p.cur.IsKeyword("DISTINCT") {
 		distinct = true
-		if err := p.advance(); err != nil {
-			return nil, false, err
-		}
+		p.advance()
 	}
 	// COUNT(*)
 	if p.cur.IsPunct("*") {
-		if err := p.advance(); err != nil {
-			return nil, false, err
-		}
+		p.advance()
 		if err := p.expectPunct(")"); err != nil {
 			return nil, false, err
 		}
@@ -3213,9 +2735,7 @@ func (p *Parser) parseCallArgsDistinct() ([]Expr, bool, error) {
 		if !p.cur.IsPunct(",") {
 			break
 		}
-		if err := p.advance(); err != nil {
-			return nil, false, err
-		}
+		p.advance()
 	}
 	if err := p.expectPunct(")"); err != nil {
 		return nil, false, err
@@ -3224,9 +2744,7 @@ func (p *Parser) parseCallArgsDistinct() ([]Expr, bool, error) {
 }
 
 func (p *Parser) parseExtract() (Expr, error) {
-	if err := p.advance(); err != nil { // EXTRACT
-		return nil, err
-	}
+	p.advance()
 	if err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
@@ -3248,9 +2766,7 @@ func (p *Parser) parseExtract() (Expr, error) {
 }
 
 func (p *Parser) parsePosition() (Expr, error) {
-	if err := p.advance(); err != nil { // POSITION
-		return nil, err
-	}
+	p.advance()
 	if err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
@@ -3260,9 +2776,7 @@ func (p *Parser) parsePosition() (Expr, error) {
 	}
 	if p.cur.IsPunct(",") {
 		// Convenience form: POSITION(substring, string).
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		str, err := p.parseExpr(0)
 		if err != nil {
 			return nil, err
@@ -3286,9 +2800,7 @@ func (p *Parser) parsePosition() (Expr, error) {
 }
 
 func (p *Parser) parseSubstring() (Expr, error) {
-	if err := p.advance(); err != nil { // SUBSTRING
-		return nil, err
-	}
+	p.advance()
 	if err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
@@ -3298,18 +2810,14 @@ func (p *Parser) parseSubstring() (Expr, error) {
 	}
 	args := []Expr{str}
 	if p.cur.IsKeyword("FROM") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		start, err := p.parseExpr(0)
 		if err != nil {
 			return nil, err
 		}
 		args = append(args, start)
 		if p.cur.IsKeyword("FOR") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			length, err := p.parseExpr(0)
 			if err != nil {
 				return nil, err
@@ -3318,9 +2826,7 @@ func (p *Parser) parseSubstring() (Expr, error) {
 		}
 	} else if p.cur.IsPunct(",") {
 		for p.cur.IsPunct(",") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			a, err := p.parseExpr(0)
 			if err != nil {
 				return nil, err
@@ -3335,9 +2841,7 @@ func (p *Parser) parseSubstring() (Expr, error) {
 }
 
 func (p *Parser) parseCase() (Expr, error) {
-	if err := p.advance(); err != nil { // CASE
-		return nil, err
-	}
+	p.advance()
 	c := &CaseExpr{}
 	if !p.cur.IsKeyword("WHEN") {
 		base, err := p.parseExpr(0)
@@ -3347,9 +2851,7 @@ func (p *Parser) parseCase() (Expr, error) {
 		c.Base = base
 	}
 	for p.cur.IsKeyword("WHEN") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		cond, err := p.parseExpr(0)
 		if err != nil {
 			return nil, err
@@ -3364,9 +2866,7 @@ func (p *Parser) parseCase() (Expr, error) {
 		c.Whens = append(c.Whens, WhenClause{Cond: cond, Then: then})
 	}
 	if p.cur.IsKeyword("ELSE") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		e, err := p.parseExpr(0)
 		if err != nil {
 			return nil, err
@@ -3381,9 +2881,7 @@ func (p *Parser) parseCase() (Expr, error) {
 
 func (p *Parser) parseCast() (Expr, error) {
 	safe := strings.EqualFold(p.cur.Value, "TRY_CAST")
-	if err := p.advance(); err != nil { // CAST / TRY_CAST
-		return nil, err
-	}
+	p.advance()
 	if err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
@@ -3410,41 +2908,46 @@ func (p *Parser) parseTypeName() (string, error) {
 		return "", err
 	}
 	parts := []string{id}
+	switch strings.ToUpper(id) {
+	case "DOUBLE":
+		if p.cur.IsKeyword("PRECISION") {
+			parts = append(parts, "PRECISION")
+			p.advance()
+		}
+	case "CHARACTER", "CHAR", "NATIONAL", "BINARY":
+		if p.cur.IsKeyword("VARYING") {
+			parts = append(parts, "VARYING")
+			p.advance()
+		}
+	case "LONG":
+		if p.cur.IsKeyword("VARCHAR") {
+			parts = append(parts, "VARCHAR")
+			p.advance()
+		}
+	}
 	for p.cur.IsKeyword("WITHOUT") || p.cur.IsKeyword("WITH") {
 		parts = append(parts, strings.ToUpper(p.cur.Value))
-		if err := p.advance(); err != nil {
-			return "", err
-		}
+		p.advance()
 		if p.cur.IsKeyword("TIME") {
 			parts = append(parts, "TIME")
-			if err := p.advance(); err != nil {
-				return "", err
-			}
+			p.advance()
 			if p.cur.IsKeyword("ZONE") {
 				parts = append(parts, "ZONE")
-				if err := p.advance(); err != nil {
-					return "", err
-				}
+				p.advance()
 			}
 		}
 	}
 	if p.cur.IsPunct("(") {
-		if err := p.advance(); err != nil {
-			return "", err
-		}
+		p.advance()
 		var args []string
 		for !p.cur.IsPunct(")") {
 			if p.cur.Kind != TokNumber {
 				return "", p.errf("expected type parameter")
 			}
 			args = append(args, p.cur.Value)
-			if err := p.advance(); err != nil {
-				return "", err
-			}
+			p.advance()
 			if p.cur.IsPunct(",") {
-				if err := p.advance(); err != nil {
-					return "", err
-				}
+				p.advance()
 			} else {
 				break
 			}
@@ -3458,20 +2961,14 @@ func (p *Parser) parseTypeName() (string, error) {
 }
 
 func (p *Parser) parseShow() (Statement, error) {
-	if err := p.advance(); err != nil {
-		return nil, err
-	}
+	p.advance()
 	st := &ShowStmt{}
 	switch {
 	case p.cur.IsKeyword("TABLES"):
 		st.Target = "tables"
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.IsKeyword("FROM") || p.cur.IsKeyword("IN") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 			id, err := p.parseIdent()
 			if err != nil {
 				return nil, err
@@ -3480,13 +2977,9 @@ func (p *Parser) parseShow() (Statement, error) {
 		}
 	case p.cur.IsKeyword("COLUMNS"):
 		st.Target = "columns"
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 		if p.cur.IsKeyword("FROM") || p.cur.IsKeyword("IN") {
-			if err := p.advance(); err != nil {
-				return nil, err
-			}
+			p.advance()
 		}
 		parts, err := p.parseQualifiedName()
 		if err != nil {
@@ -3499,9 +2992,7 @@ func (p *Parser) parseShow() (Statement, error) {
 		st.Table = strings.Join(parts[1:], ".")
 	case p.cur.IsKeyword("SOURCES"), p.cur.IsKeyword("DATABASES"):
 		st.Target = "sources"
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	default:
 		return nil, p.errf("expected TABLES, COLUMNS or SOURCES after SHOW")
 	}
@@ -3509,13 +3000,9 @@ func (p *Parser) parseShow() (Statement, error) {
 }
 
 func (p *Parser) parseDescribe() (Statement, error) {
-	if err := p.advance(); err != nil {
-		return nil, err
-	}
+	p.advance()
 	if p.cur.IsKeyword("TABLE") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
+		p.advance()
 	}
 	parts, err := p.parseQualifiedName()
 	if err != nil {
@@ -3538,12 +3025,11 @@ func (p *Parser) sync() {
 	}
 }
 
-func (p *Parser) advance() error {
+func (p *Parser) advance() {
 	if p.pos < len(p.tokens)-1 {
 		p.pos++
 	}
 	p.sync()
-	return nil
 }
 
 func tokenizeAll(src string) ([]Token, error) {
@@ -3565,14 +3051,16 @@ func (p *Parser) expectKeyword(kw string) error {
 	if !p.cur.IsKeyword(kw) {
 		return p.errf("expected %s, got %s", strings.ToUpper(kw), p.cur)
 	}
-	return p.advance()
+	p.advance()
+	return nil
 }
 
 func (p *Parser) expectPunct(s string) error {
 	if !p.cur.IsPunct(s) {
 		return p.errf("expected %q, got %s", s, p.cur)
 	}
-	return p.advance()
+	p.advance()
+	return nil
 }
 
 func (p *Parser) parseIdent() (string, error) {
@@ -3580,9 +3068,7 @@ func (p *Parser) parseIdent() (string, error) {
 		return "", p.errf("expected identifier, got %s", p.cur)
 	}
 	v := p.cur.Value
-	if err := p.advance(); err != nil {
-		return "", err
-	}
+	p.advance()
 	return v, nil
 }
 

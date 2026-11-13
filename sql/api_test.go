@@ -66,6 +66,11 @@ func FuzzParse(f *testing.F) {
 		"WITH RECURSIVE nums(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM nums WHERE n < 3) SELECT * FROM nums",
 		"SELECT sum(total) OVER (PARTITION BY region ORDER BY id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM mongo.orders",
 		"SELECT 'x",
+		"SELECT * FROM mongo.orders MATCH_RECOGNIZE (PARTITION BY region ORDER BY id MEASURES id AS id ONE ROW PER MATCH PATTERN (A B*) DEFINE A AS status = 'paid', B AS total > 0) AS mr",
+		"SELECT * FROM JSON_TABLE('{\"items\":[{\"id\":1}]}', '$.items[*]' COLUMNS (id INT PATH '$.id')) AS jt",
+		"SELECT JSON_VALUE('{\"a\":1}', '$.a') IS JSON OBJECT",
+		"SELECT INTERVAL '1 day' + TIMESTAMP '2024-01-01 00:00:00'",
+		"SHOW TABLES FROM mongo",
 	} {
 		f.Add(seed)
 	}
@@ -312,6 +317,31 @@ func TestMatchRecognizeSyntaxRoundTrip(t *testing.T) {
 	} {
 		if _, err := Parse(query); err == nil {
 			t.Errorf("%q unexpectedly parsed", query)
+		}
+	}
+}
+
+func TestFormatterCoversMetadataAndPatternGroups(t *testing.T) {
+	cases := []string{
+		"SHOW TABLES FROM mongo",
+		"SHOW COLUMNS FROM mongo.orders",
+		"SHOW SOURCES",
+		"DESCRIBE mongo.orders",
+		"EXPLAIN SELECT * FROM mongo.orders",
+		"EXPLAIN SHOW TABLES FROM mongo",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN ((A | B)+ C) DEFINE A AS x = 1, B AS x = 2, C AS x = 3) AS m",
+	}
+	for _, query := range cases {
+		stmt, err := Parse(query)
+		if err != nil {
+			t.Fatalf("%q: %v", query, err)
+		}
+		formatted := FormatStatement(stmt)
+		if formatted == "" {
+			t.Fatalf("%q: no formatter output", query)
+		}
+		if _, err := Parse(formatted); err != nil {
+			t.Fatalf("%q formatted as %q: %v", query, formatted, err)
 		}
 	}
 }

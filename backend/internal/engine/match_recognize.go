@@ -219,6 +219,11 @@ func matchBase(p *sql.MatchPattern, pos int, rows []mrRow, rel *relation, defs m
 			}
 		}
 		return states, nil
+	case "group":
+		if len(p.Children) == 0 {
+			return nil, errf("match_recognize_error", "empty MATCH_RECOGNIZE group")
+		}
+		return matchPattern(p.Children[0], pos, rows, rel, defs, ec)
 	case "alt":
 		var out []mrState
 		for _, child := range p.Children {

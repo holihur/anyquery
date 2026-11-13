@@ -40,7 +40,7 @@ type NamedWindow struct {
 	Spec *WindowSpec
 }
 
-func (*SelectStmt) stmtNode() {}
+func (*SelectStmt) stmtNode() { _ = 0 }
 
 // CTE is a named subquery. Materialized hints are intentionally omitted for now.
 type CTE struct {
@@ -64,7 +64,7 @@ type ShowStmt struct {
 	Table  string
 }
 
-func (*ShowStmt) stmtNode() {}
+func (*ShowStmt) stmtNode() { _ = 0 }
 
 // DescribeStmt implements DESCRIBE <source>.<table>.
 type DescribeStmt struct {
@@ -72,14 +72,14 @@ type DescribeStmt struct {
 	Table  string
 }
 
-func (*DescribeStmt) stmtNode() {}
+func (*DescribeStmt) stmtNode() { _ = 0 }
 
 // ExplainStmt wraps another statement.
 type ExplainStmt struct {
 	Stmt Statement
 }
 
-func (*ExplainStmt) stmtNode() {}
+func (*ExplainStmt) stmtNode() { _ = 0 }
 
 // SelectItem is one projection.
 type SelectItem struct {
@@ -143,7 +143,7 @@ type TableSample struct {
 	Seed    *int64
 }
 
-func (*TableRef) tableNode() {}
+func (*TableRef) tableNode() { _ = 0 }
 
 // DerivedTable is a subquery in FROM.
 type DerivedTable struct {
@@ -152,7 +152,7 @@ type DerivedTable struct {
 	Columns []string
 }
 
-func (*DerivedTable) tableNode() {}
+func (*DerivedTable) tableNode() { _ = 0 }
 
 // LateralTable marks a table expression as LATERAL; its subquery/function may
 // reference columns from table expressions to its left.
@@ -160,7 +160,7 @@ type LateralTable struct {
 	Table TableExpr
 }
 
-func (*LateralTable) tableNode() {}
+func (*LateralTable) tableNode() { _ = 0 }
 
 // TableFunction is a FROM-clause table function such as UNNEST(expr).
 type TableFunction struct {
@@ -170,7 +170,7 @@ type TableFunction struct {
 	Columns []string
 }
 
-func (*TableFunction) tableNode() {}
+func (*TableFunction) tableNode() { _ = 0 }
 
 // ValuesTable is a VALUES (...) table expression in FROM.
 type ValuesTable struct {
@@ -179,7 +179,7 @@ type ValuesTable struct {
 	Columns []string
 }
 
-func (*ValuesTable) tableNode() {}
+func (*ValuesTable) tableNode() { _ = 0 }
 
 // MatchRecognize is a SQL:2016 MATCH_RECOGNIZE row-pattern table expression.
 type MatchRecognize struct {
@@ -194,7 +194,7 @@ type MatchRecognize struct {
 	Alias       string
 }
 
-func (*MatchRecognize) tableNode() {}
+func (*MatchRecognize) tableNode() { _ = 0 }
 
 type MatchMeasure struct {
 	Expr  Expr
@@ -223,7 +223,7 @@ type JSONTable struct {
 	Alias   string
 }
 
-func (*JSONTable) tableNode() {}
+func (*JSONTable) tableNode() { _ = 0 }
 
 // JSONTableColumn is one column in JSON_TABLE's COLUMNS clause.
 type JSONTableColumn struct {
@@ -240,14 +240,14 @@ type ValuesStmt struct {
 	Rows [][]Expr
 }
 
-func (*ValuesStmt) stmtNode() {}
+func (*ValuesStmt) stmtNode() { _ = 0 }
 
 // TableStmt is a top-level TABLE <table> statement.
 type TableStmt struct {
 	Ref *TableRef
 }
 
-func (*TableStmt) stmtNode() {}
+func (*TableStmt) stmtNode() { _ = 0 }
 
 // JoinType enumerates supported joins.
 type JoinType string
@@ -270,7 +270,7 @@ type JoinExpr struct {
 	Natural bool
 }
 
-func (*JoinExpr) tableNode() {}
+func (*JoinExpr) tableNode() { _ = 0 }
 
 // PipeStage is one stage of a pipeline.
 type PipeStage interface {
@@ -279,32 +279,32 @@ type PipeStage interface {
 
 type PipeWhere struct{ Expr Expr }
 
-func (*PipeWhere) pipeNode() {}
+func (*PipeWhere) pipeNode() { _ = 0 }
 
 type PipeSelect struct {
 	Items    []SelectItem
 	Distinct bool
 }
 
-func (*PipeSelect) pipeNode() {}
+func (*PipeSelect) pipeNode() { _ = 0 }
 
 type PipeAggregate struct {
 	Items   []SelectItem
 	GroupBy []Expr
 }
 
-func (*PipeAggregate) pipeNode() {}
+func (*PipeAggregate) pipeNode() { _ = 0 }
 
 type PipeOrder struct{ Items []OrderItem }
 
-func (*PipeOrder) pipeNode() {}
+func (*PipeOrder) pipeNode() { _ = 0 }
 
 type PipeLimit struct {
 	Limit  int
 	Offset int
 }
 
-func (*PipeLimit) pipeNode() {}
+func (*PipeLimit) pipeNode() { _ = 0 }
 
 type PipeJoin struct {
 	Right   TableExpr
@@ -314,11 +314,11 @@ type PipeJoin struct {
 	Natural bool
 }
 
-func (*PipeJoin) pipeNode() {}
+func (*PipeJoin) pipeNode() { _ = 0 }
 
 type PipeDistinct struct{}
 
-func (*PipeDistinct) pipeNode() {}
+func (*PipeDistinct) pipeNode() { _ = 0 }
 
 // ---- expressions -----------------------------------------------------------
 
@@ -339,7 +339,7 @@ type Parameter struct {
 	Style string // ? or $
 }
 
-func (*Parameter) exprNode() {}
+func (*Parameter) exprNode() { _ = 0 }
 
 type LiteralKind string
 
@@ -351,31 +351,31 @@ const (
 	LitNull   LiteralKind = "null"
 )
 
-func (*Literal) exprNode() {}
+func (*Literal) exprNode() { _ = 0 }
 
 type ColumnRef struct {
 	Parts []string // 1: col, 2: table.col, 3: source.table.col
 }
 
-func (*ColumnRef) exprNode() {}
+func (*ColumnRef) exprNode() { _ = 0 }
 
 type StarExpr struct{ Table string }
 
-func (*StarExpr) exprNode() {}
+func (*StarExpr) exprNode() { _ = 0 }
 
 type UnaryExpr struct {
 	Op   string
 	Expr Expr
 }
 
-func (*UnaryExpr) exprNode() {}
+func (*UnaryExpr) exprNode() { _ = 0 }
 
 type BinaryExpr struct {
 	Op          string
 	Left, Right Expr
 }
 
-func (*BinaryExpr) exprNode() {}
+func (*BinaryExpr) exprNode() { _ = 0 }
 
 // CompareExpr covers =, !=, <, <=, >, >=, LIKE, ILIKE, REGEXP.
 type CompareExpr struct {
@@ -385,7 +385,7 @@ type CompareExpr struct {
 	Negated bool
 }
 
-func (*CompareExpr) exprNode() {}
+func (*CompareExpr) exprNode() { _ = 0 }
 
 type InExpr struct {
 	Left     Expr
@@ -394,7 +394,7 @@ type InExpr struct {
 	Negated  bool
 }
 
-func (*InExpr) exprNode() {}
+func (*InExpr) exprNode() { _ = 0 }
 
 // QuantifiedExpr is = ANY/SOME/ALL (subquery or value list).
 type QuantifiedExpr struct {
@@ -405,7 +405,7 @@ type QuantifiedExpr struct {
 	All      bool
 }
 
-func (*QuantifiedExpr) exprNode() {}
+func (*QuantifiedExpr) exprNode() { _ = 0 }
 
 type BetweenExpr struct {
 	Left    Expr
@@ -414,7 +414,7 @@ type BetweenExpr struct {
 	Negated bool
 }
 
-func (*BetweenExpr) exprNode() {}
+func (*BetweenExpr) exprNode() { _ = 0 }
 
 type IsExpr struct {
 	Left          Expr
@@ -426,7 +426,7 @@ type IsExpr struct {
 	JSONUniqueSet bool
 }
 
-func (*IsExpr) exprNode() {}
+func (*IsExpr) exprNode() { _ = 0 }
 
 type FuncCall struct {
 	Name        string
@@ -470,7 +470,7 @@ type WindowSpec struct {
 	FrameExclusion   string // "", CURRENT ROW, GROUP, TIES, NO OTHERS
 }
 
-func (*FuncCall) exprNode() {}
+func (*FuncCall) exprNode() { _ = 0 }
 
 type CaseExpr struct {
 	Base  Expr
@@ -483,7 +483,7 @@ type WhenClause struct {
 	Then Expr
 }
 
-func (*CaseExpr) exprNode() {}
+func (*CaseExpr) exprNode() { _ = 0 }
 
 type CastExpr struct {
 	Expr Expr
@@ -491,7 +491,7 @@ type CastExpr struct {
 	Safe bool // TRY_CAST returns NULL instead of an error
 }
 
-func (*CastExpr) exprNode() {}
+func (*CastExpr) exprNode() { _ = 0 }
 
 // IntervalExpr is an INTERVAL literal such as INTERVAL '1 day' or
 // INTERVAL '1' DAY.
@@ -500,7 +500,7 @@ type IntervalExpr struct {
 	Qualifier string // e.g. DAY, YEAR TO MONTH
 }
 
-func (*IntervalExpr) exprNode() {}
+func (*IntervalExpr) exprNode() { _ = 0 }
 
 func (i *IntervalExpr) String() string {
 	out := "INTERVAL '" + strings.ReplaceAll(i.Value, "'", "''") + "'"
@@ -512,11 +512,11 @@ func (i *IntervalExpr) String() string {
 
 type ExistsExpr struct{ Query *SelectStmt }
 
-func (*ExistsExpr) exprNode() {}
+func (*ExistsExpr) exprNode() { _ = 0 }
 
 type SubqueryExpr struct{ Query *SelectStmt }
 
-func (*SubqueryExpr) exprNode() {}
+func (*SubqueryExpr) exprNode() { _ = 0 }
 
 // AtTimeZoneExpr is <expr> AT TIME ZONE <zone>.
 type AtTimeZoneExpr struct {
@@ -524,7 +524,7 @@ type AtTimeZoneExpr struct {
 	Zone Expr
 }
 
-func (*AtTimeZoneExpr) exprNode() {}
+func (*AtTimeZoneExpr) exprNode() { _ = 0 }
 
 func (a *AtTimeZoneExpr) String() string {
 	return "(" + a.Expr.String() + " AT TIME ZONE " + a.Zone.String() + ")"
@@ -1167,8 +1167,53 @@ func FormatStatement(stmt Statement) string {
 		return FormatValues(s)
 	case *TableStmt:
 		return FormatTable(s)
+	case *ShowStmt:
+		return FormatShow(s)
+	case *DescribeStmt:
+		return FormatDescribe(s)
+	case *ExplainStmt:
+		return FormatExplain(s)
 	}
 	return ""
+}
+
+// FormatShow formats SHOW TABLES / SHOW COLUMNS / SHOW SOURCES.
+func FormatShow(s *ShowStmt) string {
+	if s == nil {
+		return "SHOW"
+	}
+	switch strings.ToLower(s.Target) {
+	case "tables":
+		if s.Source != "" {
+			return "SHOW TABLES FROM " + FormatIdent(s.Source)
+		}
+		return "SHOW TABLES"
+	case "columns":
+		return "SHOW COLUMNS FROM " + FormatIdent(s.Source) + "." + formatQualifiedName(s.Table)
+	case "sources":
+		return "SHOW SOURCES"
+	}
+	return "SHOW " + strings.ToUpper(s.Target)
+}
+
+// FormatDescribe formats DESCRIBE source.table.
+func FormatDescribe(s *DescribeStmt) string {
+	if s == nil {
+		return "DESCRIBE"
+	}
+	return "DESCRIBE " + FormatIdent(s.Source) + "." + formatQualifiedName(s.Table)
+}
+
+// FormatExplain formats EXPLAIN <statement>.
+func FormatExplain(s *ExplainStmt) string {
+	if s == nil || s.Stmt == nil {
+		return "EXPLAIN"
+	}
+	inner := FormatStatement(s.Stmt)
+	if inner == "" {
+		return "EXPLAIN"
+	}
+	return "EXPLAIN " + inner
 }
 
 func formatJSONTableColumns(cols []JSONTableColumn) string {
@@ -1253,6 +1298,19 @@ func formatMatchPattern(p *MatchPattern) string {
 	switch p.Kind {
 	case "var":
 		s := FormatIdent(p.Var)
+		if p.Quantifier != "" {
+			s += p.Quantifier
+			if p.Lazy {
+				s += "?"
+			}
+		}
+		return s
+	case "group":
+		parts := make([]string, len(p.Children))
+		for i, c := range p.Children {
+			parts[i] = formatMatchPattern(c)
+		}
+		s := "(" + strings.Join(parts, " ") + ")"
 		if p.Quantifier != "" {
 			s += p.Quantifier
 			if p.Lazy {

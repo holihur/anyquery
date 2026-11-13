@@ -45,8 +45,13 @@ This is a nested Go module:
 cd sql
 go test ./...
 go vet ./...
+go test -run '^$' -fuzz FuzzLexer -fuzztime=10s
 go test -run '^$' -fuzz FuzzParse -fuzztime=10s
+go test -run '^$' -fuzz FuzzFormatRoundTrip -fuzztime=10s
 ```
+
+Fuzz targets cover the lexer, parser no-panic behavior, and formatter
+parse→format→parse round trips. CI runs a short smoke for each target.
 
 The backend uses a local `replace` directive, so changes here are picked up
 immediately by `cd ../backend && go test ./...`.

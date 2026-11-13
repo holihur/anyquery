@@ -48,3 +48,7 @@ run = "cd backend && gofmt -w ./cmd ./internal && cd ../sql && gofmt -w ."
 [tasks.vet]
 description = "Run go vet and a TypeScript build"
 run = "cd backend && go vet ./... && cd ../sql && go vet ./... && cd ../frontend && pnpm build"
+
+[tasks."fuzz:sql"]
+description = "Run short fuzz smoke tests for the SQL parser module"
+run = "cd sql && go test -run=^$ -fuzz=FuzzLexer -fuzztime=5s && go test -run=^$ -fuzz=FuzzParse -fuzztime=5s && go test -run=^$ -fuzz=FuzzFormatRoundTrip -fuzztime=5s"
