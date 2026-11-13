@@ -99,6 +99,17 @@ SELECT id, name FROM graphql.users WHERE name LIKE 'A%';
 `object`、`array`。未声明列时，连接器会根据返回行推断列，但 Schema 浏览器
 在首次取数前可能看不到字段；生产配置建议显式声明列。
 
+## Linear preset
+
+内置 `linear` 类型使用 GraphQL connector，预置了 Linear Issues 查询、cursor 分页和列声明：
+
+- Endpoint: `https://api.linear.app/graphql`
+- Header: `{"Authorization":"Bearer <LINEAR_API_KEY>"}`
+- 默认表：`issues`
+- 分页：`after` + `pageInfo`
+
+它仍标记为 `template`，因为尚未用真实 Linear workspace 做 CI 验证；可以直接修改 query 适配自己的团队字段。
+
 ## HTTP 与认证
 
 - 默认使用 `POST`；设置 `"http_method": "GET"` 可改用 GraphQL over HTTP GET。

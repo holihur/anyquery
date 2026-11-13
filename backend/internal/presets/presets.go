@@ -80,7 +80,6 @@ var restPresets = []restPreset{
 	{"asana", "Asana", "Asana API", "asana", "data", "tasks", "https://app.asana.com/api/1.0/tasks"},
 	{"trello", "Trello", "Trello REST API", "trello", "", "cards", "https://api.trello.com/1/boards/{id}/cards"},
 	{"clickup", "ClickUp", "ClickUp API", "clickup", "tasks", "tasks", "https://api.clickup.com/api/v2/list/{id}/task"},
-	{"linear", "Linear", "Linear GraphQL API", "linear", "data.issues.nodes", "issues", "https://api.linear.app/graphql"},
 	{"pipedrive", "Pipedrive", "Pipedrive API", "pipedrive", "data", "deals", "https://api.pipedrive.com/v1/deals"},
 	{"freshdesk", "Freshdesk", "Freshdesk API", "freshdesk", "", "tickets", "https://{domain}.freshdesk.com/api/v2/tickets"},
 	{"discord", "Discord", "Discord API", "discord", "", "messages", "https://discord.com/api/v10/channels/{id}/messages"},
@@ -120,6 +119,51 @@ var restRecipes = map[string]restRecipe{
 	"twitter":    {Pagination: "cursor", CursorParam: "pagination_token", CursorPath: "meta.next_token", PageSizeParam: "max_results"},
 	"telegram":   {Pagination: "offset", OffsetParam: "offset", PageSizeParam: "limit"},
 	"clickup":    {Pagination: "page", PageParam: "page", PageSizeParam: "page_size"},
+}
+
+type graphqlPreset struct {
+	Type, Name, Description, Icon, Endpoint, Query, DataPath, Columns, TableName string
+}
+
+var graphqlPresets = []graphqlPreset{{
+	Type: "linear", Name: "Linear", Description: "Linear GraphQL API (template)",
+	Icon: "linear", Endpoint: "https://api.linear.app/graphql",
+	TableName: "issues", DataPath: "issues.nodes",
+	Query: `query($after: String) {
+  issues(first: 100, after: $after) {
+    nodes { id identifier title priority createdAt state { name } }
+    pageInfo { hasNextPage endCursor }
+  }
+}`,
+	Columns: `{"id":"string","identifier":"string","title":"string","priority":"number","createdAt":"string","state":"object"}`,
+}}
+
+func registerGraphQLPresets() {
+	for _, p := range graphqlPresets {
+		base, ok := connector.Get("graphql")
+		if !ok {
+			continue
+		}
+		spec := base.Spec()
+		spec.Type = p.Type
+		spec.Name = p.Name
+		spec.Description = p.Description
+		spec.Icon = p.Icon
+		spec.Category = connector.CategoryAPI
+		spec.Maturity = "template"
+		defaults := map[string]string{
+			"endpoint": p.Endpoint, "table_name": p.TableName, "query": p.Query,
+			"data_path": p.DataPath, "columns": p.Columns,
+			"cursor_variable": "after", "cursor_path": "issues.pageInfo.endCursor",
+			"has_next_path": "issues.pageInfo.hasNextPage", "max_pages": "10",
+		}
+		for i := range spec.Fields {
+			if v, ok := defaults[spec.Fields[i].Key]; ok {
+				spec.Fields[i].Default = v
+			}
+		}
+		connector.RegisterAlias("graphql", spec, defaults)
+	}
 }
 
 func sqlIcon(typ, fallback string) string {
@@ -233,6 +277,7 @@ func RegisterAll() {
 		}
 		connector.RegisterAlias(p.Base, spec, nil)
 	}
+	registerGraphQLPresets()
 	for _, p := range restPresets {
 		base, ok := connector.Get("rest")
 		if !ok {

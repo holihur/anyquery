@@ -67,6 +67,20 @@ func TestConnectorSpecContract(t *testing.T) {
 	}
 }
 
+func TestLinearUsesGraphQLPreset(t *testing.T) {
+	p, ok := connector.Get("linear")
+	if !ok {
+		t.Fatal("missing linear preset")
+	}
+	cfg := map[string]string{}
+	if d, ok := p.(connector.ConfigDefaulter); ok {
+		d.ApplyDefaults(cfg)
+	}
+	if cfg["endpoint"] == "" || cfg["query"] == "" || cfg["cursor_path"] == "" {
+		t.Fatalf("linear defaults = %+v", cfg)
+	}
+}
+
 func TestPresetRecipesApplyDefaults(t *testing.T) {
 	for typ, want := range map[string]string{
 		"github": "link", "jira": "offset", "notion": "POST",
