@@ -4,6 +4,10 @@ This document freezes **AnyQuery SQL:2016 Read-Only Analytical Query Profile
 1.0**. It is the acceptance target for the 100% SQL analysis work. It is not a
 claim that AnyQuery implements every part of SQL:2016.
 
+> **Status: Profile 1.0 complete.** Every matrix row is `supported` or
+> explicitly `excluded`; the `sql` module has 100.0% statement coverage and all
+> fuzz smoke targets pass in CI.
+
 ## Definition of done
 
 A matrix row is **supported** only when all of the following exist:

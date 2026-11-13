@@ -2,7 +2,7 @@
 
 AnyQuery uses its own lexer/parser and an in-memory relational engine. The grammar is deliberately owned by the project so cross-source queries, pipelines and source-specific syntax can evolve independently of MySQL/Postgres drivers.
 
-> The lexer/parser/AST/formatter is also a standalone, dependency-free Go module: `github.com/anyquery/anyquery/sql`. See [sql-completeness.md](sql-completeness.md) for the feature matrix, audit findings and remaining gaps.
+> The lexer/parser/AST/formatter is also a standalone, dependency-free Go module: `github.com/anyquery/anyquery/sql`. The frozen target is the [SQL:2016 Read-Only Analytical Query Profile 1.0](sql-2016-profile.md); all matrix rows are supported and the module has 100.0% statement coverage. See [sql-completeness.md](sql-completeness.md) for the audit and boundaries.
 
 ## Statements
 

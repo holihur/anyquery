@@ -1,121 +1,104 @@
-# SQL completeness audit
+# SQL completeness and conformance status
 
-This page separates **the parser/AST** from **the execution engine** and records
-what is actually supported, what is intentionally out of scope, and what still
-needs work. The syntax reference is [sql.md](sql.md).
+AnyQuery uses its own lexer/parser and an in-memory read-only relational engine.
+The grammar is deliberately owned by the project so cross-source queries,
+pipelines and source-specific syntax can evolve independently of
+MySQL/Postgres drivers.
 
-## Verdict
+The frozen acceptance target is
+[**SQL:2016 Read-Only Analytical Query Profile 1.0**](sql-2016-profile.md).
+It is a project-defined, read-only query profile, not a claim of full SQL:2016
+or SQL Server/T-SQL compatibility.
 
-AnyQuery is a **read-only analytical SQL dialect**, not a drop-in replacement
-for PostgreSQL/MySQL parsers.
+## Current verdict
 
-| Scope | Rough completeness | Assessment |
-| --- | --- | --- |
-| AnyQuery analytical SELECT dialect | ~85% | Production-ready for the documented workload; remaining gaps are edge cases and advanced analytics |
-| SQL-92 / SQL:2016 surface | ~35–40% | Core SELECT is strong; DML/DDL, full type system, JSON/array/interval and many dialect features are absent |
-| DML / DDL / transactions | 0% by design | The engine and API are read-only |
-| Parser as a reusable Go package | Good | Zero dependencies, typed errors, AST and formatter; exported AST is still experimental |
+| Scope | Status |
+| --- | --- |
+| AnyQuery SQL:2016 Read-Only Analytical Query Profile 1.0 | **100% of matrix rows supported** |
+| `github.com/anyquery/anyquery/sql` statement coverage | **100.0%** |
+| Fuzz smoke (lexer, parser, formatter round-trip) | **Green in CI** |
+| Full SQL:2016 (DML/DDL, PSM, CLI, MED, XML, POLY, etc.) | **Out of scope** |
+| SQL Server / T-SQL extensions (`TOP`, `PIVOT`, `QUALIFY`, ...) | **Out of scope** |
 
-The percentages are approximate and relative to the target scope, not a claim of
-standards certification.
+See the [profile matrix](sql-2016-profile.md#conformance-matrix) for the exact
+row-by-row contract and test tags. A complete profile row requires parser,
+engine, formatter and positive/boundary/error tests, not just syntax support.
 
-## Support matrix
+## Supported query profile
 
-| Area | Status | Notes |
-| --- | --- | --- |
-| SELECT / DISTINCT / aliases / ordinals | ✅ | `DISTINCT ON` is explicitly rejected |
-| FROM, comma joins, derived tables, inline VALUES | ✅ | Derived tables and VALUES tables require aliases; column alias lists on derived tables are not supported |
-| INNER / LEFT / RIGHT / FULL / CROSS JOIN | ✅ | `ON`, `USING`, `NATURAL`; `NATURAL CROSS JOIN` is rejected |
-| LATERAL / APPLY / UNNEST / table functions | ❌ | Not parsed |
-| WHERE / HAVING | ✅ | Three-valued NULL logic is covered by engine tests |
-| GROUP BY expressions, aliases, ordinals | ✅ | |
-| ROLLUP / CUBE / GROUPING SETS | ✅ | Mixed base groups are normalized, e.g. `GROUP BY region, ROLLUP(status)` becomes `(region,status),(region)`; multiple grouping constructs are rejected |
-| Window functions | 🟡 | Ranking/navigation/aggregates, `ROWS`/`RANGE`; no named windows, `WINDOW` clause, `GROUPS`, `EXCLUDE`, `WITHIN GROUP`, `IGNORE NULLS`, or interval RANGE bounds |
-| Set operations | ✅ | `UNION`/`INTERSECT`/`EXCEPT`, `ALL`/`DISTINCT`, precedence, parentheses |
-| CTEs / recursive CTEs | 🟡 | Multiple CTEs and `RECURSIVE`; one recursive UNION term, 100 iterations / 10,000 rows; no `MATERIALIZED`, `SEARCH` or `CYCLE` |
-| Subqueries | ✅ | Scalar, `IN`, `EXISTS`, `ANY`/`SOME`/`ALL`; correlated subqueries execute per outer row |
-| Basic expressions | ✅ | Arithmetic, concatenation, bitwise, comparison, `LIKE`/`ILIKE`/`REGEXP`, `IN`, `BETWEEN`, `IS`, `CASE`, `CAST`/`TRY_CAST`/chained `::`, typed date/time literals |
-| JSON / arrays / maps / intervals | ❌ | No JSON operators, `ARRAY[...]`, subscripts, map access or `INTERVAL` values |
-| `COLLATE`, `AT TIME ZONE`, `LIKE ... ESCAPE`, `SIMILAR TO` | ❌ | Not parsed |
-| `DISTINCT ON`, `QUALIFY`, `TOP`, `FETCH ... WITH TIES` | ❌ | Not supported; unsupported forms must not silently change meaning |
-| Bind parameters | 🟡 | `?` and `$n` work in expressions; `LIMIT`/`OFFSET`/frame bounds still require integer literals |
-| SHOW / DESCRIBE / EXPLAIN | ✅ | Read-only metadata and plan statements |
-| INSERT / UPDATE / DELETE / MERGE / DDL | ❌ | Rejected by design |
-| Parser API | 🟡 | `Parse`, `Tokenize`, AST, formatter and typed `*sql.Error`; no source spans, multi-statement parse, dialect options or comment preservation |
-| Formatter | 🟡 | Canonical output; qualified names/stars are quoted correctly, but some original spellings (e.g. ROLLUP vs expanded GROUPING SETS) are normalized |
+- `SELECT`, aliases, expressions, derived tables, top-level `VALUES`/`TABLE`
+- `JOIN` variants, `LATERAL`, `UNNEST`, `TABLESAMPLE`
+- `WHERE`, `GROUP BY`, `HAVING`, `ROLLUP`/`CUBE`/`GROUPING SETS`
+- `WITH`, recursive CTEs, set operations, subqueries
+- window functions, named windows, `WINDOW`, `GROUPS`, `EXCLUDE`,
+  `WITHIN GROUP`, ordered-set aggregates
+- `LIMIT`/`OFFSET`/`FETCH`, parameterized row counts, `WITH TIES`
+- `INTERVAL`, date/time/time-zone arithmetic, `AT TIME ZONE`
+- SQL/JSON: `IS JSON`, `JSON_VALUE`, `JSON_QUERY`, `JSON_EXISTS`,
+  `JSON_OBJECT`, `JSON_ARRAY`, `JSON_ARRAYAGG`, `JSON_OBJECTAGG`, `JSON_TABLE`
+- read-only `FOR SYSTEM_TIME` temporal tables
+- SQL:2016 `MATCH_RECOGNIZE`
+- `SHOW`, `DESCRIBE`, `EXPLAIN` and AnyQuery `|>` pipelines
 
-## Reusable Go package
+## Explicitly outside the profile
 
-The lexer, parser, AST and formatter are a standalone Go module:
+- `INSERT`, `UPDATE`, `DELETE`, `MERGE`
+- DDL, transactions, savepoints and isolation levels
+- SQL/PSM, SQL/CLI, SQL/MED, SQL/OLB, SQL/JRT, SQL/XML, SQL/POLY
+- security, authorization, catalog evolution and stored routines
+- user-defined scalar/table functions beyond the built-in registry
+- vendor-only syntax such as `DISTINCT ON`, `QUALIFY`, `TOP`, `PIVOT`,
+  `UNPIVOT`
+- write-side temporal history maintenance and full array/map type systems
+
+Unsupported syntax must produce an explicit parse/runtime error. It must not be
+silently reinterpreted as a nearby supported form.
+
+## Parser package quality gate
+
+The parser is a standalone, dependency-free Go module:
 
 ```text
 github.com/anyquery/anyquery/sql
 ```
 
-- No third-party dependencies.
-- `backend` consumes it through a local `replace` directive.
-- CI runs the module's vet/tests separately because it is a nested module.
-- Import example:
+The SQL module keeps **100.0% statement coverage**. Fuzz targets cover:
 
-```go
-import anysql "github.com/anyquery/anyquery/sql"
+- `FuzzLexer`: token positions, EOF and malformed input
+- `FuzzParse`: malformed input must never panic
+- `FuzzFormatRoundTrip`: parse → format → parse must preserve valid syntax
 
-stmt, err := anysql.Parse("SELECT region, count(*) FROM mongo.orders GROUP BY region")
-if err != nil {
-    return err
-}
-fmt.Println(anysql.FormatSelect(stmt.(*anysql.SelectStmt)))
-```
+CI runs a short smoke for every target and fails on a discovered reproducer.
 
-Until a stable `sql/v1` tag exists, treat the exported AST as experimental:
-new syntax may add node fields or node types. The parser entry point and
-formatter are intended to stay stable.
+## Known engine limitations
 
-## Audit fixes in this pass
+These do not reduce the Profile 1.0 row status, but matter for large or
+non-standard workloads:
 
-- Extracted the parser into the reusable `github.com/anyquery/anyquery/sql` module.
-- Added typed lexer/parser errors with line/column positions.
-- Fixed formatter quoting for `source.table.*`, schema-qualified table names and
-  identifiers that start with a digit.
-- Added `TokenKind.String()` and bracket-identifier metadata.
-- Added mixed base + ROLLUP/CUBE/GROUPING SETS normalization.
-- Added `POSITION(substring, string)` convenience form and chained `::` casts.
-- Rejected constructs that previously misparsed silently: `DISTINCT ON`,
-  `ARRAY[...]`, numeric array subscripts, `NATURAL CROSS JOIN`, and multiple
-  grouping constructs.
-- Added parser fuzz coverage and CI fuzz smoke targets for lexer, parser and
-  formatter round trips.
-
-## Remaining work, in priority order
-
-### P1 — user-visible query gaps
-
-1. Parameterized `LIMIT`/`OFFSET` (requires widening the AST beyond `*int`).
-2. Named windows, `WINDOW` clauses, `GROUPS`/`EXCLUDE`, `WITHIN GROUP`.
-3. `LATERAL`, `UNNEST`, table functions, and derived-table column alias lists.
-4. `DISTINCT ON`, `QUALIFY`, `TOP`, `FETCH ... WITH TIES`.
-5. JSON/array/map/interval types and operators, `COLLATE`, `AT TIME ZONE`,
-   `LIKE ... ESCAPE`, standard `TRIM(BOTH ... FROM ...)`.
-6. Top-level `VALUES` / `TABLE name` statements.
-7. PIVOT/UNPIVOT, semi/anti/ASOF joins, `MATCH_RECOGNIZE`.
-
-### P2 — tooling and parser API
-
-- Source spans on AST nodes for editors/linters.
-- Multi-statement parsing and dialect/option configuration.
-- Comment preservation in the formatter.
-- More golden round-trip tests and a permanent fuzz corpus.
-- Cost-based join ordering and streaming/spill execution (engine, not parser);
-  see [sql.md](sql.md#execution-guards).
+- execution is materialized and in-memory; no streaming/hash-join disk spill
+- no cost-based join reordering; joins follow written order and choose the
+  smaller inner-join build side
+- window frame offsets are integer literals, not bind parameters
+- UNNEST expands JSON/array values, not arbitrary user table functions
+- temporal reads require a connector to advertise `Capabilities.SystemTime`
+- interval and date/time values are normalized strings, not a full SQL type
+  system
 
 ## Verification
 
 ```bash
-cd sql && go vet ./... && go test ./...
-cd backend && go test ./internal/engine ./internal/sqlconn ./internal/api
+cd sql
+go vet ./...
+go test ./... -count=1 -covermode=set -coverprofile=coverage.out
+go tool cover -func=coverage.out | tail -1
+
+go test -run=^$ -fuzz=FuzzLexer -fuzztime=5s
+go test -run=^$ -fuzz=FuzzParse -fuzztime=5s
+go test -run=^$ -fuzz=FuzzFormatRoundTrip -fuzztime=5s
+
+cd ../backend
+go test ./... -count=1
 ```
 
-The parser tests cover core SELECT, joins, pipelines, modern SQL, grouping
-sets, formatter round trips, public API behavior, typed errors and fuzzing.
-Engine tests cover NULL semantics, joins, aggregation, windows, CTEs, set
-operations and grouping sets.
+CI also runs backend build/tests, E2E MongoDB + SQLite federation, and the
+production Docker image build.

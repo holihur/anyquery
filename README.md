@@ -332,20 +332,24 @@ PAT 在 **Settings → API keys** 创建，raw token 只显示一次。
 
 ## SQL 支持
 
-- `SELECT [ALL|DISTINCT]`、表达式、别名、`FROM`、`WHERE`、`GROUP BY`、`HAVING`、`ORDER BY`、`LIMIT/OFFSET`、`FETCH FIRST`
+当前已完成 **[SQL:2016 Read-Only Analytical Query Profile 1.0](docs/sql-2016-profile.md)**：矩阵全部为 `supported` 或显式 `excluded`，`sql` 模块 **100.0% 语句覆盖率**，CI 持续跑 lexer/parser/formatter fuzz。
+
+- `SELECT [ALL|DISTINCT]`、表达式、别名、`FROM`、`WHERE`、`GROUP BY`、`HAVING`、`ORDER BY`、`LIMIT/OFFSET`、`FETCH FIRST ... WITH TIES`
 - `INNER / LEFT / RIGHT / FULL / CROSS / NATURAL JOIN`、`ON` / `USING`
-- 多表逗号连接、普通/递归 `WITH` CTE、FROM 子查询与 `VALUES` 内联表
+- 多表逗号连接、普通/递归 `WITH` CTE、FROM 子查询、`LATERAL`、`UNNEST`、`TABLESAMPLE`、`VALUES` / `TABLE`
 - `UNION [ALL]`、`INTERSECT [ALL]`、`EXCEPT [ALL]`（INTERSECT 优先级更高）
 - 标量、`IN`、`EXISTS`、`ANY`/`SOME`/`ALL` 子查询，支持相关子查询
-- 窗口函数：`row_number / rank / dense_rank / lag / lead / sum / avg / count … OVER (PARTITION BY … ORDER BY …)`，支持分组聚合后再开窗
+- 窗口函数：`row_number / rank / dense_rank / lag / lead / sum / avg / count … OVER (...)`；命名窗口、`WINDOW`、`GROUPS`、`EXCLUDE`、`WITHIN GROUP`
 - `ROLLUP` / `CUBE` / `GROUPING SETS` / `GROUPING()`，支持小计与总计
-- 位置参数 `?` / `$n`，API、MCP 与 Query Studio Params 对话框可直接传参
+- 位置参数 `?` / `$n`；`LIMIT`/`OFFSET`/`FETCH` 数量也支持参数
 - 聚合：`count / sum / avg / min / max / count(distinct) / group_concat / array_agg / bool_and / bool_or / stddev / variance`，支持 `FILTER (WHERE …)`
-- 常用标量函数：字符串、数学、日期（`extract / date_part / date_add / date_diff / to_timestamp / timezone`）、`TRY_CAST`、JSON、哈希等
+- `INTERVAL`、日期时间/时区、`AT TIME ZONE`、`TRIM`/`OVERLAY`
+- SQL/JSON：`IS JSON`、`JSON_VALUE/QUERY/EXISTS`、`JSON_OBJECT/ARRAY`、`JSON_ARRAYAGG/OBJECTAGG`、`JSON_TABLE`
+- 只读 `FOR SYSTEM_TIME` 时态表、`MATCH_RECOGNIZE` 行模式识别
 - 运算符：算术、比较、`LIKE / ILIKE / REGEXP`、`IN`、`BETWEEN`、`IS [NOT] DISTINCT FROM`、`CASE`、`CAST`、`::`
 - Pipeline stages：`WHERE`、`SELECT`、`AGGREGATE … GROUP BY`、`ORDER BY`、`LIMIT`、`DISTINCT`、`JOIN`
 
-完整语法、函数列表和限制见 **[docs/sql.md](docs/sql.md)**。查询中的表名格式为 `` `source`.`table` ``（schema 可包含在 table 内，例如 `` `pg`.`public.users` ``）。执行器对表名做 catalog 校验并逐方言安全引用。
+完整语法、函数列表和限制见 **[docs/sql.md](docs/sql.md)**，逐项验收矩阵见 **[docs/sql-2016-profile.md](docs/sql-2016-profile.md)**。查询中的表名格式为 `` `source`.`table` ``（schema 可包含在 table 内，例如 `` `pg`.`public.users` ``）。执行器对表名做 catalog 校验并逐方言安全引用。
 
 **保存查询上限**：默认每个 workspace 500 条（`MAX_SAVED_QUERIES`）；超出时返回 `409 saved_query_limit`，UI 会提示删除旧查询。查询历史接口单次最多返回最近 500 条（`MAX_HISTORY_RUNS`）。
 

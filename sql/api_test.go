@@ -345,3 +345,23 @@ func TestFormatterCoversMetadataAndPatternGroups(t *testing.T) {
 		}
 	}
 }
+
+func TestUnsupportedSyntaxIsExplicitlyRejected(t *testing.T) {
+	for _, query := range []string{
+		"INSERT INTO t VALUES (1)",
+		"UPDATE t SET x = 1",
+		"DELETE FROM t",
+		"CREATE TABLE t (x INT)",
+		"MERGE INTO t USING u ON t.id = u.id",
+		"SELECT DISTINCT ON (x) x FROM t",
+		"SELECT ARRAY[1, 2] FROM t",
+		"SELECT TOP 1 * FROM t",
+		"SELECT * FROM t QUALIFY row_number() OVER () = 1",
+		"SELECT * FROM t PIVOT (sum(x) FOR y IN ('a'))",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A) DEFINE A AS x = 1) AS m PIVOT (sum(x) FOR y IN ('a'))",
+	} {
+		if _, err := Parse(query); err == nil {
+			t.Errorf("unsupported syntax unexpectedly parsed: %q", query)
+		}
+	}
+}

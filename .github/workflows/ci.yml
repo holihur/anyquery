@@ -35,6 +35,13 @@ jobs:
         run: |
           go vet ./...
           go test ./... -count=1
+      - name: SQL coverage gate
+        working-directory: sql
+        run: |
+          go test ./... -count=1 -covermode=set -coverprofile=coverage.out
+          total=$(go tool cover -func=coverage.out | awk '/^total:/{print $3}')
+          echo "statement coverage: $total"
+          test "$total" = "100.0%"
       - name: SQL fuzz smoke
         working-directory: sql
         run: |
