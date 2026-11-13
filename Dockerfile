@@ -8,8 +8,9 @@ COPY frontend/ ./
 RUN pnpm build
 
 FROM golang:1.27-alpine AS api
-WORKDIR /src
+WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
+COPY sql/ /src/sql/
 RUN go mod download
 COPY backend/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/anyquery ./cmd/server \

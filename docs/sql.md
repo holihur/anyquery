@@ -2,6 +2,8 @@
 
 AnyQuery uses its own lexer/parser and an in-memory relational engine. The grammar is deliberately owned by the project so cross-source queries, pipelines and source-specific syntax can evolve independently of MySQL/Postgres drivers.
 
+> The lexer/parser/AST/formatter is also a standalone, dependency-free Go module: `github.com/anyquery/anyquery/sql`. See [sql-completeness.md](sql-completeness.md) for the feature matrix, audit findings and remaining gaps.
+
 ## Statements
 
 ```sql
@@ -221,9 +223,14 @@ Use filters early. The scan planner performs capability-gated projection, filter
 ## Known limitations
 
 - No DML/DDL or transactions.
-- No `PIVOT` or named window definitions.
-- No full interval/array/map type system; typed date/time values are represented as normalized strings.
+- No `PIVOT`/`UNPIVOT`, `DISTINCT ON`, `QUALIFY`, `TOP`, `LATERAL`, `UNNEST`, or named window definitions.
+- `LIMIT`/`OFFSET` and window frame offsets accept integer literals, not bind parameters.
+- No full interval/array/map/JSON type system; typed date/time values are represented as normalized strings.
 - No cost-based join reordering; joins follow the written order and choose the smaller inner-join build side.
 - Window functions are not available inside `|>` pipeline stages.
 - Recursive CTEs require a single `UNION`/`UNION ALL` term and have the documented iteration/row guards.
 - Set-operation type coercion is minimal; values are compared with AnyQuery's cross-source numeric normalization.
+
+Unsupported constructs such as `DISTINCT ON`, `ARRAY[...]`, array subscripts and
+`NATURAL CROSS JOIN` are rejected explicitly instead of being interpreted as a
+nearby supported form.

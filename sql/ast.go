@@ -1,13 +1,9 @@
-// Package sql contains AnyQuery's own SQL parser and AST.
-//
-// The grammar is intentionally owned (not generated from a third-party MySQL
-// parser) so the platform can grow new dialect features, pipe stages and
-// source-specific extensions without waiting for an upstream parser.
 package sql
 
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // Statement is a parsed top-level statement.
@@ -356,25 +352,43 @@ func quoteIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
+// FormatIdent quotes an identifier when needed. It accepts the same
+// identifier character set as the lexer (Unicode letters, digits, underscore
+// and dollar), but an identifier may not start with a digit.
 func FormatIdent(s string) string {
-	for _, r := range s {
-		if !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
-			return quoteIdent(s)
-		}
-	}
 	if s == "" {
 		return `""`
+	}
+	for i, r := range s {
+		ok := r == '_' || r == '$' || unicode.IsLetter(r)
+		if i > 0 {
+			ok = ok || unicode.IsDigit(r)
+		}
+		if !ok {
+			return quoteIdent(s)
+		}
 	}
 	return s
 }
 
+// formatQualifiedName quotes each dot-separated part. The AST stores catalog
+// and schema names joined with dots, so formatting must not quote the whole
+// string as one identifier.
+func formatQualifiedName(s string) string {
+	parts := strings.Split(s, ".")
+	for i, part := range parts {
+		parts[i] = FormatIdent(part)
+	}
+	return strings.Join(parts, ".")
+}
+
 func FormatTableRef(t *TableRef) string {
 	if t.Source == "" {
-		return FormatIdent(t.Table)
+		return formatQualifiedName(t.Table)
 	}
-	parts := []string{t.Source}
+	parts := []string{FormatIdent(t.Source)}
 	if t.Table != "" {
-		parts = append(parts, FormatIdent(t.Table))
+		parts = append(parts, formatQualifiedName(t.Table))
 	}
 	return strings.Join(parts, ".")
 }
@@ -412,7 +426,7 @@ func (c *ColumnRef) String() string {
 
 func (s *StarExpr) String() string {
 	if s.Table != "" {
-		return FormatIdent(s.Table) + ".*"
+		return formatQualifiedName(s.Table) + ".*"
 	}
 	return "*"
 }
@@ -586,7 +600,7 @@ func FormatSelectItem(i SelectItem) string {
 	var s string
 	if i.Star {
 		if i.StarTable != "" {
-			s = FormatIdent(i.StarTable) + ".*"
+			s = formatQualifiedName(i.StarTable) + ".*"
 		} else {
 			s = "*"
 		}
@@ -746,7 +760,11 @@ func FormatTableExpr(t TableExpr) string {
 			s += " AS " + FormatIdent(x.Alias)
 		}
 		if len(x.Columns) > 0 {
-			s += "(" + strings.Join(x.Columns, ", ") + ")"
+			cols := make([]string, len(x.Columns))
+			for i, col := range x.Columns {
+				cols[i] = FormatIdent(col)
+			}
+			s += "(" + strings.Join(cols, ", ") + ")"
 		}
 		return s
 	case *JoinExpr:

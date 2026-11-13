@@ -35,7 +35,7 @@ run = "cd frontend && pnpm dev"
 
 [tasks.test]
 description = "Run Go tests and build the frontend"
-run = "cd backend && go test ./... && cd ../frontend && pnpm build"
+run = "cd backend && go test ./... && cd ../sql && go test ./... && cd ../frontend && pnpm build"
 
 [tasks.build]
 description = "Build the API binary and production SPA"
@@ -43,8 +43,8 @@ run = "cd backend && go build -trimpath -o anyquery ./cmd/server && go build -tr
 
 [tasks.fmt]
 description = "Format Go and TypeScript sources"
-run = "cd backend && gofmt -w ./cmd ./internal"
+run = "cd backend && gofmt -w ./cmd ./internal && cd ../sql && gofmt -w ."
 
 [tasks.vet]
 description = "Run go vet and a TypeScript build"
-run = "cd backend && go vet ./... && cd ../frontend && pnpm build"
+run = "cd backend && go vet ./... && cd ../sql && go vet ./... && cd ../frontend && pnpm build"

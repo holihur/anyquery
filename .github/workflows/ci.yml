@@ -30,6 +30,11 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test ./... -count=1
+      - name: SQL module vet + test
+        working-directory: sql
+        run: |
+          go vet ./...
+          go test ./... -count=1
       - name: build binaries
         run: |
           go build -trimpath -o /tmp/anyquery ./cmd/server

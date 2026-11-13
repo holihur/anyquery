@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/anyquery/anyquery/internal/connector"
-	"github.com/anyquery/anyquery/internal/sql"
+	"github.com/anyquery/anyquery/sql"
 )
 
 // Error is a user-facing query error.

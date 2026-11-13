@@ -60,7 +60,7 @@ FROM mongo.orders
 ## 功能
 
 - **联邦查询**：跨数据源 JOIN（inner / left / right / full / cross / natural）、CTE、标量/IN/EXISTS 子查询、UNION/INTERSECT/EXCEPT 与窗口函数。
-- **自研 SQL 解析器**：没有依赖过时的第三方 MySQL parser；表达式、函数、语句和 pipe stage 都可以本地扩展。
+- **自研 SQL 解析器**：没有依赖过时的第三方 MySQL parser；表达式、函数、语句和 pipe stage 都可以本地扩展。解析器已抽成无第三方依赖的独立 Go module：[`github.com/anyquery/anyquery/sql`](sql/README.md)。
 - **104 种注册数据源类型**：35 个原生连接器、37 个 SQL 兼容预设、32 个 REST/文件模板；完整目录见 [docs/data-sources-top100.md](docs/data-sources-top100.md)。
 - **多租户**：`workspace` 隔离数据源、查询、成员、审计与 API Key；所有资源都带 `tenantId`。
 - **团队协作**：owner / admin / member / viewer 角色，邮件邀请链接、共享/私有保存查询、最近 100 条查询历史、审计日志。
@@ -357,6 +357,7 @@ PAT 在 **Settings → API keys** 创建，raw token 只显示一次。
 
 ```
 .
+├── sql                       # standalone SQL lexer/parser/AST Go module (no deps)
 ├── backend
 │   ├── cmd/server            # API server
 │   ├── cmd/seed              # demo seeding
@@ -381,7 +382,6 @@ PAT 在 **Settings → API keys** 创建，raw token 只显示一次。
 │       ├── bigquery          # Google BigQuery REST connector
 │       ├── cassandra         # Cassandra / ScyllaDB CQL connector
 │       ├── presets           # SQL compatibility + REST/API templates
-│       ├── sql               # lexer, parser, AST, formatter
 │       ├── engine            # binder, joins, aggregation, pipelines
 │       ├── store             # MongoDB repositories & indexes
 │       ├── cryptox           # AES-GCM & token hashing
@@ -399,6 +399,7 @@ PAT 在 **Settings → API keys** 创建，raw token 只显示一次。
 ├── docs/openapi.md          # OpenAPI/Swagger connector guide
 ├── docs/mcp.md              # MCP + PAT scopes
 ├── docs/sql.md              # SQL syntax, functions and limits
+├── docs/sql-completeness.md # parser/engine feature matrix and gaps
 ├── docs/i18n.md             # locales, RTL and translation coverage
 ├── docs/performance.md      # bundle splitting, gzip and cache headers
 ├── .github/workflows/ci.yml
@@ -426,6 +427,7 @@ mise run vet        # go vet + TypeScript 构建
 
 ```bash
 cd backend && go test ./...
+cd sql && go test ./...
 ```
 
 ---

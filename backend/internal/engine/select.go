@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anyquery/anyquery/internal/sql"
+	"github.com/anyquery/anyquery/sql"
 )
 
 type projectionItem struct {

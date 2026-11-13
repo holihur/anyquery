@@ -1,7 +1,6 @@
 package sql
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"unicode"
@@ -19,14 +18,33 @@ const (
 	TokPunct
 )
 
+// String returns a stable name for the token kind.
+func (k TokenKind) String() string {
+	switch k {
+	case TokEOF:
+		return "EOF"
+	case TokIdent:
+		return "identifier"
+	case TokNumber:
+		return "number"
+	case TokString:
+		return "string"
+	case TokPunct:
+		return "punctuation"
+	default:
+		return "unknown"
+	}
+}
+
 // Token is one lexical token. Quoted identifiers keep their original spelling
 // (quotes stripped) and are marked Quoted so keywords can be used as names.
 type Token struct {
-	Kind   TokenKind
-	Value  string
-	Quoted bool
-	Line   int
-	Col    int
+	Kind    TokenKind
+	Value   string
+	Quoted  bool
+	Bracket bool // quoted with [..] (SQL Server style)
+	Line    int
+	Col     int
 }
 
 func (t Token) IsKeyword(kw string) bool {
@@ -86,7 +104,7 @@ func (l *Lexer) Next() (Token, error) {
 				l.advanceRune()
 			}
 			if !closed {
-				return Token{}, fmt.Errorf("unterminated comment at line %d, column %d", startLine, startCol)
+				return Token{}, errorAt(startLine, startCol, "unterminated comment")
 			}
 			continue
 		}
@@ -145,7 +163,7 @@ func (l *Lexer) Next() (Token, error) {
 		return Token{Kind: TokPunct, Value: string(r), Line: startLine, Col: startCol}, nil
 	}
 
-	return Token{}, fmt.Errorf("unexpected character %q at line %d, column %d", r, startLine, startCol)
+	return Token{}, errorAt(startLine, startCol, "unexpected character %q", r)
 }
 
 func (l *Lexer) scanNumber(line, col int) (Token, error) {
@@ -173,7 +191,7 @@ func (l *Lexer) scanNumber(line, col int) (Token, error) {
 done:
 	value := l.src[start:l.pos]
 	if _, err := strconv.ParseFloat(value, 64); err != nil {
-		return Token{}, fmt.Errorf("invalid number %q at line %d, column %d", value, line, col)
+		return Token{}, errorAt(line, col, "invalid number %q", value)
 	}
 	return Token{Kind: TokNumber, Value: value, Line: line, Col: col}, nil
 }
@@ -216,7 +234,7 @@ func (l *Lexer) scanString(line, col int) (Token, error) {
 		sb.WriteRune(r)
 		l.advance(r, size)
 	}
-	return Token{}, fmt.Errorf("unterminated string at line %d, column %d", line, col)
+	return Token{}, errorAt(line, col, "unterminated string")
 }
 
 func (l *Lexer) scanQuotedIdent(quote rune, line, col int) (Token, error) {
@@ -239,7 +257,7 @@ func (l *Lexer) scanQuotedIdent(quote rune, line, col int) (Token, error) {
 		sb.WriteRune(r)
 		l.advance(r, size)
 	}
-	return Token{}, fmt.Errorf("unterminated quoted identifier at line %d, column %d", line, col)
+	return Token{}, errorAt(line, col, "unterminated quoted identifier")
 }
 
 func (l *Lexer) scanBracketIdent(line, col int) (Token, error) {
@@ -255,12 +273,12 @@ func (l *Lexer) scanBracketIdent(line, col int) (Token, error) {
 				continue
 			}
 			l.advanceRune()
-			return Token{Kind: TokIdent, Value: sb.String(), Quoted: true, Line: line, Col: col}, nil
+			return Token{Kind: TokIdent, Value: sb.String(), Quoted: true, Bracket: true, Line: line, Col: col}, nil
 		}
 		sb.WriteRune(r)
 		l.advance(r, size)
 	}
-	return Token{}, fmt.Errorf("unterminated bracketed identifier at line %d, column %d", line, col)
+	return Token{}, errorAt(line, col, "unterminated bracketed identifier")
 }
 
 func (l *Lexer) advanceRune() {

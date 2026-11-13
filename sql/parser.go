@@ -1,7 +1,6 @@
 package sql
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -162,6 +161,9 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 		if err := p.advance(); err != nil {
 			return nil, err
 		}
+		if p.cur.IsKeyword("ON") {
+			return nil, p.errf("SELECT DISTINCT ON is not supported")
+		}
 	} else if p.cur.IsKeyword("ALL") {
 		// SELECT ALL is the explicit spelling of the default.
 		if err := p.advance(); err != nil {
@@ -206,11 +208,7 @@ func (p *Parser) parseSelectClauses(s *SelectStmt) error {
 		if err := p.expectKeyword("BY"); err != nil {
 			return err
 		}
-		if p.cur.IsKeyword("ROLLUP") || p.cur.IsKeyword("CUBE") || p.cur.IsKeyword("GROUPING") {
-			if s.GroupingSets, err = p.parseGroupingSets(); err != nil {
-				return err
-			}
-		} else if s.GroupBy, err = p.parseExprList(); err != nil {
+		if s.GroupBy, s.GroupingSets, err = p.parseGroupBy(); err != nil {
 			return err
 		}
 	}
@@ -463,6 +461,9 @@ func (p *Parser) parsePipeJoin() (PipeStage, error) {
 			}
 		}
 	case p.cur.IsKeyword("CROSS"):
+		if natural {
+			return nil, p.errf("NATURAL CROSS JOIN is not valid")
+		}
 		jt = JoinCross
 		if err := p.advance(); err != nil {
 			return nil, err
@@ -639,6 +640,9 @@ func (p *Parser) finishSelectItem(expr Expr) (SelectItem, error) {
 		}
 		item.Alias = alias
 	} else if p.cur.Kind == TokIdent && !isClauseKeyword(p.cur.Value) {
+		if p.cur.Bracket && isNumericToken(p.cur.Value) {
+			return SelectItem{}, p.errf("array subscripts are not supported")
+		}
 		item.Alias = p.cur.Value
 		if err := p.advance(); err != nil {
 			return SelectItem{}, err
@@ -730,6 +734,9 @@ func (p *Parser) parseTableExpr() (TableExpr, error) {
 				return nil, err
 			}
 		case p.cur.IsKeyword("CROSS"):
+			if natural {
+				return nil, p.errf("NATURAL CROSS JOIN is not valid")
+			}
 			jt = JoinCross
 			if err := p.advance(); err != nil {
 				return nil, err
@@ -923,6 +930,51 @@ func (p *Parser) parseIdentList() ([]string, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// parseGroupBy parses GROUP BY items and supports a base grouping list
+// combined with one ROLLUP/CUBE/GROUPING SETS construct. Mixed forms are
+// normalized to GroupingSets so the engine only needs one path.
+func (p *Parser) parseGroupBy() ([]Expr, [][]Expr, error) {
+	var base []Expr
+	var sets [][]Expr
+	hasSets := false
+	for {
+		if p.cur.IsKeyword("ROLLUP") || p.cur.IsKeyword("CUBE") || p.cur.IsKeyword("GROUPING") {
+			if hasSets {
+				return nil, nil, p.errf("multiple ROLLUP/CUBE/GROUPING SETS constructs are not supported")
+			}
+			var err error
+			if sets, err = p.parseGroupingSets(); err != nil {
+				return nil, nil, err
+			}
+			hasSets = true
+		} else {
+			e, err := p.parseExpr(0)
+			if err != nil {
+				return nil, nil, err
+			}
+			base = append(base, e)
+		}
+		if !p.cur.IsPunct(",") {
+			break
+		}
+		if err := p.advance(); err != nil {
+			return nil, nil, err
+		}
+	}
+	if !hasSets {
+		return base, nil, nil
+	}
+	if len(base) > 0 {
+		for i, set := range sets {
+			merged := make([]Expr, 0, len(base)+len(set))
+			merged = append(merged, base...)
+			merged = append(merged, set...)
+			sets[i] = merged
+		}
+	}
+	return nil, sets, nil
 }
 
 func (p *Parser) parseGroupingSets() ([][]Expr, error) {
@@ -1191,8 +1243,8 @@ func (p *Parser) parseExpr(minPrec int) (Expr, error) {
 		}
 	}
 
-	// Postfix CAST.
-	if p.cur.IsPunct("::") {
+	// Postfix CAST, including chained forms such as value::int::text.
+	for p.cur.IsPunct("::") {
 		if err := p.advance(); err != nil {
 			return nil, err
 		}
@@ -1584,6 +1636,9 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		return e, nil
 
 	case t.Kind == TokIdent:
+		if t.IsKeyword("ARRAY") && p.peek.Bracket {
+			return nil, p.errf("ARRAY constructors are not supported")
+		}
 		// Function call?
 		if p.peek.IsPunct("(") {
 			name := t.Value
@@ -1834,6 +1889,20 @@ func (p *Parser) parsePosition() (Expr, error) {
 	sub, err := p.parseExpr(precCompare + 1)
 	if err != nil {
 		return nil, err
+	}
+	if p.cur.IsPunct(",") {
+		// Convenience form: POSITION(substring, string).
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		str, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		if err := p.expectPunct(")"); err != nil {
+			return nil, err
+		}
+		return &FuncCall{Name: "position", Args: []Expr{sub, str}}, nil
 	}
 	if err := p.expectKeyword("IN"); err != nil {
 		return nil, err
@@ -2149,8 +2218,20 @@ func (p *Parser) parseIdent() (string, error) {
 	return v, nil
 }
 
+func isNumericToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func (p *Parser) errf(format string, args ...any) error {
-	return fmt.Errorf("%s at line %d, column %d", fmt.Sprintf(format, args...), p.cur.Line, p.cur.Col)
+	return errorAt(p.cur.Line, p.cur.Col, format, args...)
 }
 
 func isClauseKeyword(s string) bool {

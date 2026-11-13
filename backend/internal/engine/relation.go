@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/anyquery/anyquery/internal/connector"
-	"github.com/anyquery/anyquery/internal/sql"
+	"github.com/anyquery/anyquery/sql"
 )
 
 // field is one addressable column in a relation.

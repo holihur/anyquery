@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/anyquery/anyquery/internal/sql"
+	"github.com/anyquery/anyquery/sql"
 )
 
 type evalCtx struct {

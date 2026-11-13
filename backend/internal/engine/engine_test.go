@@ -575,6 +575,18 @@ ORDER BY g, region`)
 	}
 }
 
+func TestMixedGroupingSets(t *testing.T) {
+	res := run(t, `SELECT region, status, count(*) AS n
+FROM mongo.orders GROUP BY region, ROLLUP(status)
+ORDER BY region, status NULLS LAST`)
+	if res.RowCount != 5 {
+		t.Fatalf("rows = %d %+v", res.RowCount, res.Rows)
+	}
+	if res.Rows[1]["region"] != "EU" || res.Rows[1]["status"] != nil || res.Rows[1]["n"] != int64(2) {
+		t.Fatalf("EU total = %+v", res.Rows[1])
+	}
+}
+
 func TestGroupingSets(t *testing.T) {
 	res := run(t, `SELECT region, status, count(*) AS n
 FROM mongo.orders GROUP BY GROUPING SETS ((region), (status), ())

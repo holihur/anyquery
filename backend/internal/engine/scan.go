@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/anyquery/anyquery/internal/connector"
-	"github.com/anyquery/anyquery/internal/sql"
+	"github.com/anyquery/anyquery/sql"
 )
 
 type scanHint struct {

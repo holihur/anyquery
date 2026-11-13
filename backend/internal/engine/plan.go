@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/anyquery/anyquery/internal/connector"
-	"github.com/anyquery/anyquery/internal/sql"
+	"github.com/anyquery/anyquery/sql"
 )
 
 // PlanNode is a structured logical/physical execution plan. It is intentionally
