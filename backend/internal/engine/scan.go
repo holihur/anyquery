@@ -254,7 +254,7 @@ func (ec *execCtx) buildScanHints(s *sql.SelectStmt) map[*sql.TableRef]*scanHint
 	}
 
 	// A LIMIT without filtering/sorting/aggregation can cap the source scan too.
-	if len(tables) == 1 && s.Limit != nil && s.Where == nil && len(s.GroupBy) == 0 && s.Having == nil && len(s.OrderBy) == 0 && !s.Distinct && len(s.SetOps) == 0 && len(s.Pipes) == 0 {
+	if len(tables) == 1 && s.Limit != nil && s.OffsetExpr == nil && s.Where == nil && len(s.GroupBy) == 0 && s.Having == nil && len(s.OrderBy) == 0 && !s.Distinct && len(s.SetOps) == 0 && len(s.Pipes) == 0 {
 		simple := true
 		for _, item := range s.Projections {
 			if sql.ContainsAggregate(item.Expr) || sql.ContainsWindow(item.Expr) {

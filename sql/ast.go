@@ -2,6 +2,7 @@ package sql
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -14,19 +15,22 @@ type Statement interface {
 // SelectStmt is a SELECT query. Pipe stages are applied after the base
 // SELECT (or after FROM when using FROM-first pipeline syntax).
 type SelectStmt struct {
-	CTEs         []*CTE
-	Distinct     bool
-	Projections  []SelectItem
-	From         []TableExpr
-	Where        Expr
-	GroupBy      []Expr
-	GroupingSets [][]Expr
-	Having       Expr
-	OrderBy      []OrderItem
-	Limit        *int
-	Offset       *int
-	SetOps       []SetOperation
-	Pipes        []PipeStage
+	CTEs          []*CTE
+	Distinct      bool
+	Projections   []SelectItem
+	From          []TableExpr
+	Where         Expr
+	GroupBy       []Expr
+	GroupingSets  [][]Expr
+	Having        Expr
+	OrderBy       []OrderItem
+	Limit         *int
+	LimitExpr     Expr // set instead of Limit when the row count is an expression
+	Offset        *int
+	OffsetExpr    Expr // set instead of Offset when the offset is an expression
+	FetchWithTies bool
+	SetOps        []SetOperation
+	Pipes         []PipeStage
 }
 
 func (*SelectStmt) stmtNode() {}
@@ -96,17 +100,44 @@ type TableRef struct {
 	Source string
 	Table  string
 	Alias  string
+	Sample *TableSample
+}
+
+// TableSample describes TABLESAMPLE SYSTEM/BERNOULLI and REPEATABLE.
+type TableSample struct {
+	Method  string // SYSTEM or BERNOULLI
+	Percent float64
+	Seed    *int64
 }
 
 func (*TableRef) tableNode() {}
 
 // DerivedTable is a subquery in FROM.
 type DerivedTable struct {
-	Query *SelectStmt
-	Alias string
+	Query   *SelectStmt
+	Alias   string
+	Columns []string
 }
 
 func (*DerivedTable) tableNode() {}
+
+// LateralTable marks a table expression as LATERAL; its subquery/function may
+// reference columns from table expressions to its left.
+type LateralTable struct {
+	Table TableExpr
+}
+
+func (*LateralTable) tableNode() {}
+
+// TableFunction is a FROM-clause table function such as UNNEST(expr).
+type TableFunction struct {
+	Name    string
+	Args    []Expr
+	Alias   string
+	Columns []string
+}
+
+func (*TableFunction) tableNode() {}
 
 // ValuesTable is a VALUES (...) table expression in FROM.
 type ValuesTable struct {
@@ -116,6 +147,20 @@ type ValuesTable struct {
 }
 
 func (*ValuesTable) tableNode() {}
+
+// ValuesStmt is a top-level VALUES statement.
+type ValuesStmt struct {
+	Rows [][]Expr
+}
+
+func (*ValuesStmt) stmtNode() {}
+
+// TableStmt is a top-level TABLE <table> statement.
+type TableStmt struct {
+	Ref *TableRef
+}
+
+func (*TableStmt) stmtNode() {}
 
 // JoinType enumerates supported joins.
 type JoinType string
@@ -705,11 +750,18 @@ func FormatSelect(s *SelectStmt) string {
 		sb.WriteString(" ORDER BY ")
 		sb.WriteString(formatOrder(s.OrderBy))
 	}
-	if s.Limit != nil {
-		sb.WriteString(" LIMIT " + fmt.Sprint(*s.Limit))
-	}
-	if s.Offset != nil {
-		sb.WriteString(" OFFSET " + fmt.Sprint(*s.Offset))
+	if s.FetchWithTies && (s.Limit != nil || s.LimitExpr != nil) {
+		if s.Offset != nil || s.OffsetExpr != nil {
+			sb.WriteString(" OFFSET " + formatRowCount(s.Offset, s.OffsetExpr))
+		}
+		sb.WriteString(" FETCH FIRST " + formatRowCount(s.Limit, s.LimitExpr) + " ROWS WITH TIES")
+	} else {
+		if s.Limit != nil || s.LimitExpr != nil {
+			sb.WriteString(" LIMIT " + formatRowCount(s.Limit, s.LimitExpr))
+		}
+		if s.Offset != nil || s.OffsetExpr != nil {
+			sb.WriteString(" OFFSET " + formatRowCount(s.Offset, s.OffsetExpr))
+		}
 	}
 	for _, p := range s.Pipes {
 		sb.WriteString(" |> ")
@@ -736,14 +788,43 @@ func FormatTableExpr(t TableExpr) string {
 	switch x := t.(type) {
 	case *TableRef:
 		s := FormatTableRef(x)
+		if x.Sample != nil {
+			s += " " + FormatTableSample(x.Sample)
+		}
 		if x.Alias != "" {
 			s += " AS " + FormatIdent(x.Alias)
 		}
 		return s
+	case *LateralTable:
+		return "LATERAL " + FormatTableExpr(x.Table)
 	case *DerivedTable:
 		s := "(" + FormatSelect(x.Query) + ")"
 		if x.Alias != "" {
 			s += " AS " + FormatIdent(x.Alias)
+		}
+		if len(x.Columns) > 0 {
+			cols := make([]string, len(x.Columns))
+			for i, col := range x.Columns {
+				cols[i] = FormatIdent(col)
+			}
+			s += "(" + strings.Join(cols, ", ") + ")"
+		}
+		return s
+	case *TableFunction:
+		args := make([]string, len(x.Args))
+		for i, arg := range x.Args {
+			args[i] = arg.String()
+		}
+		s := FormatIdent(x.Name) + "(" + strings.Join(args, ", ") + ")"
+		if x.Alias != "" {
+			s += " AS " + FormatIdent(x.Alias)
+		}
+		if len(x.Columns) > 0 {
+			cols := make([]string, len(x.Columns))
+			for i, col := range x.Columns {
+				cols[i] = FormatIdent(col)
+			}
+			s += "(" + strings.Join(cols, ", ") + ")"
 		}
 		return s
 	case *ValuesTable:
@@ -780,6 +861,63 @@ func FormatTableExpr(t TableExpr) string {
 			s += " USING (" + strings.Join(x.Using, ", ") + ")"
 		}
 		return s
+	}
+	return ""
+}
+
+func formatRowCount(literal *int, expr Expr) string {
+	if literal != nil {
+		return fmt.Sprint(*literal)
+	}
+	if expr != nil {
+		return expr.String()
+	}
+	return "ALL"
+}
+
+// FormatTableSample formats a TABLESAMPLE clause.
+func FormatTableSample(s *TableSample) string {
+	if s == nil {
+		return ""
+	}
+	out := "TABLESAMPLE " + strings.ToUpper(s.Method) + " (" + strconv.FormatFloat(s.Percent, 'f', -1, 64) + ")"
+	if s.Seed != nil {
+		out += " REPEATABLE (" + fmt.Sprint(*s.Seed) + ")"
+	}
+	return out
+}
+
+// FormatValues formats a top-level VALUES statement.
+func FormatValues(v *ValuesStmt) string {
+	rows := make([]string, len(v.Rows))
+	for i, row := range v.Rows {
+		vals := make([]string, len(row))
+		for j, e := range row {
+			vals[j] = e.String()
+		}
+		rows[i] = "(" + strings.Join(vals, ", ") + ")"
+	}
+	return "VALUES " + strings.Join(rows, ", ")
+}
+
+// FormatTable formats a top-level TABLE statement.
+func FormatTable(t *TableStmt) string {
+	if t == nil || t.Ref == nil {
+		return "TABLE"
+	}
+	return "TABLE " + FormatTableRef(t.Ref)
+}
+
+// FormatStatement formats a parsed top-level statement when a formatter is
+// defined. It returns an empty string for statements without a formatter.
+func FormatStatement(stmt Statement) string {
+	switch s := stmt.(type) {
+	case *SelectStmt:
+		return FormatSelect(s)
+	case *ValuesStmt:
+		return FormatValues(s)
+	case *TableStmt:
+		return FormatTable(s)
 	}
 	return ""
 }

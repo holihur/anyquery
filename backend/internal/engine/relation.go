@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
+	"math/rand"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,18 +40,31 @@ func (ec *execCtx) relationForTableExpr(te sql.TableExpr) (*relation, error) {
 	switch t := te.(type) {
 	case *sql.TableRef:
 		return ec.relationForTableRef(t)
+	case *sql.LateralTable:
+		return ec.relationForTableExpr(t.Table)
 	case *sql.DerivedTable:
 		ds, err := ec.executeSelect(t.Query)
 		if err != nil {
 			return nil, err
 		}
+		if len(t.Columns) > 0 {
+			ds, err = renameDatasetColumns(ds, t.Columns)
+			if err != nil {
+				return nil, err
+			}
+		}
 		return datasetToRelation(ds, t.Alias, t.Alias), nil
+	case *sql.TableFunction:
+		return ec.relationForTableFunction(t)
 	case *sql.ValuesTable:
 		return ec.relationForValues(t)
 	case *sql.JoinExpr:
 		left, err := ec.relationForTableExpr(t.Left)
 		if err != nil {
 			return nil, err
+		}
+		if isLateralTable(t.Right) {
+			return ec.joinLateral(left, t.Right, t.Type, t.On, t.Using, t.Natural)
 		}
 		right, err := ec.relationForTableExpr(t.Right)
 		if err != nil {
@@ -61,7 +76,98 @@ func (ec *execCtx) relationForTableExpr(te sql.TableExpr) (*relation, error) {
 	}
 }
 
+func renameDatasetColumns(ds *dataset, names []string) (*dataset, error) {
+	if len(names) != len(ds.columns) {
+		return nil, errf("derived_table_error", "derived table declares %d columns but returns %d", len(names), len(ds.columns))
+	}
+	cols := make([]ResultColumn, len(ds.columns))
+	copy(cols, ds.columns)
+	for i := range cols {
+		cols[i].Name = names[i]
+	}
+	out := &dataset{columns: cols, rows: make([]map[string]any, len(ds.rows))}
+	for i, row := range ds.rows {
+		mapped := make(map[string]any, len(cols))
+		for j, old := range ds.columns {
+			mapped[strings.ToLower(cols[j].Name)] = row[strings.ToLower(old.Name)]
+		}
+		out.rows[i] = mapped
+	}
+	return out, nil
+}
+
+func (ec *execCtx) relationForTableFunction(t *sql.TableFunction) (*relation, error) {
+	switch strings.ToLower(t.Name) {
+	case "unnest":
+		return ec.relationForUnnest(t)
+	default:
+		return nil, errf("unknown_table_function", "unknown table function %s", strings.ToUpper(t.Name))
+	}
+}
+
+func (ec *execCtx) relationForUnnest(t *sql.TableFunction) (*relation, error) {
+	if len(t.Args) != 1 {
+		return nil, errf("invalid_arguments", "UNNEST expects exactly one argument")
+	}
+	args := make([]any, len(t.Args))
+	for i, expr := range t.Args {
+		v, err := evalExpr(&evalCtx{outer: ec.outerEval, exec: ec}, expr)
+		if err != nil {
+			return nil, err
+		}
+		args[i] = v
+	}
+	var items []any
+	switch v := args[0].(type) {
+	case nil:
+		items = nil
+	case []any:
+		items = v
+	case []map[string]any:
+		for _, m := range v {
+			items = append(items, m)
+		}
+	case string:
+		var decoded any
+		if err := json.Unmarshal([]byte(v), &decoded); err != nil {
+			return nil, errf("type_error", "UNNEST expects a JSON array or array value")
+		}
+		if arr, ok := decoded.([]any); ok {
+			items = arr
+		} else {
+			items = []any{decoded}
+		}
+	default:
+		return nil, errf("type_error", "UNNEST expects a JSON array or array value")
+	}
+	cols := t.Columns
+	if len(cols) == 0 {
+		cols = []string{"unnest"}
+	}
+	if len(cols) != 1 {
+		return nil, errf("invalid_arguments", "UNNEST alias must declare exactly one column")
+	}
+	ds := &dataset{columns: []ResultColumn{{Name: cols[0]}}}
+	for _, item := range items {
+		ds.rows = append(ds.rows, map[string]any{strings.ToLower(cols[0]): item})
+	}
+	ds.columns = inferColumns(ds.rows, ds.columns)
+	alias := t.Alias
+	if alias == "" {
+		alias = t.Name
+	}
+	return datasetToRelation(ds, alias, alias), nil
+}
+
 func (ec *execCtx) relationForValues(v *sql.ValuesTable) (*relation, error) {
+	ds, err := ec.datasetForValues(v)
+	if err != nil {
+		return nil, err
+	}
+	return datasetToRelation(ds, v.Alias, v.Alias), nil
+}
+
+func (ec *execCtx) datasetForValues(v *sql.ValuesTable) (*dataset, error) {
 	if len(v.Rows) == 0 {
 		return nil, errf("values_error", "VALUES requires at least one row")
 	}
@@ -101,7 +207,44 @@ func (ec *execCtx) relationForValues(v *sql.ValuesTable) (*relation, error) {
 		ds.rows = append(ds.rows, row)
 	}
 	ds.columns = inferColumns(ds.rows, ds.columns)
-	return datasetToRelation(ds, v.Alias, v.Alias), nil
+	return ds, nil
+}
+
+func isLateralTable(te sql.TableExpr) bool {
+	_, ok := te.(*sql.LateralTable)
+	return ok
+}
+
+// joinLateral evaluates a LATERAL table expression once per left row with the
+// left row as the outer evaluation context. Each left row is joined with its
+// own right relation, preserving outer-join semantics.
+func (ec *execCtx) joinLateral(left *relation, te sql.TableExpr, jt sql.JoinType, on sql.Expr, using []string, natural bool) (*relation, error) {
+	wrapped, ok := te.(*sql.LateralTable)
+	if !ok {
+		return nil, errf("internal_error", "joinLateral called without a LATERAL table")
+	}
+	inner := wrapped.Table
+	out := &relation{fields: left.fields}
+	for _, leftRow := range left.rows {
+		outer := &evalCtx{rel: left, row: leftRow, outer: ec.outerEval, exec: ec}
+		prev := ec.outerEval
+		ec.outerEval = outer
+		right, err := ec.relationForTableExpr(inner)
+		ec.outerEval = prev
+		if err != nil {
+			return nil, err
+		}
+		leftOne := &relation{fields: left.fields, rows: []map[string]any{leftRow}}
+		joined, err := ec.joinRelations(leftOne, right, jt, on, using, natural)
+		if err != nil {
+			return nil, err
+		}
+		if len(joined.rows) > 0 && len(out.rows) == 0 {
+			out.fields = joined.fields
+		}
+		out.rows = append(out.rows, joined.rows...)
+	}
+	return out, nil
 }
 
 func (ec *execCtx) relationForTableRef(ref *sql.TableRef) (*relation, error) {
@@ -113,6 +256,9 @@ func (ec *execCtx) relationForTableRef(ref *sql.TableRef) (*relation, error) {
 		}
 		if alias == "" {
 			alias = ref.Table
+		}
+		if ref.Sample != nil {
+			ds = &dataset{columns: ds.columns, rows: sampleRows(ds.rows, ref.Sample)}
 		}
 		return datasetToRelation(ds, alias, ref.Table), nil
 	}
@@ -154,6 +300,9 @@ func (ec *execCtx) relationForTableRef(ref *sql.TableRef) (*relation, error) {
 	elapsed := time.Since(start).Milliseconds()
 	rows := fr.Rows
 	truncated := fr.Truncated
+	if ref.Sample != nil {
+		rows = sampleRows(rows, ref.Sample)
+	}
 	if len(rows) > ec.engine.Opts.MaxSourceRows {
 		rows = rows[:ec.engine.Opts.MaxSourceRows]
 		truncated = true
@@ -236,6 +385,27 @@ func (ec *execCtx) relationForTableRef(ref *sql.TableRef) (*relation, error) {
 	}
 	rel = ensureUniqueKeys(rel)
 	return rel, nil
+}
+
+func sampleRows(rows []map[string]any, sample *sql.TableSample) []map[string]any {
+	if sample == nil || sample.Percent >= 100 {
+		return rows
+	}
+	if sample.Percent <= 0 {
+		return nil
+	}
+	seed := time.Now().UnixNano()
+	if sample.Seed != nil {
+		seed = *sample.Seed
+	}
+	rng := rand.New(rand.NewSource(seed))
+	out := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if rng.Float64()*100 < sample.Percent {
+			out = append(out, row)
+		}
+	}
+	return out
 }
 
 func caseInsensitiveLookup(m map[string]any, key string) any {

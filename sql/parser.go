@@ -47,6 +47,10 @@ func (p *Parser) parseStatement() (Statement, error) {
 		return p.parseSelect()
 	case p.cur.IsKeyword("FROM"):
 		return p.parseFromFirst()
+	case p.cur.IsKeyword("VALUES"):
+		return p.parseValuesStatement()
+	case p.cur.IsKeyword("TABLE"):
+		return p.parseTableStatement()
 	case p.cur.IsKeyword("SHOW"):
 		return p.parseShow()
 	case p.cur.IsKeyword("DESCRIBE"), p.cur.IsKeyword("DESC"):
@@ -264,14 +268,40 @@ func (p *Parser) parseSelectTail(s *SelectStmt) error {
 		}
 	}
 	if p.cur.IsKeyword("LIMIT") {
-		limit, offset, err := p.parseLimit()
-		if err != nil {
+		if err := p.advance(); err != nil {
 			return err
 		}
-		s.Limit, s.Offset = limit, offset
+		if p.cur.IsKeyword("ALL") {
+			if err := p.advance(); err != nil {
+				return err
+			}
+		} else {
+			first, firstExpr, err := p.parseRowCount("LIMIT")
+			if err != nil {
+				return err
+			}
+			if p.cur.IsPunct(",") {
+				if first == nil {
+					return p.errf("LIMIT offset,count requires integer literals")
+				}
+				if err := p.advance(); err != nil {
+					return err
+				}
+				second, err := p.parseIntLiteral("LIMIT")
+				if err != nil {
+					return err
+				}
+				s.Limit, s.Offset = &second, first
+			} else {
+				s.Limit, s.LimitExpr = first, firstExpr
+			}
+		}
 	}
 	if p.cur.IsKeyword("OFFSET") {
-		n, err := p.parseIntLiteral("OFFSET")
+		if err := p.advance(); err != nil {
+			return err
+		}
+		n, expr, err := p.parseRowCount("OFFSET")
 		if err != nil {
 			return err
 		}
@@ -280,7 +310,7 @@ func (p *Parser) parseSelectTail(s *SelectStmt) error {
 				return err
 			}
 		}
-		s.Offset = &n
+		s.Offset, s.OffsetExpr = n, expr
 	}
 	if p.cur.IsKeyword("FETCH") {
 		if err := p.advance(); err != nil {
@@ -291,23 +321,58 @@ func (p *Parser) parseSelectTail(s *SelectStmt) error {
 				return err
 			}
 		}
-		n, err := p.parseIntLiteral("FETCH")
-		if err != nil {
-			return err
+		// FETCH FIRST ROW ONLY defaults to one row.
+		if p.cur.IsKeyword("ROW") || p.cur.IsKeyword("ROWS") {
+			n := 1
+			s.Limit = &n
+			s.LimitExpr = nil
+		} else {
+			n, expr, err := p.parseRowCount("FETCH")
+			if err != nil {
+				return err
+			}
+			s.Limit, s.LimitExpr = n, expr
 		}
 		if p.cur.IsKeyword("ROW") || p.cur.IsKeyword("ROWS") {
 			if err := p.advance(); err != nil {
 				return err
 			}
 		}
-		if p.cur.IsKeyword("ONLY") {
+		switch {
+		case p.cur.IsKeyword("ONLY"):
 			if err := p.advance(); err != nil {
 				return err
 			}
+		case p.cur.IsKeyword("WITH"):
+			if err := p.advance(); err != nil {
+				return err
+			}
+			if err := p.expectKeyword("TIES"); err != nil {
+				return err
+			}
+			s.FetchWithTies = true
+		default:
+			return p.errf("expected ONLY or WITH TIES after FETCH")
 		}
-		s.Limit = &n
 	}
 	return p.parsePipes(s)
+}
+
+// parseRowCount parses a row-count expression. Integer literals are retained
+// as ints so the scan planner can still push LIMIT down; parameters and other
+// expressions are kept in the AST and evaluated at execution time.
+func (p *Parser) parseRowCount(what string) (*int, Expr, error) {
+	e, err := p.parseExpr(0)
+	if err != nil {
+		return nil, nil, err
+	}
+	if lit, ok := e.(*Literal); ok && lit.Kind == LitInt {
+		if n, ok := lit.Value.(int64); ok && n >= 0 {
+			v := int(n)
+			return &v, nil, nil
+		}
+	}
+	return nil, e, nil
 }
 
 func (p *Parser) parsePipes(s *SelectStmt) error {
@@ -774,6 +839,16 @@ func (p *Parser) parseTableExpr() (TableExpr, error) {
 }
 
 func (p *Parser) parseTablePrimary() (TableExpr, error) {
+	if p.cur.IsKeyword("LATERAL") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		inner, err := p.parseTablePrimary()
+		if err != nil {
+			return nil, err
+		}
+		return &LateralTable{Table: inner}, nil
+	}
 	if p.cur.IsPunct("(") {
 		if err := p.advance(); err != nil {
 			return nil, err
@@ -791,17 +866,16 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 		if err := p.expectPunct(")"); err != nil {
 			return nil, err
 		}
-		if err := p.expectKeyword("AS"); err != nil {
-			// alias without AS
-			if p.cur.Kind != TokIdent || isClauseKeyword(p.cur.Value) {
-				return nil, p.errf("subquery in FROM must have an alias")
-			}
-		}
-		alias, err := p.parseIdent()
+		alias, columns, err := p.parseTableAlias(true)
 		if err != nil {
 			return nil, err
 		}
-		return &DerivedTable{Query: sub, Alias: alias}, nil
+		return &DerivedTable{Query: sub, Alias: alias, Columns: columns}, nil
+	}
+
+	// Table functions, e.g. UNNEST(json_extract(...)).
+	if p.cur.Kind == TokIdent && p.peek.IsPunct("(") {
+		return p.parseTableFunction()
 	}
 
 	parts, err := p.parseQualifiedName()
@@ -816,21 +890,181 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 		ref.Source = parts[0]
 		ref.Table = strings.Join(parts[1:], ".")
 	}
-	if p.cur.IsKeyword("AS") {
-		if err := p.advance(); err != nil {
-			return nil, err
-		}
-		ref.Alias, err = p.parseIdent()
+	if p.cur.IsKeyword("TABLESAMPLE") {
+		ref.Sample, err = p.parseTableSample()
 		if err != nil {
 			return nil, err
 		}
+	}
+	ref.Alias, _, err = p.parseTableAlias(false)
+	if err != nil {
+		return nil, err
+	}
+	return ref, nil
+}
+
+func (p *Parser) parseTableFunction() (TableExpr, error) {
+	name, err := p.parseIdent()
+	if err != nil {
+		return nil, err
+	}
+	args, err := p.parseCallArgs()
+	if err != nil {
+		return nil, err
+	}
+	alias, columns, err := p.parseTableAlias(false)
+	if err != nil {
+		return nil, err
+	}
+	return &TableFunction{Name: name, Args: args, Alias: alias, Columns: columns}, nil
+}
+
+// parseTableAlias parses an optional AS alias and an optional column alias
+// list. Derived tables require an alias; table functions do not.
+func (p *Parser) parseTableAlias(required bool) (string, []string, error) {
+	alias := ""
+	var err error
+	if p.cur.IsKeyword("AS") {
+		if err := p.advance(); err != nil {
+			return "", nil, err
+		}
+		alias, err = p.parseIdent()
+		if err != nil {
+			return "", nil, err
+		}
 	} else if p.cur.Kind == TokIdent && !isClauseKeyword(p.cur.Value) {
-		ref.Alias = p.cur.Value
+		alias = p.cur.Value
+		if err := p.advance(); err != nil {
+			return "", nil, err
+		}
+	} else if required {
+		return "", nil, p.errf("subquery in FROM must have an alias")
+	}
+	var columns []string
+	if p.cur.IsPunct("(") {
+		columns, err = p.parseIdentList()
+		if err != nil {
+			return "", nil, err
+		}
+	}
+	return alias, columns, nil
+}
+
+func (p *Parser) parseTableSample() (*TableSample, error) {
+	if err := p.expectKeyword("TABLESAMPLE"); err != nil {
+		return nil, err
+	}
+	method, err := p.parseIdent()
+	if err != nil {
+		return nil, err
+	}
+	method = strings.ToUpper(method)
+	if method != "SYSTEM" && method != "BERNOULLI" {
+		return nil, p.errf("TABLESAMPLE method must be SYSTEM or BERNOULLI")
+	}
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+	if p.cur.Kind != TokNumber {
+		return nil, p.errf("TABLESAMPLE expects a percentage")
+	}
+	percent, err := strconv.ParseFloat(p.cur.Value, 64)
+	if err != nil || percent < 0 || percent > 100 {
+		return nil, p.errf("TABLESAMPLE percentage must be between 0 and 100")
+	}
+	if err := p.advance(); err != nil {
+		return nil, err
+	}
+	if p.cur.IsKeyword("PERCENT") {
 		if err := p.advance(); err != nil {
 			return nil, err
 		}
 	}
-	return ref, nil
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	sample := &TableSample{Method: method, Percent: percent}
+	if p.cur.IsKeyword("REPEATABLE") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		if err := p.expectPunct("("); err != nil {
+			return nil, err
+		}
+		seed, err := p.parseIntLiteral("REPEATABLE")
+		if err != nil {
+			return nil, err
+		}
+		if err := p.expectPunct(")"); err != nil {
+			return nil, err
+		}
+		n := int64(seed)
+		sample.Seed = &n
+	}
+	return sample, nil
+}
+
+func (p *Parser) parseValuesStatement() (Statement, error) {
+	if err := p.advance(); err != nil { // VALUES
+		return nil, err
+	}
+	rows, err := p.parseValuesRows()
+	if err != nil {
+		return nil, err
+	}
+	return &ValuesStmt{Rows: rows}, nil
+}
+
+func (p *Parser) parseTableStatement() (Statement, error) {
+	if err := p.advance(); err != nil { // TABLE
+		return nil, err
+	}
+	parts, err := p.parseQualifiedName()
+	if err != nil {
+		return nil, err
+	}
+	ref := &TableRef{}
+	if len(parts) == 1 {
+		ref.Table = parts[0]
+	} else {
+		ref.Source = parts[0]
+		ref.Table = strings.Join(parts[1:], ".")
+	}
+	return &TableStmt{Ref: ref}, nil
+}
+
+func (p *Parser) parseValuesRows() ([][]Expr, error) {
+	var rows [][]Expr
+	for {
+		if err := p.expectPunct("("); err != nil {
+			return nil, err
+		}
+		var row []Expr
+		for {
+			e, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			row = append(row, e)
+			if !p.cur.IsPunct(",") {
+				break
+			}
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		}
+		if err := p.expectPunct(")"); err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+		if !p.cur.IsPunct(",") {
+			break
+		}
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+	}
+	return rows, nil
 }
 
 func (p *Parser) parseValuesTable() (TableExpr, error) {

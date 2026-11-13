@@ -136,7 +136,7 @@ func TestParseErrors(t *testing.T) {
 		"SELECT",
 		"SELECT * FROM",
 		"SELECT * FROM mongo.orders WHERE",
-		"SELECT * FROM mongo.orders LIMIT x",
+		"SELECT * FROM mongo.orders LIMIT",
 		"SELECT * FROM mongo.orders WHERE a IN ()",
 	}
 	for _, q := range cases {

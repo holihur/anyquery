@@ -45,7 +45,10 @@ func (ec *execCtx) executeRecursiveCTE(cte *sql.CTE) (*dataset, error) {
 	anchor.Pipes = nil
 	anchor.OrderBy = nil
 	anchor.Limit = nil
+	anchor.LimitExpr = nil
 	anchor.Offset = nil
+	anchor.OffsetExpr = nil
+	anchor.FetchWithTies = false
 	anchorDS, err := ec.executeSelect(&anchor)
 	if err != nil {
 		return nil, err
@@ -132,15 +135,26 @@ func (ec *execCtx) executeRecursiveCTE(cte *sql.CTE) (*dataset, error) {
 			return nil, err
 		}
 	}
-	if q.Offset != nil && *q.Offset > 0 {
-		if *q.Offset >= len(result.rows) {
+	offset, hasOffset, err := ec.resolveRowCount(q.Offset, q.OffsetExpr)
+	if err != nil {
+		return nil, err
+	}
+	limit, hasLimit, err := ec.resolveRowCount(q.Limit, q.LimitExpr)
+	if err != nil {
+		return nil, err
+	}
+	if hasOffset && offset > 0 {
+		if offset >= len(result.rows) {
 			result.rows = nil
 		} else {
-			result.rows = result.rows[*q.Offset:]
+			result.rows = result.rows[offset:]
 		}
 	}
-	if q.Limit != nil && *q.Limit >= 0 && len(result.rows) > *q.Limit {
-		result.rows = result.rows[:*q.Limit]
+	if hasLimit && q.FetchWithTies {
+		return nil, errf("invalid_fetch", "FETCH ... WITH TIES is not supported in recursive CTE output")
+	}
+	if hasLimit && limit >= 0 && len(result.rows) > limit {
+		result.rows = result.rows[:limit]
 	}
 	ec.ctes[key] = result
 	ec.stage(fmt.Sprintf("recursive-cte:%s", cte.Name))

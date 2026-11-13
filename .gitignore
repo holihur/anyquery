@@ -21,3 +21,6 @@ data/
 .DS_Store
 *.log
 /tmp/
+
+# pi goal runtime state
+.pi/

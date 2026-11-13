@@ -113,3 +113,60 @@ func TestPositionAndChainedCast(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatStatementNewTableExpressions(t *testing.T) {
+	cases := []string{
+		"SELECT * FROM mongo.orders LIMIT ? OFFSET ?",
+		"SELECT * FROM mongo.orders FETCH FIRST 2 ROWS WITH TIES",
+		"SELECT * FROM mongo.orders TABLESAMPLE SYSTEM (50) REPEATABLE (7)",
+		"SELECT * FROM (SELECT 1) AS t(a)",
+		"SELECT * FROM UNNEST(json_extract('[1,2]', '$')) AS u(x)",
+		"SELECT * FROM mongo.customers c, LATERAL (SELECT count(*) FROM mongo.orders o WHERE o.customer_id = c.id) x",
+		"VALUES (1, 'a'), (2, 'b')",
+		"TABLE mongo.orders",
+	}
+	for _, query := range cases {
+		stmt, err := Parse(query)
+		if err != nil {
+			t.Fatalf("%q: %v", query, err)
+		}
+		formatted := FormatStatement(stmt)
+		if formatted == "" {
+			t.Fatalf("%q: no formatter output", query)
+		}
+		if _, err := Parse(formatted); err != nil {
+			t.Fatalf("%q formatted as %q: %v", query, formatted, err)
+		}
+	}
+}
+
+func TestParseRowCountExpressions(t *testing.T) {
+	stmt, err := Parse("SELECT * FROM mongo.orders LIMIT ? OFFSET ?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := stmt.(*SelectStmt)
+	if s.LimitExpr == nil || s.OffsetExpr == nil || s.Limit != nil || s.Offset != nil {
+		t.Fatalf("limit=%v/%v offset=%v/%v", s.Limit, s.LimitExpr, s.Offset, s.OffsetExpr)
+	}
+	stmt, err = Parse("SELECT * FROM mongo.orders FETCH FIRST 2 ROWS WITH TIES")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stmt.(*SelectStmt).FetchWithTies {
+		t.Fatal("expected WITH TIES")
+	}
+}
+
+func TestTableExpressionErrors(t *testing.T) {
+	for _, query := range []string{
+		"SELECT * FROM LATERAL",
+		"SELECT * FROM mongo.orders TABLESAMPLE UNKNOWN (10)",
+		"SELECT * FROM mongo.orders TABLESAMPLE SYSTEM (101)",
+		"SELECT * FROM mongo.orders TABLESAMPLE SYSTEM (10",
+	} {
+		if _, err := Parse(query); err == nil {
+			t.Errorf("%q unexpectedly parsed", query)
+		}
+	}
+}

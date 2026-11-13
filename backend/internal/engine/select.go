@@ -74,6 +74,14 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 			return nil, err
 		}
 		for _, te := range s.From[1:] {
+			if isLateralTable(te) {
+				var err error
+				rel, err = ec.joinLateral(rel, te, sql.JoinCross, nil, nil, false)
+				if err != nil {
+					return nil, err
+				}
+				continue
+			}
 			right, err := ec.relationForTableExpr(te)
 			if err != nil {
 				return nil, err
@@ -349,21 +357,9 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 		}
 		sortable := make([]sortRow, len(rows))
 		for i, r := range rows {
-			keys := make([]any, len(s.OrderBy))
-			for j, o := range s.OrderBy {
-				ctx := &evalCtx{rel: rel, row: r.first, aliases: r.out, group: r.group, outer: ec.outerEval, exec: ec, windows: r.windows, omit: r.omit, grouping: r.grouping}
-				if n, ok := orderOrdinal(o.Expr); ok {
-					if n < 1 || n > len(columns) {
-						return nil, errf("invalid_order", "ORDER BY position %d is out of range", n)
-					}
-					keys[j] = valuesInColumnOrder(r.out, columns)[n-1]
-					continue
-				}
-				v, err := evalExpr(ctx, o.Expr)
-				if err != nil {
-					return nil, err
-				}
-				keys[j] = v
+			keys, err := ec.orderKeysForRow(rel, r, columns, s.OrderBy)
+			if err != nil {
+				return nil, err
 			}
 			sortable[i] = sortRow{r: r, keys: keys}
 		}
@@ -376,16 +372,54 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 		ec.stage("sort")
 	}
 
-	// LIMIT / OFFSET.
-	if s.Offset != nil && *s.Offset > 0 {
-		if *s.Offset >= len(rows) {
+	// LIMIT / OFFSET / FETCH ... WITH TIES.
+	offset, hasOffset, err := ec.resolveRowCount(s.Offset, s.OffsetExpr)
+	if err != nil {
+		return nil, err
+	}
+	limit, hasLimit, err := ec.resolveRowCount(s.Limit, s.LimitExpr)
+	if err != nil {
+		return nil, err
+	}
+	if s.FetchWithTies && !hasLimit {
+		return nil, errf("invalid_fetch", "FETCH ... WITH TIES requires a row count")
+	}
+	if hasOffset && offset > 0 {
+		if offset >= len(rows) {
 			rows = nil
 		} else {
-			rows = rows[*s.Offset:]
+			rows = rows[offset:]
 		}
 	}
-	if s.Limit != nil && *s.Limit >= 0 && len(rows) > *s.Limit {
-		rows = rows[:*s.Limit]
+	if hasLimit && limit >= 0 {
+		if s.FetchWithTies {
+			if len(s.OrderBy) == 0 {
+				return nil, errf("invalid_fetch", "FETCH ... WITH TIES requires ORDER BY")
+			}
+			end := limit
+			if end > len(rows) {
+				end = len(rows)
+			}
+			if end > 0 && end < len(rows) {
+				boundary, err := ec.orderKeysForRow(rel, rows[end-1], columns, s.OrderBy)
+				if err != nil {
+					return nil, err
+				}
+				for end < len(rows) {
+					keys, err := ec.orderKeysForRow(rel, rows[end], columns, s.OrderBy)
+					if err != nil {
+						return nil, err
+					}
+					if !sameOrderKeys(boundary, keys) {
+						break
+					}
+					end++
+				}
+			}
+			rows = rows[:end]
+		} else if len(rows) > limit {
+			rows = rows[:limit]
+		}
 		ec.stage("limit")
 	}
 
@@ -398,6 +432,44 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 		return ec.applyPipes(ds, s.Pipes)
 	}
 	return ds, nil
+}
+
+func (ec *execCtx) resolveRowCount(literal *int, expr sql.Expr) (int, bool, error) {
+	if literal != nil {
+		return *literal, true, nil
+	}
+	if expr == nil {
+		return 0, false, nil
+	}
+	v, err := evalExpr(&evalCtx{outer: ec.outerEval, exec: ec}, expr)
+	if err != nil {
+		return 0, false, err
+	}
+	n, ok := toInt(v)
+	if !ok || n < 0 {
+		return 0, false, errf("invalid_limit", "row count must be a non-negative integer")
+	}
+	return n, true, nil
+}
+
+func (ec *execCtx) orderKeysForRow(rel *relation, r evalRow, columns []ResultColumn, order []sql.OrderItem) ([]any, error) {
+	keys := make([]any, len(order))
+	for j, o := range order {
+		ctx := &evalCtx{rel: rel, row: r.first, aliases: r.out, group: r.group, outer: ec.outerEval, exec: ec, windows: r.windows, omit: r.omit, grouping: r.grouping}
+		if n, ok := orderOrdinal(o.Expr); ok {
+			if n < 1 || n > len(columns) {
+				return nil, errf("invalid_order", "ORDER BY position %d is out of range", n)
+			}
+			keys[j] = valuesInColumnOrder(r.out, columns)[n-1]
+			continue
+		}
+		v, err := evalExpr(ctx, o.Expr)
+		if err != nil {
+			return nil, err
+		}
+		keys[j] = v
+	}
+	return keys, nil
 }
 
 type evalRow struct {

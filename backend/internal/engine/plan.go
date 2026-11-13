@@ -83,6 +83,16 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
+func rowCountPlanValue(literal *int, expr sql.Expr) any {
+	if literal != nil {
+		return *literal
+	}
+	if expr != nil {
+		return expr.String()
+	}
+	return nil
+}
+
 func (pb *planBuilder) selectPlan(s *sql.SelectStmt) *PlanNode {
 	hints := pb.ec.buildScanHints(s)
 	node := pb.fromPlan(s.From, hints)
@@ -148,14 +158,24 @@ func (pb *planBuilder) selectPlan(s *sql.SelectStmt) *PlanNode {
 		}
 		node = pb.wrap("Sort", strings.Join(parts, ", "), node, map[string]any{"orderBy": parts})
 	}
-	if s.Offset != nil && *s.Offset > 0 {
-		props := map[string]any{"offset": *s.Offset}
-		if s.Limit != nil {
-			props["limit"] = *s.Limit
+	hasLimit := s.Limit != nil || s.LimitExpr != nil
+	hasOffset := s.Offset != nil || s.OffsetExpr != nil
+	if hasOffset || hasLimit {
+		props := map[string]any{}
+		if hasOffset {
+			props["offset"] = rowCountPlanValue(s.Offset, s.OffsetExpr)
 		}
-		node = pb.wrap("Limit", "", node, props)
-	} else if s.Limit != nil {
-		node = pb.wrap("Limit", "*", node, map[string]any{"limit": *s.Limit})
+		if hasLimit {
+			props["limit"] = rowCountPlanValue(s.Limit, s.LimitExpr)
+		}
+		if s.FetchWithTies {
+			props["withTies"] = true
+		}
+		label := ""
+		if !hasLimit {
+			label = "*"
+		}
+		node = pb.wrap("Limit", label, node, props)
 	}
 	for _, stage := range s.Pipes {
 		node = pb.pipePlan(stage, node)
