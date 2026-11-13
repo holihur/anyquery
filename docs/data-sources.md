@@ -3,6 +3,7 @@
 > 版本：MVP · 2026-11 · 共 **104** 个注册数据源类型（35 native / 37 compatible / 32 template）
 >
 > 完整 Top 100 目录见 [data-sources-top100.md](data-sources-top100.md)。
+> SaaS recipe 的分页/认证默认值和验证状态见 [recipes.md](recipes.md)。
 
 ## 状态图例
 
