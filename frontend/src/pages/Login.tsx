@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { Loader2, LockKeyhole, Network, ShieldCheck } from "lucide-react"
+import { Eye, EyeOff, Loader2, LockKeyhole, Network, ShieldCheck } from "lucide-react"
 import { api } from "@/lib/api"
 import { useAuth } from "@/providers/auth"
 import { Button } from "@/components/ui/button"
@@ -52,6 +52,7 @@ export function LoginPage() {
   const authError = params.get("auth_error")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   const [name, setName] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -138,23 +139,45 @@ export function LoginPage() {
                       type="email"
                       required
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => {
+                        setEmail(e.target.value)
+                        setError(null)
+                      }}
                       placeholder="you@company.com"
                       autoComplete="email"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      inputMode="email"
+                      autoFocus
                     />
                   </div>
                   {config?.passwordAuthEnabled ? (
                     <div className="space-y-1.5">
                       <Label htmlFor="password">{t("Password")}</Label>
-                      <Input
-                        id="password"
-                        type="password"
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder={t("Your password")}
-                        autoComplete="current-password"
-                      />
+                      <div className="relative">
+                        <Input
+                          id="password"
+                          type={showPassword ? "text" : "password"}
+                          required
+                          value={password}
+                          onChange={(e) => {
+                            setPassword(e.target.value)
+                            setError(null)
+                          }}
+                          placeholder={t("Your password")}
+                          autoComplete="current-password"
+                          className="pr-10"
+                        />
+                        <button
+                          type="button"
+                          className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                          onClick={() => setShowPassword((value) => !value)}
+                          aria-label={showPassword ? t("Hide password") : t("Show password")}
+                          title={showPassword ? t("Hide password") : t("Show password")}
+                        >
+                          {showPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-1.5">
@@ -164,7 +187,10 @@ export function LoginPage() {
                       <Input
                         id="name"
                         value={name}
-                        onChange={(e) => setName(e.target.value)}
+                        onChange={(e) => {
+                          setName(e.target.value)
+                          setError(null)
+                        }}
                         placeholder="Maya Chen"
                         autoComplete="name"
                       />
@@ -189,6 +215,7 @@ export function LoginPage() {
                         setEmail("admin@anyquery.dev")
                         setPassword("anyquery-demo")
                         setName("Maya Chen")
+                        setError(null)
                       }}
                     >
                       {t("Use demo account")}
