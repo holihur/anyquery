@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -82,6 +83,8 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 	switch x := e.(type) {
 	case *sql.Literal:
 		return x.Value, nil
+	case *sql.IntervalExpr:
+		return parseInterval(x.Value, x.Qualifier)
 	case *sql.Parameter:
 		if ctx.exec == nil {
 			return nil, errf("parameter_error", "bind parameters are not available")
@@ -266,6 +269,16 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 		default:
 			return nil, errf("subquery_error", "scalar subquery returned more than one row")
 		}
+	case *sql.AtTimeZoneExpr:
+		v, err := evalExpr(ctx, x.Expr)
+		if err != nil {
+			return nil, err
+		}
+		zone, err := evalExpr(ctx, x.Zone)
+		if err != nil {
+			return nil, err
+		}
+		return atTimeZone(v, zone)
 	default:
 		return nil, errf("unsupported", "unsupported expression %T", e)
 	}
@@ -432,6 +445,59 @@ func evalBinary(ctx *evalCtx, b *sql.BinaryExpr) (any, error) {
 	}
 	if op == "||" {
 		return toString(+0, left) + toString(0, right), nil
+	}
+	if iv, ok := left.(intervalValue); ok {
+		switch op {
+		case "+", "-":
+			if ov, ok := right.(intervalValue); ok {
+				if op == "-" {
+					ov = ov.neg()
+				}
+				return iv.add(ov), nil
+			}
+			if op == "+" {
+				if t, ok := toTime(right); ok {
+					return addInterval(t, iv).UTC().Format(time.RFC3339Nano), nil
+				}
+			}
+		case "*":
+			if f, ok := toFloat(right); ok {
+				return iv.scale(f)
+			}
+		case "/":
+			if f, ok := toFloat(right); ok {
+				if f == 0 {
+					return nil, errf("division_by_zero", "division by zero")
+				}
+				return iv.scale(1 / f)
+			}
+		}
+		return nil, errf("type_error", "unsupported interval operator %s", b.Op)
+	}
+	if iv, ok := right.(intervalValue); ok {
+		switch op {
+		case "+":
+			if t, ok := toTime(left); ok {
+				return addInterval(t, iv).UTC().Format(time.RFC3339Nano), nil
+			}
+			if lv, ok := left.(intervalValue); ok {
+				return lv.add(iv), nil
+			}
+		case "-":
+			if t, ok := toTime(left); ok {
+				return addInterval(t, iv.neg()).UTC().Format(time.RFC3339Nano), nil
+			}
+		case "*":
+			if f, ok := toFloat(left); ok {
+				return iv.scale(f)
+			}
+		}
+		return nil, errf("type_error", "unsupported interval operator %s", b.Op)
+	}
+	if lt, ok := toTime(left); ok && op == "-" {
+		if rt, ok := toTime(right); ok {
+			return intervalBetween(rt, lt), nil
+		}
 	}
 	lf, lok := toFloat(left)
 	rf, rok := toFloat(right)
@@ -667,12 +733,20 @@ func evalBuiltinFunction(name string, args []any) (any, error) {
 		if len(args) < 1 || arg(0) == nil {
 			return nil, nil
 		}
-		return strings.TrimLeft(fmt.Sprint(arg(0)), " "), nil
+		cutset := " "
+		if len(args) > 1 && arg(1) != nil {
+			cutset = fmt.Sprint(arg(1))
+		}
+		return strings.TrimLeft(fmt.Sprint(arg(0)), cutset), nil
 	case "rtrim":
 		if len(args) < 1 || arg(0) == nil {
 			return nil, nil
 		}
-		return strings.TrimRight(fmt.Sprint(arg(0)), " "), nil
+		cutset := " "
+		if len(args) > 1 && arg(1) != nil {
+			cutset = fmt.Sprint(arg(1))
+		}
+		return strings.TrimRight(fmt.Sprint(arg(0)), cutset), nil
 	case "substring", "substr":
 		if len(args) < 2 {
 			return nil, errf("invalid_arguments", "SUBSTRING expects (string, start[, length])")
@@ -1085,6 +1159,41 @@ func evalBuiltinFunction(name string, args []any) (any, error) {
 			return arg(1), nil
 		}
 		return arg(2), nil
+	case "overlay":
+		if len(args) != 3 && len(args) != 4 {
+			return nil, errf("invalid_arguments", "OVERLAY expects (string, replacement, start[, length])")
+		}
+		if arg(0) == nil || arg(1) == nil || arg(2) == nil {
+			return nil, nil
+		}
+		s := []rune(fmt.Sprint(arg(0)))
+		repl := []rune(fmt.Sprint(arg(1)))
+		start, ok := toInt(arg(2))
+		if !ok {
+			return nil, errf("type_error", "OVERLAY start must be an integer")
+		}
+		start--
+		if start < 0 {
+			start = 0
+		}
+		length := len(repl)
+		if len(args) == 4 && arg(3) != nil {
+			length, ok = toInt(arg(3))
+			if !ok || length < 0 {
+				return nil, errf("type_error", "OVERLAY length must be a non-negative integer")
+			}
+		}
+		if start > len(s) {
+			start = len(s)
+		}
+		end := start + length
+		if end > len(s) {
+			end = len(s)
+		}
+		out := append([]rune{}, s[:start]...)
+		out = append(out, repl...)
+		out = append(out, s[end:]...)
+		return string(out), nil
 	default:
 		return nil, errf("unknown_function", "unknown function %s", strings.ToUpper(name))
 	}
@@ -1255,6 +1364,105 @@ func dateTrunc(unit string, v any) (any, error) {
 	}
 }
 
+func evalOrderedSetAggregate(ctx *evalCtx, f *sql.FuncCall, group []map[string]any) (any, error) {
+	name := strings.ToLower(f.Name)
+	if len(f.WithinGroup) != 1 {
+		return nil, errf("invalid_aggregate", "%s requires WITHIN GROUP (ORDER BY expr)", strings.ToUpper(name))
+	}
+	if name != "percentile_cont" && name != "percentile_disc" && name != "mode" {
+		return nil, errf("invalid_aggregate", "%s does not support WITHIN GROUP", strings.ToUpper(name))
+	}
+	type pair struct {
+		key any
+	}
+	pairs := make([]pair, 0, len(group))
+	for _, row := range group {
+		rowCtx := &evalCtx{rel: ctx.rel, row: row, outer: ctx.outer, exec: ctx.exec}
+		if ctx.rel == nil {
+			rowCtx.aliases = lowerMap(row)
+		}
+		if f.Filter != nil {
+			v, err := evalExpr(rowCtx, f.Filter)
+			if err != nil {
+				return nil, err
+			}
+			if !truthy(v) {
+				continue
+			}
+		}
+		v, err := evalExpr(rowCtx, f.WithinGroup[0].Expr)
+		if err != nil {
+			return nil, err
+		}
+		pairs = append(pairs, pair{key: v})
+	}
+	order := []sql.OrderItem{{Expr: f.WithinGroup[0].Expr, Desc: f.WithinGroup[0].Desc, Nulls: f.WithinGroup[0].Nulls}}
+	sort.SliceStable(pairs, func(i, j int) bool {
+		return lessSortKeys([]any{pairs[i].key}, []any{pairs[j].key}, order)
+	})
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	if name == "mode" {
+		bestKey := ""
+		bestCount := 0
+		var best any
+		for i := 0; i < len(pairs); {
+			j := i + 1
+			for j < len(pairs) && valuesEqual(pairs[i].key, pairs[j].key) {
+				j++
+			}
+			if j-i > bestCount {
+				bestCount = j - i
+				best = pairs[i].key
+				bestKey = canonicalValues([]any{best})
+			}
+			_ = bestKey
+			i = j
+		}
+		return best, nil
+	}
+	if len(f.Args) != 1 {
+		return nil, errf("invalid_aggregate", "%s expects one fraction argument", strings.ToUpper(name))
+	}
+	fv, err := evalExpr(ctx, f.Args[0])
+	if err != nil {
+		return nil, err
+	}
+	fraction, ok := toFloat(fv)
+	if !ok || fraction < 0 || fraction > 1 {
+		return nil, errf("invalid_aggregate", "%s fraction must be between 0 and 1", strings.ToUpper(name))
+	}
+	if name == "percentile_disc" {
+		idx := int(math.Ceil(fraction*float64(len(pairs)))) - 1
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(pairs) {
+			idx = len(pairs) - 1
+		}
+		return pairs[idx].key, nil
+	}
+	pos := fraction * float64(len(pairs)-1)
+	lo := int(math.Floor(pos))
+	hi := int(math.Ceil(pos))
+	if lo < 0 {
+		lo = 0
+	}
+	if hi >= len(pairs) {
+		hi = len(pairs) - 1
+	}
+	lv, lok := toFloat(pairs[lo].key)
+	hv, hok := toFloat(pairs[hi].key)
+	if !lok || !hok {
+		return nil, errf("type_error", "%s expects numeric ORDER BY values", strings.ToUpper(name))
+	}
+	if lo == hi {
+		return pairs[lo].key, nil
+	}
+	return lv + (hv-lv)*(pos-float64(lo)), nil
+}
+
 func evalAggregate(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	name := strings.ToLower(f.Name)
 	group := ctx.group
@@ -1265,7 +1473,7 @@ func evalAggregate(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	if star && name != "count" {
 		return nil, errf("invalid_aggregate", "%s(*) is not supported", strings.ToUpper(name))
 	}
-	if !star && len(f.Args) == 0 {
+	if !star && len(f.Args) == 0 && name != "mode" {
 		return nil, errf("invalid_aggregate", "%s requires an argument", strings.ToUpper(name))
 	}
 	if star && name == "count" {
@@ -1287,6 +1495,9 @@ func evalAggregate(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 			}
 		}
 		return n, nil
+	}
+	if len(f.WithinGroup) > 0 || name == "percentile_cont" || name == "percentile_disc" || name == "mode" {
+		return evalOrderedSetAggregate(ctx, f, group)
 	}
 
 	values := make([]any, 0, len(group))
@@ -1589,6 +1800,11 @@ func valuesEqual(a, b any) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
+	if ai, ok := a.(intervalValue); ok {
+		if bi, ok := b.(intervalValue); ok {
+			return ai.compare(bi) == 0
+		}
+	}
 	if isNumeric(a) && isNumeric(b) {
 		af, _ := toFloat(a)
 		bf, _ := toFloat(b)
@@ -1631,6 +1847,11 @@ func compareValues(a, b any) int {
 	if b == nil {
 		return -1
 	}
+	if ai, ok := a.(intervalValue); ok {
+		if bi, ok := b.(intervalValue); ok {
+			return ai.compare(bi)
+		}
+	}
 	if isNumeric(a) || isNumeric(b) {
 		af, aok := toFloat(a)
 		bf, bok := toFloat(b)
@@ -1671,8 +1892,60 @@ func isNumeric(v any) bool {
 	return false
 }
 
+func atTimeZone(v, zone any) (any, error) {
+	if v == nil || zone == nil {
+		return nil, nil
+	}
+	loc, err := time.LoadLocation(fmt.Sprint(zone))
+	if err != nil {
+		return nil, errf("invalid_arguments", "unknown time zone %q", fmt.Sprint(zone))
+	}
+	var t time.Time
+	var hasZone bool
+	if tm, ok := v.(time.Time); ok {
+		t = tm
+		hasZone = true
+	} else {
+		s := fmt.Sprint(v)
+		hasZone = strings.HasSuffix(strings.ToUpper(s), "Z") || zoneOffsetSuffix(s)
+		if hasZone {
+			tm, ok := parseTimeString(s)
+			if !ok {
+				return nil, errf("type_error", "AT TIME ZONE expects a timestamp")
+			}
+			t = tm
+		} else {
+			for _, layout := range []string{"2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02"} {
+				if tm, err := time.ParseInLocation(layout, s, loc); err == nil {
+					t, hasZone = tm, true
+					break
+				}
+			}
+			if !hasZone {
+				return nil, errf("type_error", "AT TIME ZONE expects a timestamp")
+			}
+		}
+	}
+	if hasZone {
+		return t.In(loc).Format("2006-01-02 15:04:05.999999999"), nil
+	}
+	return t.UTC().Format(time.RFC3339Nano), nil
+}
+
+func zoneOffsetSuffix(s string) bool {
+	if len(s) < 6 {
+		return false
+	}
+	tail := s[len(s)-6:]
+	return (tail[0] == '+' || tail[0] == '-') && tail[3] == ':'
+}
+
 func parseTimeString(s string) (time.Time, bool) {
-	layouts := []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02"}
+	layouts := []string{
+		time.RFC3339Nano, time.RFC3339,
+		"2006-01-02 15:04:05.999999999Z07:00", "2006-01-02 15:04:05Z07:00",
+		"2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02",
+	}
 	for _, l := range layouts {
 		if t, err := time.Parse(l, s); err == nil {
 			return t, true
@@ -1699,8 +1972,11 @@ func castValue(v any, typ string) (any, error) {
 	switch {
 	case strings.HasPrefix(t, "int"), strings.HasPrefix(t, "bigint"), strings.HasPrefix(t, "smallint"), t == "integer":
 		f, ok := toFloat(v)
-		if !ok {
+		if !ok || math.IsNaN(f) || math.IsInf(f, 0) {
 			return nil, errf("cast_error", "cannot cast %v to integer", v)
+		}
+		if f > float64(1<<63-1) || f < -float64(1<<63) {
+			return nil, errf("cast_error", "integer value out of range: %v", v)
 		}
 		return int64(f), nil
 	case strings.HasPrefix(t, "decimal"), strings.HasPrefix(t, "numeric"), strings.HasPrefix(t, "float"), strings.HasPrefix(t, "double"), strings.HasPrefix(t, "real"):
@@ -1718,6 +1994,8 @@ func castValue(v any, typ string) (any, error) {
 			return nil, errf("cast_error", "cannot cast %v to boolean", v)
 		}
 		return b, nil
+	case strings.HasPrefix(t, "interval"):
+		return parseInterval(fmt.Sprint(v), "")
 	case strings.HasPrefix(t, "timestamp"), strings.HasPrefix(t, "datetime"):
 		tm, ok := toTime(v)
 		if !ok {

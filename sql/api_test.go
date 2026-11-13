@@ -170,3 +170,64 @@ func TestTableExpressionErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestNamedWindowParsingAndErrors(t *testing.T) {
+	cases := []string{
+		"SELECT sum(total) OVER w FROM mongo.orders WINDOW w AS (PARTITION BY region ORDER BY id)",
+		"SELECT sum(total) OVER (w ORDER BY id) FROM mongo.orders WINDOW w AS (PARTITION BY region)",
+		"SELECT sum(total) OVER (ORDER BY id GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM mongo.orders",
+		"SELECT sum(total) OVER (ORDER BY id ROWS CURRENT ROW EXCLUDE TIES) FROM mongo.orders",
+		"SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY total) FROM mongo.orders",
+	}
+	for _, query := range cases {
+		stmt, err := Parse(query)
+		if err != nil {
+			t.Fatalf("%q: %v", query, err)
+		}
+		formatted := FormatStatement(stmt)
+		if _, err := Parse(formatted); err != nil {
+			t.Fatalf("%q formatted as %q: %v", query, formatted, err)
+		}
+	}
+	for _, query := range []string{
+		"SELECT sum(total) OVER missing FROM mongo.orders",
+		"SELECT sum(total) OVER w FROM mongo.orders WINDOW w AS (PARTITION BY region), w AS (ORDER BY id)",
+		"SELECT sum(total) OVER a FROM mongo.orders WINDOW a AS (b), b AS (a)",
+	} {
+		if _, err := Parse(query); err == nil {
+			t.Errorf("%q unexpectedly parsed", query)
+		}
+	}
+}
+
+func TestIntervalTrimOverlayAndTimeZoneParsing(t *testing.T) {
+	cases := []string{
+		"SELECT INTERVAL '1 day'",
+		"SELECT INTERVAL '1' DAY",
+		"SELECT INTERVAL '1-2' YEAR TO MONTH",
+		"SELECT INTERVAL '1 02:03:04' DAY TO SECOND",
+		"SELECT TRIM(BOTH 'x' FROM 'xxaxx')",
+		"SELECT TRIM(LEADING FROM '  x')",
+		"SELECT OVERLAY('abcdef' PLACING 'XY' FROM 2 FOR 3)",
+		"SELECT TIMESTAMP '2024-01-01T12:00:00Z' AT TIME ZONE 'UTC'",
+	}
+	for _, query := range cases {
+		stmt, err := Parse(query)
+		if err != nil {
+			t.Fatalf("%q: %v", query, err)
+		}
+		formatted := FormatStatement(stmt)
+		if _, err := Parse(formatted); err != nil {
+			t.Fatalf("%q formatted as %q: %v", query, formatted, err)
+		}
+	}
+	for _, query := range []string{
+		"SELECT INTERVAL 1",
+		"SELECT OVERLAY('a' FROM 1)",
+		"SELECT TRIM(BOTH 'x' FROM)",
+	} {
+		if _, err := Parse(query); err == nil {
+			t.Errorf("%q unexpectedly parsed", query)
+		}
+	}
+}

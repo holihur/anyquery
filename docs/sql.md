@@ -172,9 +172,27 @@ Supported:
 - ranking: `row_number`, `rank`, `dense_rank`, `percent_rank`, `cume_dist`, `ntile`
 - navigation: `lag`, `lead`, `first_value`, `last_value`, `nth_value`
 - aggregates: `count`, `sum`, `avg`, `min`, `max`, `stddev*`, `variance*`, `group_concat`, `string_agg`, `array_agg`, `bool_and`, `bool_or`
-- `PARTITION BY`, `ORDER BY`, and `ROWS`/`RANGE` frames
+- ordered-set: `percentile_cont`, `percentile_disc`, `mode` with `WITHIN GROUP (ORDER BY ...)`
+- `PARTITION BY`, `ORDER BY`, `ROWS`/`RANGE`/`GROUPS` frames, `EXCLUDE`
+- named windows and `WINDOW` definitions, including base-window inheritance
 
-`RANGE` frames use peer groups for `UNBOUNDED`/`CURRENT ROW` bounds and value offsets for a single numeric `ORDER BY` key. Window functions can be combined with `GROUP BY`; aggregate projections are evaluated first and windows run over the grouped rows. `HAVING` is applied before window evaluation.
+`RANGE` frames use peer groups for `UNBOUNDED`/`CURRENT ROW` bounds and value offsets for a single numeric `ORDER BY` key. `GROUPS` frames count peer groups. `EXCLUDE CURRENT ROW`, `GROUP`, `TIES` and `NO OTHERS` are supported. Window functions can be combined with `GROUP BY`; aggregate projections are evaluated first and windows run over the grouped rows. `HAVING` is applied before window evaluation.
+
+Named windows:
+
+```sql
+SELECT id, sum(total) OVER w AS running
+FROM mongo.orders
+WINDOW w AS (PARTITION BY region ORDER BY id);
+```
+
+Ordered-set aggregates:
+
+```sql
+SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY total) AS median,
+       mode() WITHIN GROUP (ORDER BY status) AS common_status
+FROM mongo.orders;
+```
 
 ### Aggregate FILTER
 
@@ -196,6 +214,9 @@ GROUP BY region;
 - `IN (...)`, `ANY`/`SOME`/`ALL`, `BETWEEN`, `IS [NOT] NULL/TRUE/FALSE`, `IS [NOT] DISTINCT FROM`
 - `CASE`, `CAST`, `TRY_CAST`, `::`, `EXISTS`, scalar subqueries
 - typed literals: `DATE '2024-01-01'`, `TIMESTAMP '2024-01-01 12:00:00'`, `TIMESTAMPTZ '...'`
+- `INTERVAL '1 day'`, `INTERVAL '1' DAY`, `INTERVAL '1-2' YEAR TO MONTH`, `INTERVAL '1 02:03:04' DAY TO SECOND`
+- timestamp/interval arithmetic (`ts + interval`, `ts - timestamp`, `interval * number`)
+- `AT TIME ZONE` plus `TIMEZONE(zone, timestamp)`
 - bind parameters: `?`, `$1`
 - `CURRENT_DATE`, `CURRENT_TIMESTAMP`, `NOW()`
 
@@ -207,6 +228,8 @@ GROUP BY region;
 | Nulls / conditionals | `coalesce`, `ifnull`, `nvl`, `nullif`, `if`/`iff` |
 | Math | `abs`, `ceil`/`ceiling`, `floor`, `round`, `sqrt`, `power`/`pow`, `mod`, `greatest`, `least` |
 | Date / time | `now`, `current_date`, `current_timestamp`, `date_trunc`, `extract`, `date_part`, `date_add`/`dateadd`, `date_sub`/`datesub`, `date_diff`/`datediff`, `to_timestamp`, `timezone` |
+| Interval | `INTERVAL` literals, calendar month/day/time arithmetic, `EXTRACT`/CAST to interval |
+| String standard forms | `TRIM([BOTH|LEADING|TRAILING] ... FROM ...)`, `OVERLAY(... PLACING ... FROM ... FOR ...)` |
 | JSON / hashing | `json_extract`, `json_extract_scalar`, `md5`, `sha256` |
 | Random | `random`/`rand` |
 
@@ -278,11 +301,12 @@ Use filters early. The scan planner performs capability-gated projection, filter
 ## Known limitations
 
 - No DML/DDL or transactions.
-- No `PIVOT`/`UNPIVOT`, `DISTINCT ON`, `QUALIFY`, `TOP`, or named window definitions.
+- No `PIVOT`/`UNPIVOT`, `DISTINCT ON`, `QUALIFY`, or `TOP`.
 - `UNNEST` currently expands JSON arrays and internal array values; arbitrary user-defined table functions are not implemented.
 - Window frame offsets accept integer literals, not bind parameters.
 - `TABLESAMPLE SYSTEM`/`BERNOULLI` are implemented as deterministic-capable row sampling in the engine; source-level page sampling is connector-specific.
-- No full interval/array/map/JSON type system; typed date/time values are represented as normalized strings.
+- INTERVAL supports calendar month/day/time arithmetic; there is no full interval type system, array/map type, or typed JSON operator set.
+- Date/time values are represented as normalized strings; `AT TIME ZONE` and `TIMEZONE` return normalized timestamp strings.
 - No cost-based join reordering; joins follow the written order and choose the smaller inner-join build side.
 - Window functions are not available inside `|>` pipeline stages.
 - Recursive CTEs require a single `UNION`/`UNION ALL` term and have the documented iteration/row guards.

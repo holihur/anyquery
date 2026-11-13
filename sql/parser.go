@@ -81,6 +81,9 @@ func (p *Parser) parseSelect() (*SelectStmt, error) {
 	if err := p.parseSelectTail(s); err != nil {
 		return nil, err
 	}
+	if err := p.resolveWindowReferences(s); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -192,6 +195,9 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 	if err := p.parseSelectClauses(s); err != nil {
 		return nil, err
 	}
+	if err := p.resolveWindowReferences(s); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -224,6 +230,31 @@ func (p *Parser) parseSelectClauses(s *SelectStmt) error {
 			return err
 		}
 	}
+	if p.cur.IsKeyword("WINDOW") {
+		if err := p.advance(); err != nil {
+			return err
+		}
+		for {
+			name, err := p.parseIdent()
+			if err != nil {
+				return err
+			}
+			if err := p.expectKeyword("AS"); err != nil {
+				return err
+			}
+			spec, err := p.parseWindowSpec()
+			if err != nil {
+				return err
+			}
+			s.Windows = append(s.Windows, NamedWindow{Name: name, Spec: spec})
+			if !p.cur.IsPunct(",") {
+				break
+			}
+			if err := p.advance(); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -246,9 +277,15 @@ func (p *Parser) parseFromFirst() (*SelectStmt, error) {
 		if err := p.parsePipes(s); err != nil {
 			return nil, err
 		}
+		if err := p.resolveWindowReferences(s); err != nil {
+			return nil, err
+		}
 		return s, nil
 	}
 	if err := p.parseSelectTail(s); err != nil {
+		return nil, err
+	}
+	if err := p.resolveWindowReferences(s); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -1488,6 +1525,22 @@ func (p *Parser) parseExpr(minPrec int) (Expr, error) {
 		}
 		left = &CastExpr{Expr: left, Type: typ}
 	}
+	if p.cur.IsKeyword("AT") && p.peek.IsKeyword("TIME") {
+		if err := p.advance(); err != nil { // AT
+			return nil, err
+		}
+		if err := p.expectKeyword("TIME"); err != nil {
+			return nil, err
+		}
+		if err := p.expectKeyword("ZONE"); err != nil {
+			return nil, err
+		}
+		zone, err := p.parseExpr(precMul)
+		if err != nil {
+			return nil, err
+		}
+		left = &AtTimeZoneExpr{Expr: left, Zone: zone}
+	}
 
 	for {
 		// Arithmetic / boolean infix.
@@ -1811,6 +1864,12 @@ func (p *Parser) parsePrimary() (Expr, error) {
 			return nil, err
 		}
 		return &CastExpr{Expr: lit, Type: typ}, nil
+	case t.IsKeyword("INTERVAL"):
+		return p.parseInterval()
+	case t.IsKeyword("TRIM"):
+		return p.parseTrim()
+	case t.IsKeyword("OVERLAY"):
+		return p.parseOverlay()
 	case t.IsKeyword("CASE"):
 		return p.parseCase()
 
@@ -1884,6 +1943,29 @@ func (p *Parser) parsePrimary() (Expr, error) {
 				return nil, err
 			}
 			fn := &FuncCall{Name: name, Args: args, Distinct: distinct}
+			if p.cur.IsKeyword("WITHIN") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("GROUP"); err != nil {
+					return nil, err
+				}
+				if err := p.expectPunct("("); err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("ORDER"); err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("BY"); err != nil {
+					return nil, err
+				}
+				if fn.WithinGroup, err = p.parseOrderItems(); err != nil {
+					return nil, err
+				}
+				if err := p.expectPunct(")"); err != nil {
+					return nil, err
+				}
+			}
 			if p.cur.IsKeyword("FILTER") {
 				if err := p.advance(); err != nil {
 					return nil, err
@@ -1921,11 +2003,169 @@ func (p *Parser) parsePrimary() (Expr, error) {
 	return nil, p.errf("expected expression, got %s", t)
 }
 
+func (p *Parser) parseInterval() (Expr, error) {
+	if err := p.advance(); err != nil { // INTERVAL
+		return nil, err
+	}
+	if p.cur.Kind != TokString {
+		return nil, p.errf("INTERVAL expects a string literal")
+	}
+	value := p.cur.Value
+	if err := p.advance(); err != nil {
+		return nil, err
+	}
+	qualifier := ""
+	if p.cur.Kind == TokIdent && !p.cur.Quoted {
+		switch strings.ToUpper(p.cur.Value) {
+		case "YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND":
+			qualifier = strings.ToUpper(p.cur.Value)
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if p.cur.IsKeyword("TO") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+				end, err := p.parseIdent()
+				if err != nil {
+					return nil, err
+				}
+				qualifier += " TO " + strings.ToUpper(end)
+			}
+		}
+	}
+	return &IntervalExpr{Value: value, Qualifier: qualifier}, nil
+}
+
+func (p *Parser) parseTrim() (Expr, error) {
+	var err error
+	if err := p.advance(); err != nil { // TRIM
+		return nil, err
+	}
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+	mode := "trim"
+	if p.cur.IsKeyword("BOTH") || p.cur.IsKeyword("LEADING") || p.cur.IsKeyword("TRAILING") {
+		switch strings.ToUpper(p.cur.Value) {
+		case "LEADING":
+			mode = "ltrim"
+		case "TRAILING":
+			mode = "rtrim"
+		}
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+	}
+	var source Expr
+	var chars Expr
+	if p.cur.IsKeyword("FROM") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		source, err = p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		first, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		if p.cur.IsKeyword("FROM") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			chars = first
+			source, err = p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			source = first
+			if p.cur.IsPunct(",") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+				chars, err = p.parseExpr(0)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	args := []Expr{source}
+	if chars != nil {
+		args = append(args, chars)
+	}
+	return &FuncCall{Name: mode, Args: args}, nil
+}
+
+func (p *Parser) parseOverlay() (Expr, error) {
+	if err := p.advance(); err != nil { // OVERLAY
+		return nil, err
+	}
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+	str, err := p.parseExpr(0)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.expectKeyword("PLACING"); err != nil {
+		return nil, err
+	}
+	repl, err := p.parseExpr(0)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.expectKeyword("FROM"); err != nil {
+		return nil, err
+	}
+	start, err := p.parseExpr(0)
+	if err != nil {
+		return nil, err
+	}
+	args := []Expr{str, repl, start}
+	if p.cur.IsKeyword("FOR") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		n, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, n)
+	}
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	return &FuncCall{Name: "overlay", Args: args}, nil
+}
+
 func (p *Parser) parseWindowSpec() (*WindowSpec, error) {
+	// OVER name and OVER (name ...) both reference a WINDOW definition.
+	if p.cur.Kind == TokIdent && !p.cur.IsPunct("(") {
+		name, err := p.parseIdent()
+		if err != nil {
+			return nil, err
+		}
+		return &WindowSpec{Base: name}, nil
+	}
 	if err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
 	w := &WindowSpec{}
+	if p.cur.Kind == TokIdent && !isWindowClauseKeyword(p.cur.Value) {
+		base, err := p.parseIdent()
+		if err != nil {
+			return nil, err
+		}
+		w.Base = base
+	}
 	if p.cur.IsKeyword("PARTITION") {
 		if err := p.advance(); err != nil {
 			return nil, err
@@ -1950,7 +2190,7 @@ func (p *Parser) parseWindowSpec() (*WindowSpec, error) {
 			return nil, err
 		}
 	}
-	if p.cur.IsKeyword("ROWS") || p.cur.IsKeyword("RANGE") {
+	if p.cur.IsKeyword("ROWS") || p.cur.IsKeyword("RANGE") || p.cur.IsKeyword("GROUPS") {
 		w.FrameKind = strings.ToUpper(p.cur.Value)
 		if err := p.advance(); err != nil {
 			return nil, err
@@ -1981,10 +2221,156 @@ func (p *Parser) parseWindowSpec() (*WindowSpec, error) {
 			w.FrameEnd = "current_row"
 		}
 	}
+	if p.cur.IsKeyword("EXCLUDE") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		switch {
+		case p.cur.IsKeyword("CURRENT"):
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if err := p.expectKeyword("ROW"); err != nil {
+				return nil, err
+			}
+			w.FrameExclusion = "current_row"
+		case p.cur.IsKeyword("GROUP"):
+			w.FrameExclusion = "group"
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		case p.cur.IsKeyword("TIES"):
+			w.FrameExclusion = "ties"
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		case p.cur.IsKeyword("NO"):
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if err := p.expectKeyword("OTHERS"); err != nil {
+				return nil, err
+			}
+			w.FrameExclusion = "no_others"
+		default:
+			return nil, p.errf("expected CURRENT ROW, GROUP, TIES or NO OTHERS after EXCLUDE")
+		}
+	}
 	if err := p.expectPunct(")"); err != nil {
 		return nil, err
 	}
 	return w, nil
+}
+
+func isWindowClauseKeyword(s string) bool {
+	switch strings.ToUpper(s) {
+	case "PARTITION", "ORDER", "ROWS", "RANGE", "GROUPS", "EXCLUDE":
+		return true
+	}
+	return false
+}
+
+func mergeWindowSpec(base, child *WindowSpec) *WindowSpec {
+	out := *child
+	if len(out.PartitionBy) == 0 {
+		out.PartitionBy = base.PartitionBy
+	}
+	if len(out.OrderBy) == 0 {
+		out.OrderBy = base.OrderBy
+	}
+	if out.FrameKind == "" {
+		out.FrameKind = base.FrameKind
+		out.FrameStart = base.FrameStart
+		out.FrameStartOffset = base.FrameStartOffset
+		out.FrameEnd = base.FrameEnd
+		out.FrameEndOffset = base.FrameEndOffset
+	}
+	if out.FrameExclusion == "" {
+		out.FrameExclusion = base.FrameExclusion
+	}
+	out.Base = ""
+	return &out
+}
+
+func (p *Parser) resolveWindowReferences(s *SelectStmt) error {
+	if s == nil {
+		return nil
+	}
+	defs := map[string]*WindowSpec{}
+	for _, w := range s.Windows {
+		name := strings.ToLower(w.Name)
+		if _, exists := defs[name]; exists {
+			return p.errf("duplicate WINDOW definition %q", w.Name)
+		}
+		if w.Spec == nil {
+			return p.errf("WINDOW %q has no specification", w.Name)
+		}
+		defs[name] = w.Spec
+	}
+	stack := map[string]bool{}
+	var resolve func(name string) (*WindowSpec, error)
+	resolve = func(name string) (*WindowSpec, error) {
+		key := strings.ToLower(name)
+		if stack[key] {
+			return nil, p.errf("cyclic WINDOW reference %q", name)
+		}
+		raw, ok := defs[key]
+		if !ok {
+			return nil, p.errf("unknown WINDOW %q", name)
+		}
+		stack[key] = true
+		defer delete(stack, key)
+		if raw.Base == "" {
+			return raw, nil
+		}
+		base, err := resolve(raw.Base)
+		if err != nil {
+			return nil, err
+		}
+		return mergeWindowSpec(base, raw), nil
+	}
+	for name := range defs {
+		if _, err := resolve(name); err != nil {
+			return err
+		}
+	}
+	resolveExpr := func(e Expr) error {
+		if e == nil {
+			return nil
+		}
+		var resolveErr error
+		WalkExpr(e, func(x Expr) bool {
+			f, ok := x.(*FuncCall)
+			if !ok || f.Window == nil || f.Window.Base == "" {
+				return true
+			}
+			resolved, err := resolve(f.Window.Base)
+			if err != nil {
+				resolveErr = err
+				return false
+			}
+			f.Window = mergeWindowSpec(resolved, f.Window)
+			return true
+		})
+		return resolveErr
+	}
+	for _, item := range s.Projections {
+		if err := resolveExpr(item.Expr); err != nil {
+			return err
+		}
+	}
+	if err := resolveExpr(s.Where); err != nil {
+		return err
+	}
+	if err := resolveExpr(s.Having); err != nil {
+		return err
+	}
+	for _, o := range s.OrderBy {
+		if err := resolveExpr(o.Expr); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *Parser) parseFrameBound() (string, int, error) {
@@ -2472,7 +2858,7 @@ func isClauseKeyword(s string) bool {
 	switch strings.ToUpper(s) {
 	case "FROM", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT",
 		"JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "ON", "USING",
-		"AND", "OR", "NOT", "IS", "IN", "LIKE", "ILIKE", "BETWEEN", "WHEN", "THEN", "ELSE", "END",
+		"AND", "OR", "NOT", "IS", "IN", "LIKE", "ILIKE", "BETWEEN", "WHEN", "THEN", "ELSE", "END", "WINDOW", "WITHIN", "GROUPS", "EXCLUDE", "TIES", "OTHERS", "AT", "ZONE",
 		"ASC", "DESC", "NULLS", "FIRST", "LAST", "AS", "BY", "SELECT", "DISTINCT", "ALL", "AGGREGATE", "FILTER", "OVER", "PARTITION", "ROWS", "RANGE", "UNBOUNDED", "PRECEDING", "FOLLOWING", "CURRENT", "ROW", "FETCH", "ONLY", "RECURSIVE", "ANY", "SOME", "ROLLUP", "CUBE", "GROUPING", "SETS", "TRY_CAST", "PIPE":
 		return true
 	}

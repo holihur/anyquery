@@ -147,7 +147,7 @@ var builtinScalarNames = []string{
 	"datesub", "timestampadd", "date_diff", "datediff", "timestampdiff", "left",
 	"right", "reverse", "repeat", "position", "strpos", "instr", "starts_with",
 	"startswith", "ends_with", "endswith", "contains", "initcap", "lpad", "rpad",
-	"regexp_replace", "regexp_extract", "if", "iff",
+	"regexp_replace", "regexp_extract", "if", "iff", "overlay",
 }
 
 func defaultFunctionRegistry() *FunctionRegistry {

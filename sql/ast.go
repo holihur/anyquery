@@ -30,7 +30,14 @@ type SelectStmt struct {
 	OffsetExpr    Expr // set instead of Offset when the offset is an expression
 	FetchWithTies bool
 	SetOps        []SetOperation
+	Windows       []NamedWindow
 	Pipes         []PipeStage
+}
+
+// NamedWindow is one WINDOW clause definition.
+type NamedWindow struct {
+	Name string
+	Spec *WindowSpec
 }
 
 func (*SelectStmt) stmtNode() {}
@@ -339,25 +346,28 @@ type IsExpr struct {
 func (*IsExpr) exprNode() {}
 
 type FuncCall struct {
-	Name     string
-	Args     []Expr
-	Star     bool
-	Distinct bool
-	Filter   Expr
-	Window   *WindowSpec
+	Name        string
+	Args        []Expr
+	Star        bool
+	Distinct    bool
+	Filter      Expr
+	WithinGroup []OrderItem
+	Window      *WindowSpec
 }
 
 // WindowSpec is an OVER (...) clause. FrameStart/FrameEnd use the values
 // unbounded_preceding, current_row, unbounded_following, preceding, following;
 // FrameOffset is meaningful for the last two.
 type WindowSpec struct {
+	Base             string // named window reference, e.g. OVER w
 	PartitionBy      []Expr
 	OrderBy          []OrderItem
-	FrameKind        string // "", ROWS or RANGE
+	FrameKind        string // "", ROWS, RANGE or GROUPS
 	FrameStart       string
 	FrameStartOffset int
 	FrameEnd         string
 	FrameEndOffset   int
+	FrameExclusion   string // "", CURRENT ROW, GROUP, TIES, NO OTHERS
 }
 
 func (*FuncCall) exprNode() {}
@@ -383,6 +393,23 @@ type CastExpr struct {
 
 func (*CastExpr) exprNode() {}
 
+// IntervalExpr is an INTERVAL literal such as INTERVAL '1 day' or
+// INTERVAL '1' DAY.
+type IntervalExpr struct {
+	Value     string
+	Qualifier string // e.g. DAY, YEAR TO MONTH
+}
+
+func (*IntervalExpr) exprNode() {}
+
+func (i *IntervalExpr) String() string {
+	out := "INTERVAL '" + strings.ReplaceAll(i.Value, "'", "''") + "'"
+	if i.Qualifier != "" {
+		out += " " + i.Qualifier
+	}
+	return out
+}
+
 type ExistsExpr struct{ Query *SelectStmt }
 
 func (*ExistsExpr) exprNode() {}
@@ -390,6 +417,18 @@ func (*ExistsExpr) exprNode() {}
 type SubqueryExpr struct{ Query *SelectStmt }
 
 func (*SubqueryExpr) exprNode() {}
+
+// AtTimeZoneExpr is <expr> AT TIME ZONE <zone>.
+type AtTimeZoneExpr struct {
+	Expr Expr
+	Zone Expr
+}
+
+func (*AtTimeZoneExpr) exprNode() {}
+
+func (a *AtTimeZoneExpr) String() string {
+	return "(" + a.Expr.String() + " AT TIME ZONE " + a.Zone.String() + ")"
+}
 
 // ---- formatting ------------------------------------------------------------
 
@@ -540,6 +579,13 @@ func (i *IsExpr) String() string {
 }
 
 func (f *FuncCall) String() string {
+	if strings.EqualFold(f.Name, "overlay") && (len(f.Args) == 3 || len(f.Args) == 4) {
+		out := "overlay(" + f.Args[0].String() + " PLACING " + f.Args[1].String() + " FROM " + f.Args[2].String()
+		if len(f.Args) == 4 {
+			out += " FOR " + f.Args[3].String()
+		}
+		return out + ")"
+	}
 	if strings.EqualFold(f.Name, "extract") && len(f.Args) == 2 {
 		part := f.Args[0].String()
 		if lit, ok := f.Args[0].(*Literal); ok && lit.Kind == LitString {
@@ -564,6 +610,9 @@ func (f *FuncCall) String() string {
 		}
 		out = f.Name + "(" + prefix + strings.Join(args, ", ") + ")"
 	}
+	if len(f.WithinGroup) > 0 {
+		out += " WITHIN GROUP (ORDER BY " + formatOrder(f.WithinGroup) + ")"
+	}
 	if f.Filter != nil {
 		out += " FILTER (WHERE " + f.Filter.String() + ")"
 	}
@@ -575,6 +624,9 @@ func (f *FuncCall) String() string {
 
 func (w *WindowSpec) String() string {
 	var parts []string
+	if w.Base != "" {
+		parts = append(parts, FormatIdent(w.Base))
+	}
 	if len(w.PartitionBy) > 0 {
 		exprs := make([]string, len(w.PartitionBy))
 		for i, e := range w.PartitionBy {
@@ -591,6 +643,9 @@ func (w *WindowSpec) String() string {
 			frame += " BETWEEN " + formatFrameBound(w.FrameStart, w.FrameStartOffset) + " AND " + formatFrameBound(w.FrameEnd, w.FrameEndOffset)
 		} else {
 			frame += " " + formatFrameBound(w.FrameStart, w.FrameStartOffset)
+		}
+		if w.FrameExclusion != "" {
+			frame += " EXCLUDE " + strings.ToUpper(w.FrameExclusion)
 		}
 		parts = append(parts, frame)
 	}
@@ -737,6 +792,15 @@ func FormatSelect(s *SelectStmt) string {
 	}
 	if s.Having != nil {
 		sb.WriteString(" HAVING " + s.Having.String())
+	}
+	if len(s.Windows) > 0 {
+		sb.WriteString(" WINDOW ")
+		for i, w := range s.Windows {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(FormatIdent(w.Name) + " AS (" + w.Spec.String() + ")")
+		}
 	}
 	for _, op := range s.SetOps {
 		sb.WriteString(" " + strings.ToUpper(op.Op))
@@ -1045,6 +1109,11 @@ func WalkExpr(e Expr, fn func(Expr) bool) bool {
 		if x.Filter != nil && !WalkExpr(x.Filter, fn) {
 			return false
 		}
+		for _, o := range x.WithinGroup {
+			if !WalkExpr(o.Expr, fn) {
+				return false
+			}
+		}
 		if x.Window != nil {
 			for _, e := range x.Window.PartitionBy {
 				if !WalkExpr(e, fn) {
@@ -1107,7 +1176,7 @@ func IsWindow(f *FuncCall) bool { return f != nil && f.Window != nil }
 // IsAggregate reports whether name is an aggregate function.
 func IsAggregate(name string) bool {
 	switch strings.ToLower(name) {
-	case "count", "sum", "avg", "min", "max", "stddev", "stddev_pop", "stddev_samp", "variance", "var_pop", "var_samp", "group_concat", "string_agg", "array_agg", "bool_and", "bool_or":
+	case "count", "sum", "avg", "min", "max", "stddev", "stddev_pop", "stddev_samp", "variance", "var_pop", "var_samp", "group_concat", "string_agg", "array_agg", "bool_and", "bool_or", "percentile_cont", "percentile_disc", "mode":
 		return true
 	}
 	return false

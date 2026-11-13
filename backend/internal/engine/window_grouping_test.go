@@ -1,0 +1,103 @@
+package engine
+
+import "testing"
+
+func TestNamedWindows(t *testing.T) {
+	res := execParams(t, `SELECT id, sum(total) OVER w AS s
+		FROM mongo.orders
+		WINDOW w AS (PARTITION BY region ORDER BY id)
+		ORDER BY id`, nil)
+	if res.RowCount != 4 {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	want := []any{float64(100), float64(150), float64(200), float64(225)}
+	for i, row := range res.Rows {
+		if row["s"] != want[i] {
+			t.Fatalf("row %d = %+v, want %v", i, row, want[i])
+		}
+	}
+}
+
+func TestNamedWindowInheritance(t *testing.T) {
+	res := execParams(t, `SELECT id, sum(total) OVER w2 AS s
+		FROM mongo.orders
+		WINDOW w AS (PARTITION BY region), w2 AS (w ORDER BY id)
+		ORDER BY id`, nil)
+	if res.Rows[1]["s"] != float64(150) || res.Rows[3]["s"] != float64(225) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestGroupsFrame(t *testing.T) {
+	res := execParams(t, `SELECT id, sum(total) OVER (ORDER BY region GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) AS s
+		FROM mongo.orders ORDER BY id`, nil)
+	want := []any{float64(150), float64(150), float64(375), float64(375)}
+	for i, row := range res.Rows {
+		if row["s"] != want[i] {
+			t.Fatalf("row %d = %+v, want %v", i, row, want[i])
+		}
+	}
+}
+
+func TestWindowExclude(t *testing.T) {
+	current := execParams(t, `SELECT id, sum(total) OVER (
+		ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW
+	) AS s FROM mongo.orders ORDER BY id`, nil)
+	want := []any{int64(0), float64(100), float64(150), float64(350)}
+	for i, row := range current.Rows {
+		if row["s"] != want[i] {
+			t.Fatalf("current row %d = %+v, want %v", i, row, want[i])
+		}
+	}
+	group := execParams(t, `SELECT id, sum(total) OVER (
+		ORDER BY region ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE GROUP
+	) AS s FROM mongo.orders ORDER BY id`, nil)
+	for i, row := range group.Rows {
+		if row["s"] == nil {
+			t.Fatalf("group row %d = %+v", i, row)
+		}
+	}
+}
+
+func TestOrderedSetAggregates(t *testing.T) {
+	res := execParams(t, `SELECT
+		percentile_cont(0.5) WITHIN GROUP (ORDER BY total) AS median,
+		percentile_disc(0.5) WITHIN GROUP (ORDER BY total) AS p50,
+		mode() WITHIN GROUP (ORDER BY status) AS common
+		FROM mongo.orders`, nil)
+	row := res.Rows[0]
+	if row["median"] != float64(75) || row["p50"] != float64(50) || row["common"] != "paid" {
+		t.Fatalf("row = %+v", row)
+	}
+	filtered := execParams(t, `SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY total)
+		FILTER (WHERE status = 'paid') AS median FROM mongo.orders`, nil)
+	if filtered.Rows[0]["median"] != float64(50) {
+		t.Fatalf("filtered median = %+v", filtered.Rows[0])
+	}
+	if _, err := New(DefaultOptions()).Execute(t.Context(), `SELECT percentile_cont(2) WITHIN GROUP (ORDER BY total) FROM mongo.orders`, testCatalog()); err == nil {
+		t.Fatal("expected invalid fraction error")
+	}
+}
+
+func TestWindowExcludeTiesAndFilterDistinct(t *testing.T) {
+	ties := execParams(t, `SELECT id, count(*) OVER (
+		ORDER BY region ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES
+	) AS n FROM mongo.orders ORDER BY id`, nil)
+	for i, row := range ties.Rows {
+		if row["n"] != int64(3) {
+			t.Fatalf("ties row %d = %+v", i, row)
+		}
+	}
+	groups := execParams(t, `SELECT id, count(*) OVER (
+		ORDER BY region ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP
+	) AS n FROM mongo.orders ORDER BY id`, nil)
+	for i, row := range groups.Rows {
+		if row["n"] != int64(2) {
+			t.Fatalf("group row %d = %+v", i, row)
+		}
+	}
+	filtered := execParams(t, `SELECT count(DISTINCT status) FILTER (WHERE status = 'paid') OVER () AS n FROM mongo.orders`, nil)
+	if filtered.Rows[0]["n"] != int64(1) {
+		t.Fatalf("filtered distinct = %+v", filtered.Rows[0])
+	}
+}

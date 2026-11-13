@@ -86,16 +86,16 @@ The test tag is the Go subtest under
 | CORE-019 | FETCH FIRST ... WITH TIES | supported | `TestSQL2016ReadOnlyProfileMatrix/CORE-019` |
 | WIN-001 | Ranking/navigation/aggregate window functions | supported | `TestSQL2016ReadOnlyProfileMatrix/WIN-001` |
 | WIN-002 | ROWS/RANGE frames | supported | `TestSQL2016ReadOnlyProfileMatrix/WIN-002` |
-| WIN-003 | Named windows and WINDOW clause | planned | `pending` |
-| WIN-004 | GROUPS frames and EXCLUDE | planned | `pending` |
-| WIN-005 | WITHIN GROUP and ordered-set aggregates | planned | `pending` |
+| WIN-003 | Named windows and WINDOW clause | supported | `TestSQL2016ReadOnlyProfileMatrix/WIN-003` |
+| WIN-004 | GROUPS frames and EXCLUDE | supported | `TestSQL2016ReadOnlyProfileMatrix/WIN-004` |
+| WIN-005 | WITHIN GROUP and ordered-set aggregates | supported | `TestSQL2016ReadOnlyProfileMatrix/WIN-005` |
 | WIN-006 | FILTER and DISTINCT in windows | supported | `TestSQL2016ReadOnlyProfileMatrix/WIN-006` |
 | EXPR-001 | Arithmetic, comparison, boolean, NULL and IS predicates | supported | `TestSQL2016ReadOnlyProfileMatrix/EXPR-001` |
 | EXPR-002 | CASE, CAST, TRY_CAST and chained `::` | supported | `TestSQL2016ReadOnlyProfileMatrix/EXPR-002` |
 | EXPR-003 | LIKE/ILIKE/REGEXP, BETWEEN, IN and quantified comparisons | supported | `TestSQL2016ReadOnlyProfileMatrix/EXPR-003` |
-| EXPR-004 | Standard string functions, including TRIM/OVERLAY | partial | `pending` |
-| EXPR-005 | INTERVAL values and arithmetic | planned | `pending` |
-| EXPR-006 | Date/time/time-zone semantics | partial | `pending` |
+| EXPR-004 | Standard string functions, including TRIM/OVERLAY | supported | `TestSQL2016ReadOnlyProfileMatrix/EXPR-004` |
+| EXPR-005 | INTERVAL values and arithmetic | supported | `TestSQL2016ReadOnlyProfileMatrix/EXPR-005` |
+| EXPR-006 | Date/time/time-zone semantics | supported | `TestSQL2016ReadOnlyProfileMatrix/EXPR-006` |
 | EXPR-007 | Bound parameters in expressions | supported | `TestSQL2016ReadOnlyProfileMatrix/EXPR-007` |
 | JSON-001 | IS JSON | planned | `pending` |
 | JSON-002 | JSON_VALUE and JSON_QUERY | planned | `pending` |

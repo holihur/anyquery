@@ -445,6 +445,8 @@ func toJSONValue(v any) any {
 	switch x := v.(type) {
 	case time.Time:
 		return x.UTC().Format(time.RFC3339Nano)
+	case intervalValue:
+		return x.String()
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, v := range x {

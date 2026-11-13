@@ -222,10 +222,23 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 				return errf("invalid_window", "%s requires an expression", strings.ToUpper(name))
 			}
 			start, end := windowFrame(f.Window, pos, n, orderKeys)
-			target := start
-			if name == "last_value" {
-				target = end
-			} else if name == "nth_value" {
+			target := -1
+			switch name {
+			case "first_value":
+				for j := start; j <= end && j < n; j++ {
+					if !frameExcluded(f.Window, pos, j, orderKeys) {
+						target = j
+						break
+					}
+				}
+			case "last_value":
+				for j := end; j >= start && j >= 0; j-- {
+					if !frameExcluded(f.Window, pos, j, orderKeys) {
+						target = j
+						break
+					}
+				}
+			case "nth_value":
 				k := 1
 				if len(f.Args) > 1 {
 					v, err := ec.windowEval(src, ri, f.Args[1])
@@ -236,7 +249,17 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 						k = x
 					}
 				}
-				target = start + k - 1
+				remaining := k
+				for j := start; j <= end && j < n; j++ {
+					if frameExcluded(f.Window, pos, j, orderKeys) {
+						continue
+					}
+					remaining--
+					if remaining == 0 {
+						target = j
+						break
+					}
+				}
 			}
 			if target >= start && target <= end && target >= 0 && target < n {
 				value, err = ec.windowEval(src, idxs[target], f.Args[0])
@@ -246,7 +269,7 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 				return errf("invalid_window", "unsupported window function %s", strings.ToUpper(name))
 			}
 			start, end := windowFrame(f.Window, pos, n, orderKeys)
-			value, err = ec.evalWindowAggregate(src, f, idxs, start, end)
+			value, err = ec.evalWindowAggregate(src, f, idxs, start, end, pos, orderKeys)
 		}
 		if err != nil {
 			return err
@@ -256,7 +279,7 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 	return nil
 }
 
-func (ec *execCtx) evalWindowAggregate(src *windowSource, f *sql.FuncCall, idxs []int, start, end int) (any, error) {
+func (ec *execCtx) evalWindowAggregate(src *windowSource, f *sql.FuncCall, idxs []int, start, end, current int, orderKeys [][]any) (any, error) {
 	name := strings.ToLower(f.Name)
 	star := len(f.Args) == 1
 	if star {
@@ -271,7 +294,7 @@ func (ec *execCtx) evalWindowAggregate(src *windowSource, f *sql.FuncCall, idxs 
 	values := make([]any, 0, end-start+1)
 	sep := ","
 	for pos := start; pos <= end && pos < len(idxs); pos++ {
-		if pos < 0 {
+		if pos < 0 || frameExcluded(f.Window, current, pos, orderKeys) {
 			continue
 		}
 		ri := idxs[pos]
@@ -460,6 +483,17 @@ func windowFrame(w *sql.WindowSpec, pos, n int, orderKeys [][]any) (int, int) {
 		}
 		return start, end
 	}
+	if w.FrameKind == "GROUPS" {
+		start := groupFrameBound(w.FrameStart, w.FrameStartOffset, pos, n, orderKeys, true)
+		end := groupFrameBound(w.FrameEnd, w.FrameEndOffset, pos, n, orderKeys, false)
+		if start < 0 {
+			start = 0
+		}
+		if end >= n {
+			end = n - 1
+		}
+		return start, end
+	}
 	start := frameBound(w.FrameStart, w.FrameStartOffset, pos, n, true)
 	end := frameBound(w.FrameEnd, w.FrameEndOffset, pos, n, false)
 	if start < 0 {
@@ -469,6 +503,71 @@ func windowFrame(w *sql.WindowSpec, pos, n int, orderKeys [][]any) (int, int) {
 		end = n - 1
 	}
 	return start, end
+}
+
+func groupFrameBound(kind string, offset, pos, n int, orderKeys [][]any, start bool) int {
+	switch kind {
+	case "unbounded_preceding":
+		return 0
+	case "unbounded_following":
+		return n - 1
+	case "current_row":
+		if start {
+			return peerStart(pos, orderKeys)
+		}
+		return peerEnd(pos, orderKeys)
+	case "preceding":
+		g := pos
+		for i := 0; i < offset; i++ {
+			first := peerStart(g, orderKeys)
+			if first == 0 {
+				g = 0
+				break
+			}
+			g = peerStart(first-1, orderKeys)
+		}
+		if start {
+			return g
+		}
+		return peerEnd(g, orderKeys)
+	case "following":
+		g := pos
+		for i := 0; i < offset; i++ {
+			last := peerEnd(g, orderKeys)
+			if last >= n-1 {
+				g = n - 1
+				break
+			}
+			g = peerEnd(last+1, orderKeys)
+		}
+		if start {
+			return peerStart(g, orderKeys)
+		}
+		return g
+	}
+	if start {
+		return 0
+	}
+	return n - 1
+}
+
+func frameExcluded(w *sql.WindowSpec, current, pos int, orderKeys [][]any) bool {
+	if w == nil || w.FrameExclusion == "" || w.FrameExclusion == "no_others" {
+		return false
+	}
+	samePeer := pos == current
+	if current >= 0 && current < len(orderKeys) && pos >= 0 && pos < len(orderKeys) {
+		samePeer = sameOrderKeys(orderKeys[current], orderKeys[pos])
+	}
+	switch w.FrameExclusion {
+	case "current_row":
+		return pos == current
+	case "group":
+		return samePeer
+	case "ties":
+		return samePeer && pos != current
+	}
+	return false
 }
 
 func peerStart(pos int, orderKeys [][]any) int {

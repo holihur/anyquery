@@ -870,6 +870,8 @@ func inferType(v any) string {
 		return "array"
 	case map[string]any:
 		return "object"
+	case intervalValue:
+		return "interval"
 	case string:
 		return "string"
 	default:
