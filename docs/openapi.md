@@ -11,6 +11,9 @@ GET operation as a table.
 | `spec_headers` | Optional JSON headers for a protected spec URL (falls back to `headers`) |
 | `base_url` | Optional override for `servers[0].url` / Swagger `host` |
 | `headers` | JSON object sent to API requests |
+| `auth_type` | Optional OAuth2 flow: `client_credentials` or `refresh_token` |
+| `token_url` | OAuth2 token endpoint |
+| `client_id` / `client_secret` / `refresh_token` / `scope` | OAuth2 credentials and scope |
 | `path_params` | JSON object used to substitute `{param}` path segments |
 | `query_params` | JSON object added to every API request |
 | `allow_methods` | Methods to expose, default `GET`; enable `GET,POST` for search APIs |
@@ -66,8 +69,9 @@ honoring `Retry-After`.
   endpoint semantics.
 - Pagination covers common limit/page/offset/cursor/Link patterns, but
   API-specific cursor formats may still need a custom connector.
-- OAuth flows are not automated. Provide a bearer/API-key header, or refresh the
-  header value when the token expires.
+- OAuth2 client credentials and refresh-token flows are automated for API
+  requests; spec fetching still uses `spec_headers`. Delegated OAuth authorization
+  code flows are not automated.
 - Path, query and header parameters are connection-wide; create separate
   sources if you need multiple parameter sets.
 - Security schemes and server variables beyond defaults are not automatically

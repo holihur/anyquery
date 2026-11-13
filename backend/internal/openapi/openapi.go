@@ -18,6 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/anyquery/anyquery/internal/connector"
+	"github.com/anyquery/anyquery/internal/httpauth"
 )
 
 func init() { connector.Register(Provider{}) }
@@ -37,6 +38,12 @@ func (Provider) Spec() connector.TypeSpec {
 			{Key: "spec_headers", Label: "Spec request headers (JSON)", Kind: connector.FieldTextarea, Secret: true, Placeholder: `{"Authorization":"Bearer ..."}`, Help: "Optional headers for fetching a protected spec URL."},
 			{Key: "base_url", Label: "Base URL override", Kind: connector.FieldText, Placeholder: "https://api.example.com/v1", Help: "Optional. Defaults to servers[0].url or host/basePath."},
 			{Key: "headers", Label: "API headers (JSON)", Kind: connector.FieldTextarea, Secret: true, Placeholder: `{"Authorization":"Bearer ..."}`},
+			{Key: "auth_type", Label: "OAuth2 flow", Kind: connector.FieldSelect, Default: "none", Options: []connector.Option{{Value: "none", Label: "None"}, {Value: "client_credentials", Label: "Client credentials"}, {Value: "refresh_token", Label: "Refresh token"}}},
+			{Key: "token_url", Label: "OAuth2 token URL", Kind: connector.FieldText, Placeholder: "https://auth.example.com/oauth/token"},
+			{Key: "client_id", Label: "OAuth2 client ID", Kind: connector.FieldText},
+			{Key: "client_secret", Label: "OAuth2 client secret", Kind: connector.FieldPassword, Secret: true},
+			{Key: "refresh_token", Label: "OAuth2 refresh token", Kind: connector.FieldPassword, Secret: true},
+			{Key: "scope", Label: "OAuth2 scope", Kind: connector.FieldText, Placeholder: "read:data"},
 			{Key: "allow_methods", Label: "Allowed methods", Kind: connector.FieldText, Default: "GET", Help: "Comma-separated methods, e.g. GET,POST. Non-GET calls are opt-in because they may mutate data."},
 			{Key: "body_template", Label: "Request body template (JSON)", Kind: connector.FieldTextarea, Placeholder: `{"query":"{param}"}`, Help: "Optional JSON body for POST/PUT/PATCH operations. Path/query/header values replace {name} placeholders."},
 			{Key: "path_params", Label: "Path params (JSON)", Kind: connector.FieldTextarea, Placeholder: `{"owner":"acme","repo":"data"}`},
@@ -71,6 +78,10 @@ func (Provider) Open(ctx context.Context, cfg map[string]string) (connector.Conn
 	if err != nil {
 		return nil, fmt.Errorf("headers: %w", err)
 	}
+	authCfg, err := httpauth.ParseConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	pathParams, err := parseObject(cfg["path_params"])
 	if err != nil {
 		return nil, fmt.Errorf("path_params: %w", err)
@@ -82,6 +93,7 @@ func (Provider) Open(ctx context.Context, cfg map[string]string) (connector.Conn
 	c := &Conn{
 		baseURL:      resolveBase(cfg["base_url"], cfg["spec"], doc),
 		headers:      headers,
+		auth:         httpauth.NewProvider(authCfg),
 		pathParams:   pathParams,
 		queryParams:  queryParams,
 		spec:         doc,
@@ -111,6 +123,7 @@ func (Provider) Open(ctx context.Context, cfg map[string]string) (connector.Conn
 type Conn struct {
 	baseURL      string
 	headers      map[string]any
+	auth         *httpauth.Provider
 	pathParams   map[string]any
 	queryParams  map[string]any
 	spec         map[string]any
@@ -292,6 +305,15 @@ func (c *Conn) fetchJSON(ctx context.Context, requestURL string, op *operation) 
 		for k, v := range c.headers {
 			httpReq.Header.Set(k, fmt.Sprint(v))
 		}
+		if c.auth != nil {
+			authHeader, err := c.auth.Authorization(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			if authHeader != "" {
+				httpReq.Header.Set("Authorization", authHeader)
+			}
+		}
 		resp, err := c.client.Do(httpReq)
 		if err != nil {
 			return nil, nil, err
@@ -300,6 +322,10 @@ func (c *Conn) fetchJSON(ctx context.Context, requestURL string, op *operation) 
 		resp.Body.Close()
 		if readErr != nil {
 			return nil, nil, readErr
+		}
+		if resp.StatusCode == http.StatusUnauthorized && c.auth != nil && attempt == 0 {
+			c.auth.Invalidate()
+			continue
 		}
 		if (resp.StatusCode == 429 || resp.StatusCode == 502 || resp.StatusCode == 503 || resp.StatusCode == 504) && attempt < 2 {
 			wait := time.Duration(500*(attempt+1)) * time.Millisecond

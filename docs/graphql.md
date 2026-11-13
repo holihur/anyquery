@@ -96,8 +96,10 @@ SELECT id, name FROM graphql.users WHERE name LIKE 'A%';
 ```
 
 支持的逻辑类型：`string`、`integer`、`number`、`boolean`、`timestamp`、
-`object`、`array`。未声明列时，连接器会根据返回行推断列，但 Schema 浏览器
-在首次取数前可能看不到字段；生产配置建议显式声明列。
+`object`、`array`。未声明列时，连接器会从 GraphQL query 的 selection set
+自动提取字段（支持 alias、`nodes`/`edges`/`node` 包装），首次打开 Schema
+即可看到列；实际取数后仍会根据返回行补充缺失字段。复杂 fragment 无法静态
+解析时，建议显式声明 `columns`。
 
 ## Linear preset
 

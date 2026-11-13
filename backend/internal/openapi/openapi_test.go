@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/anyquery/anyquery/internal/connector"
@@ -211,5 +212,59 @@ paths:
 	}
 	if len(res.Rows) != 2 || res.Rows[0]["id"] != float64(1) || res.Rows[1]["id"] != float64(2) {
 		t.Fatalf("paginated rows = %+v", res.Rows)
+	}
+}
+
+func TestOpenAPIOAuthClientCredentials(t *testing.T) {
+	var tokenCalls int32
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			atomic.AddInt32(&tokenCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "oa-token", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer oa-token" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"id": 1}})
+	}))
+	defer api.Close()
+	spec := `openapi: 3.0.0
+servers: [{url: "` + api.URL + `"}]
+paths:
+  /items:
+    get:
+      operationId: listItems
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: {type: integer}
+`
+	path := filepath.Join(t.TempDir(), "openapi.yaml")
+	if err := os.WriteFile(path, []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := (Provider{}).Open(context.Background(), map[string]string{
+		"spec": path, "auth_type": "client_credentials",
+		"token_url": api.URL + "/token", "client_id": "client", "client_secret": "secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := c.Fetch(context.Background(), connectorFetch("listitems", 10)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if atomic.LoadInt32(&tokenCalls) != 1 {
+		t.Fatalf("token calls = %d, want 1", tokenCalls)
 	}
 }

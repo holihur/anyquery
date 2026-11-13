@@ -356,6 +356,9 @@ func parseQueries(cfg map[string]string, defaults queryConfig) (map[string]query
 			if err := validateQuery(q.Query); err != nil {
 				return nil, fmt.Errorf("query %q: %w", name, err)
 			}
+			if len(q.Columns) == 0 {
+				q.Columns = inferQueryColumns(q.Query, q.DataPath)
+			}
 			out[name] = q
 		}
 		if len(out) == 0 {
@@ -376,6 +379,9 @@ func parseQueries(cfg map[string]string, defaults queryConfig) (map[string]query
 	}
 	if err := validateQuery(defaults.Query); err != nil {
 		return nil, err
+	}
+	if len(defaults.Columns) == 0 {
+		defaults.Columns = inferQueryColumns(defaults.Query, defaults.DataPath)
 	}
 	out[name] = defaults
 	return out, nil
