@@ -256,6 +256,29 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 	return &connector.FetchResult{Columns: columns, Rows: rows, Truncated: truncated}, nil
 }
 
+// DescribeFetch returns the GraphQL document and variables that Fetch would
+// send. It does not perform a request.
+func (c *Conn) DescribeFetch(req connector.FetchRequest) (string, []any, error) {
+	q, ok := c.queries[req.Table]
+	if !ok {
+		return "", nil, fmt.Errorf("unknown GraphQL table %q", req.Table)
+	}
+	vars := cloneMap(q.Variables)
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 10_000
+	}
+	if q.LimitVariable != "" && strings.Contains(q.Query, "$"+q.LimitVariable) {
+		if _, exists := vars[q.LimitVariable]; !exists {
+			vars[q.LimitVariable] = limit
+		}
+	}
+	if len(vars) == 0 {
+		return q.Query, nil, nil
+	}
+	return q.Query, []any{vars}, nil
+}
+
 func parseQueries(cfg map[string]string, defaults queryConfig) (map[string]queryConfig, error) {
 	out := map[string]queryConfig{}
 	if raw := strings.TrimSpace(cfg["queries"]); raw != "" {

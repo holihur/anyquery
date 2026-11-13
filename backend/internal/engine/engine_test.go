@@ -18,7 +18,10 @@ func (f *fakeConn) Ping(context.Context) error { return nil }
 func (f *fakeConn) Capabilities() connector.Capabilities {
 	return connector.Capabilities{LimitPushdown: true, ProjectionPushdown: true, FilterPushdown: true}
 }
-func (f *fakeConn) Close() error                                          { return nil }
+func (f *fakeConn) Close() error { return nil }
+func (f *fakeConn) DescribeFetch(req connector.FetchRequest) (string, []any, error) {
+	return "EXEC " + req.Table, nil, nil
+}
 func (f *fakeConn) Introspect(context.Context) ([]connector.Table, error) { return nil, nil }
 func (f *fakeConn) Fetch(_ context.Context, req connector.FetchRequest) (*connector.FetchResult, error) {
 	f.lastReq = &req
@@ -658,5 +661,18 @@ WHERE o.status = 'paid' GROUP BY c.name ORDER BY n DESC LIMIT 5`, nil, testCatal
 		if !found {
 			t.Fatalf("missing %q in %v", want, ops)
 		}
+	}
+	foundStatement := false
+	walk = func(n *PlanNode) {
+		if n.Operator == "Source Scan" && n.Properties["sourceStatement"] == "EXEC orders" {
+			foundStatement = true
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(plan)
+	if !foundStatement {
+		t.Fatalf("source statement missing from plan: %+v", plan)
 	}
 }

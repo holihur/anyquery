@@ -51,7 +51,7 @@ function metaFor(operator: string) {
 
 function propertyEntries(node: PlanNode) {
   const props = node.properties ?? {}
-  const skip = new Set(["operation", "algorithm", "natural", "ctes"])
+  const skip = new Set(["operation", "algorithm", "natural", "ctes", "sourceStatement", "sourceArgs"])
   return Object.entries(props).filter(([key, value]) => !skip.has(key) && value !== undefined && value !== null && value !== "").slice(0, 6)
 }
 
@@ -86,6 +86,19 @@ function PlanNodeCard({ node, depth }: { node: PlanNode; depth: number }) {
                   <span className="truncate text-foreground/75">{propertyText(value)}</span>
                 </span>
               ))}
+            </div>
+          )}
+          {typeof node.properties?.sourceStatement === "string" && (
+            <div className="mt-2 overflow-hidden rounded-md border border-border/50 bg-muted/25">
+              <div className="flex items-center justify-between border-b border-border/40 px-2 py-1">
+                <span className="text-[9px] font-medium tracking-[0.1em] text-muted-foreground uppercase">Source statement</span>
+                {Array.isArray(node.properties.sourceArgs) && node.properties.sourceArgs.length > 0 && (
+                  <span className="max-w-[60%] truncate font-mono text-[9px] text-muted-foreground" title={propertyText(node.properties.sourceArgs)}>
+                    args: {propertyText(node.properties.sourceArgs)}
+                  </span>
+                )}
+              </div>
+              <pre className="max-h-44 overflow-auto p-2 font-mono text-[9.5px] leading-relaxed whitespace-pre-wrap break-words text-foreground/80 scrollbar-thin">{node.properties.sourceStatement}</pre>
             </div>
           )}
         </div>

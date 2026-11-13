@@ -136,6 +136,13 @@ type FetchResult struct {
 	Truncated bool             `json:"truncated"`
 }
 
+// StatementDescriber optionally renders the source-side statement that Fetch
+// would execute. It must not perform I/O. Plan/EXPLAIN uses it to show the real
+// pushed-down query instead of only listing hints.
+type StatementDescriber interface {
+	DescribeFetch(req FetchRequest) (statement string, args []any, err error)
+}
+
 // Connector is one live connection to a data source.
 type Connector interface {
 	// Ping verifies connectivity.

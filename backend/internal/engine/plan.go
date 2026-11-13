@@ -24,9 +24,9 @@ type planBuilder struct {
 	next int
 }
 
-// Explain parses a query and returns a visualizable plan without opening or
-// reading any data sources. Catalog metadata is used for validation and
-// pushdown hints only.
+// Explain parses a query and returns a visualizable plan without reading source
+// rows. Catalog metadata and a short-lived connector handle are used to compute
+// pushdown hints and render source-side statements.
 func (e *Engine) Explain(ctx context.Context, query string, params []any, cat Catalog) (*PlanNode, error) {
 	if e.Opts.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -45,6 +45,7 @@ func (e *Engine) Explain(ctx context.Context, query string, params []any, cat Ca
 		ctes:    map[string]*dataset{},
 		params:  params,
 	}
+	defer ec.close()
 	pb := &planBuilder{ec: ec}
 	switch s := stmt.(type) {
 	case *sql.SelectStmt:
@@ -192,19 +193,44 @@ func (pb *planBuilder) tableExprPlan(te sql.TableExpr, hints map[*sql.TableRef]*
 			return &PlanNode{ID: pb.id(), Operator: "CTE Scan", Detail: t.Table}
 		}
 		props := map[string]any{"source": t.Source, "table": t.Table}
-		if h := hints[t]; h != nil {
-			if len(h.columns) > 0 {
-				props["pushedColumns"] = h.columns
+		h := hints[t]
+		if c, err := pb.ec.connectorFor(t.Source); err == nil {
+			caps := c.Capabilities()
+			baseLimit := pb.ec.engine.Opts.MaxSourceRows + 1
+			req := connector.FetchRequest{Table: t.Table, Limit: baseLimit}
+			pushedLimit := false
+			if h != nil {
+				if caps.ProjectionPushdown && len(h.columns) > 0 {
+					req.Columns = h.columns
+				}
+				if caps.FilterPushdown && len(h.predicates) > 0 {
+					req.Predicates = h.predicates
+				}
+				if caps.LimitPushdown && h.limit > 0 && h.limit < req.Limit {
+					req.Limit = h.limit
+					pushedLimit = true
+				}
 			}
-			if len(h.predicates) > 0 {
+			if len(req.Columns) > 0 {
+				props["pushedColumns"] = req.Columns
+			}
+			if len(req.Predicates) > 0 {
 				var preds []string
-				for _, p := range h.predicates {
+				for _, p := range req.Predicates {
 					preds = append(preds, p.Column+" "+p.Op+" ?")
 				}
 				props["pushedPredicates"] = preds
 			}
-			if h.limit > 0 {
-				props["pushedLimit"] = h.limit
+			if pushedLimit {
+				props["pushedLimit"] = req.Limit
+			}
+			if d, ok := c.(connector.StatementDescriber); ok {
+				if statement, args, err := d.DescribeFetch(req); err == nil && statement != "" {
+					props["sourceStatement"] = statement
+					if len(args) > 0 {
+						props["sourceArgs"] = args
+					}
+				}
 			}
 		}
 		return &PlanNode{ID: pb.id(), Operator: "Source Scan", Detail: t.Source + "." + t.Table, Properties: props}
@@ -239,7 +265,6 @@ func (pb *planBuilder) tableExprPlan(te sql.TableExpr, hints map[*sql.TableRef]*
 		return &PlanNode{ID: pb.id(), Operator: "Table", Detail: "unknown"}
 	}
 }
-
 func (pb *planBuilder) wrap(operator, detail string, child *PlanNode, props map[string]any) *PlanNode {
 	return &PlanNode{ID: pb.id(), Operator: operator, Detail: detail, Properties: props, Children: []*PlanNode{child}}
 }

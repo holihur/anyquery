@@ -234,6 +234,39 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 	return &connector.FetchResult{Columns: columns, Rows: rows, Truncated: truncated}, nil
 }
 
+// DescribeFetch renders the HTTP request that Fetch would make for the first
+// page. It does not perform network I/O.
+func (c *Conn) DescribeFetch(req connector.FetchRequest) (string, []any, error) {
+	op, ok := c.ops[req.Table]
+	if !ok {
+		return "", nil, fmt.Errorf("unknown OpenAPI operation %q", req.Table)
+	}
+	page, offset := 1, 0
+	if n, ok := intFromAny(c.queryParams[op.pageParam]); ok && op.pageParam != "" {
+		page = n
+	}
+	if n, ok := intFromAny(c.queryParams[op.offsetParam]); ok && op.offsetParam != "" {
+		offset = n
+	}
+	cursor := ""
+	if op.cursorParam != "" {
+		cursor = stringValue(c.queryParams[op.cursorParam])
+	}
+	requestURL, err := c.operationURL(&op, page, offset, cursor, req.Limit)
+	if err != nil {
+		return "", nil, err
+	}
+	method := strings.ToUpper(op.method)
+	if method == "" {
+		method = http.MethodGet
+	}
+	statement := method + " " + requestURL
+	if method != http.MethodGet && method != http.MethodHead && strings.TrimSpace(c.bodyTemplate) != "" {
+		statement += "\n\n" + c.bodyTemplate
+	}
+	return statement, nil, nil
+}
+
 func (c *Conn) fetchJSON(ctx context.Context, requestURL string, op *operation) (any, http.Header, error) {
 	method := strings.ToUpper(op.method)
 	if method == "" {

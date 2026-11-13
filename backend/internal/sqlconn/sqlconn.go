@@ -125,27 +125,7 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 	if req.Limit <= 0 {
 		req.Limit = 1000
 	}
-	schema, table := splitTable(req.Table)
-	qualified := c.dialect.Quote(table)
-	if schema != "" {
-		qualified = c.dialect.Quote(schema) + "." + qualified
-	}
-	cols := "*"
-	if len(req.Columns) > 0 {
-		quoted := make([]string, 0, len(req.Columns))
-		for _, col := range req.Columns {
-			quoted = append(quoted, c.dialect.Quote(col))
-		}
-		cols = strings.Join(quoted, ", ")
-	}
-	where, args := c.buildWhere(req.Predicates)
-	var q string
-	if strings.EqualFold(c.dialect.Type, "sqlserver") {
-		q = fmt.Sprintf("SELECT TOP (%d) %s FROM %s%s", req.Limit, cols, qualified, where)
-	} else {
-		q = fmt.Sprintf("SELECT %s FROM %s%s%s", cols, qualified, where, c.dialect.LimitSQL(req.Limit))
-	}
-
+	q, args := c.buildFetchQuery(req)
 	rows, err := c.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query %s: %w", req.Table, err)
@@ -194,6 +174,36 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 	return result, nil
 }
 
+// DescribeFetch renders the SQL sent to the source, including placeholders.
+// It is deliberately side-effect free and mirrors buildFetchQuery.
+func (c *Conn) DescribeFetch(req connector.FetchRequest) (string, []any, error) {
+	q, args := c.buildFetchQuery(req)
+	return q, args, nil
+}
+
+func (c *Conn) buildFetchQuery(req connector.FetchRequest) (string, []any) {
+	if req.Limit <= 0 {
+		req.Limit = 1000
+	}
+	schema, table := splitTable(req.Table)
+	qualified := c.dialect.Quote(table)
+	if schema != "" {
+		qualified = c.dialect.Quote(schema) + "." + qualified
+	}
+	cols := "*"
+	if len(req.Columns) > 0 {
+		quoted := make([]string, 0, len(req.Columns))
+		for _, col := range req.Columns {
+			quoted = append(quoted, c.dialect.Quote(col))
+		}
+		cols = strings.Join(quoted, ", ")
+	}
+	where, args := c.buildWhere(req.Predicates)
+	if strings.EqualFold(c.dialect.Type, "sqlserver") {
+		return fmt.Sprintf("SELECT TOP (%d) %s FROM %s%s", req.Limit, cols, qualified, where), args
+	}
+	return fmt.Sprintf("SELECT %s FROM %s%s%s", cols, qualified, where, c.dialect.LimitSQL(req.Limit)), args
+}
 func (c *Conn) buildWhere(preds []connector.Predicate) (string, []any) {
 	if len(preds) == 0 {
 		return "", nil

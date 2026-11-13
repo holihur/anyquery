@@ -4,6 +4,7 @@ package mongodb
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -186,6 +187,34 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 		result.Truncated = true
 	}
 	return result, nil
+}
+
+// DescribeFetch renders the equivalent MongoDB find command without touching
+// the database. The output is intentionally JavaScript-like for readability in
+// EXPLAIN plans.
+func (c *Conn) DescribeFetch(req connector.FetchRequest) (string, []any, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > 100001 {
+		limit = 100001
+	}
+	filter, _ := json.Marshal(mongoFilter(req.Predicates))
+	var projection []byte
+	if len(req.Columns) > 0 {
+		p := bson.M{}
+		for _, col := range req.Columns {
+			p[col] = 1
+		}
+		projection, _ = json.Marshal(p)
+	}
+	statement := fmt.Sprintf("db.getCollection(%q).find(%s", req.Table, filter)
+	if projection != nil {
+		statement += ", " + string(projection)
+	}
+	statement += fmt.Sprintf(").limit(%d)", limit)
+	return statement, nil, nil
 }
 
 func mongoFilter(preds []connector.Predicate) bson.M {

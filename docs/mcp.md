@@ -84,7 +84,7 @@ Every MCP execution is recorded in query history. Query timeouts and source row 
 
 Scope: `query:plan`
 
-Returns a structured execution plan (operator tree, pushed columns/predicates, hash/nested-loop joins) without opening or reading source data.
+Returns a structured execution plan (operator tree, pushed columns/predicates, source-side statements, hash/nested-loop joins). It does not read source rows; it may open a source connection briefly to render the pushed-down query.
 
 ```json
 {"sql": "SELECT region, count(*) FROM mongo.orders GROUP BY region"}
