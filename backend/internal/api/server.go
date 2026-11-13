@@ -53,6 +53,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/auth/config", s.handleAuthConfig)
 	mux.HandleFunc("GET /api/v1/auth/oidc/login", s.handleOIDCLogin)
 	mux.HandleFunc("GET /api/v1/auth/oidc/callback", s.handleOIDCCallback)
+	mux.HandleFunc("GET /api/v1/datasources/oauth/callback", s.handleDataSourceOAuthCallback)
 	mux.HandleFunc("POST /api/v1/auth/dev-login", s.handleDevLogin)
 	mux.HandleFunc("POST /api/v1/auth/password-login", s.handlePasswordLogin)
 
@@ -89,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 	tenant("DELETE /api/v1/tenants/{tenant}/datasources/{id}", s.handleDataSourceDelete)
 	tenant("POST /api/v1/tenants/{tenant}/datasources/{id}/test", s.handleDataSourceTest)
 	tenant("POST /api/v1/tenants/{tenant}/datasources/{id}/refresh", s.handleDataSourceRefresh)
+	tenant("POST /api/v1/tenants/{tenant}/datasources/{id}/oauth/start", s.handleDataSourceOAuthStart)
 	tenant("GET /api/v1/tenants/{tenant}/catalog", s.handleCatalog)
 
 	tenant("POST /api/v1/tenants/{tenant}/queries/execute", s.handleExecute)

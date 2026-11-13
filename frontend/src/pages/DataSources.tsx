@@ -15,6 +15,7 @@ import {
   PlugZap,
   Plus,
   RefreshCw,
+  ShieldCheck,
   Search,
   Table2,
   Trash2,
@@ -94,6 +95,25 @@ export function DataSourcesPage() {
       setParams(next, { replace: true })
     }
   }, [params, setParams])
+
+  useEffect(() => {
+    const oauth = params.get("oauth")
+    if (!oauth) return
+    if (oauth === "success") toast.success("OAuth authorization completed")
+    else toast.error(params.get("message") || "OAuth authorization failed")
+    const next = new URLSearchParams(params)
+    next.delete("oauth")
+    next.delete("message")
+    setParams(next, { replace: true })
+  }, [params, setParams])
+
+  const oauthMutation = useMutation({
+    mutationFn: (ds: DataSource) => api.startDataSourceOAuth(tenant.slug, ds.id),
+    onSuccess: (res) => {
+      window.location.href = res.authorizationUrl
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not start OAuth authorization"),
+  })
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["datasources", tenant.slug] })
@@ -199,6 +219,11 @@ export function DataSourcesPage() {
                       <DropdownMenuItem disabled={!canAdmin} onSelect={() => refreshMutation.mutate(ds)}>
                         <RefreshCw className="size-4" /> Refresh schema
                       </DropdownMenuItem>
+                      {ds.config?.auth_type === "authorization_code" && (
+                        <DropdownMenuItem disabled={!canAdmin} onSelect={() => oauthMutation.mutate(ds)}>
+                          <ShieldCheck className="size-4" /> Authorize OAuth
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem disabled={!canAdmin} onSelect={() => setEditing(ds)}>
                         <Pencil className="size-4" /> Edit connection
                       </DropdownMenuItem>

@@ -11,8 +11,10 @@ GET operation as a table.
 | `spec_headers` | Optional JSON headers for a protected spec URL (falls back to `headers`) |
 | `base_url` | Optional override for `servers[0].url` / Swagger `host` |
 | `headers` | JSON object sent to API requests |
-| `auth_type` | Optional OAuth2 flow: `client_credentials` or `refresh_token` |
+| `auth_type` | Optional OAuth2 flow: `client_credentials`, `refresh_token` or `authorization_code` |
 | `token_url` | OAuth2 token endpoint |
+| `authorization_url` | OAuth2 authorize endpoint (authorization_code only) |
+| `redirect_uri` | OAuth2 callback; must be registered at the provider |
 | `client_id` / `client_secret` / `refresh_token` / `scope` | OAuth2 credentials and scope |
 | `path_params` | JSON object used to substitute `{param}` path segments |
 | `query_params` | JSON object added to every API request |
@@ -70,8 +72,16 @@ honoring `Retry-After`.
 - Pagination covers common limit/page/offset/cursor/Link patterns, but
   API-specific cursor formats may still need a custom connector.
 - OAuth2 client credentials and refresh-token flows are automated for API
-  requests; spec fetching still uses `spec_headers`. Delegated OAuth authorization
-  code flows are not automated.
+  requests; spec fetching still uses `spec_headers`.
+- Authorization code flow is available per data source:
+  1. Save the source with `auth_type=authorization_code`, `authorization_url`,
+     `token_url`, client ID/secret and `scope` including `offline_access`.
+  2. Open the data source actions and choose **Authorize OAuth**.
+  3. The provider redirects back to
+     `/api/v1/datasources/oauth/callback`; AnyQuery stores the refresh token
+     encrypted and refreshes it on demand.
+  The redirect URI must be registered at the provider. The default is
+  `APP_BASE_URL + /api/v1/datasources/oauth/callback`.
 - Path, query and header parameters are connection-wide; create separate
   sources if you need multiple parameter sets.
 - Security schemes and server variables beyond defaults are not automatically

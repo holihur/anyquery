@@ -43,8 +43,8 @@ func ParseConfig(cfg map[string]string) (Config, error) {
 	if !c.Enabled() {
 		return Config{}, nil
 	}
-	if c.Type != "client_credentials" && c.Type != "refresh_token" {
-		return Config{}, fmt.Errorf("auth_type must be none, client_credentials or refresh_token")
+	if c.Type != "client_credentials" && c.Type != "refresh_token" && c.Type != "authorization_code" {
+		return Config{}, fmt.Errorf("auth_type must be none, client_credentials, refresh_token or authorization_code")
 	}
 	if err := validateTokenURL(c.TokenURL); err != nil {
 		return Config{}, err
@@ -143,7 +143,10 @@ func (p *Provider) fetch(ctx context.Context) (*oauth2.Token, error) {
 		}
 		ctx = context.WithValue(ctx, oauth2.HTTPClient, p.client)
 		return cc.Token(ctx)
-	case "refresh_token":
+	case "refresh_token", "authorization_code":
+		if p.cfg.RefreshToken == "" {
+			return nil, fmt.Errorf("OAuth authorization is not complete; authorize the data source first")
+		}
 		conf := &oauth2.Config{
 			ClientID:     p.cfg.ClientID,
 			ClientSecret: p.cfg.ClientSecret,
@@ -156,4 +159,43 @@ func (p *Provider) fetch(ctx context.Context) (*oauth2.Token, error) {
 	default:
 		return nil, fmt.Errorf("unsupported auth_type %q", p.cfg.Type)
 	}
+}
+
+// AuthorizationURL builds the provider authorization URL with PKCE and state.
+func (c Config) AuthorizationURL(authorizationURL, redirectURL, state, verifier string) string {
+	conf := &oauth2.Config{
+		ClientID:     c.ClientID,
+		ClientSecret: c.ClientSecret,
+		RedirectURL:  redirectURL,
+		Endpoint:     oauth2.Endpoint{AuthURL: authorizationURL, TokenURL: c.TokenURL, AuthStyle: oauth2.AuthStyleAutoDetect},
+		Scopes:       splitScopes(c.Scope),
+	}
+	return conf.AuthCodeURL(state,
+		oauth2.S256ChallengeOption(verifier),
+		oauth2.AccessTypeOffline,
+	)
+}
+
+// ExchangeCode exchanges an authorization code and returns the token. The
+// caller is responsible for persisting the refresh token.
+func ExchangeCode(ctx context.Context, c Config, code, verifier, redirectURL string) (*oauth2.Token, error) {
+	conf := &oauth2.Config{
+		ClientID:     c.ClientID,
+		ClientSecret: c.ClientSecret,
+		RedirectURL:  redirectURL,
+		Endpoint:     oauth2.Endpoint{TokenURL: c.TokenURL, AuthStyle: oauth2.AuthStyleAutoDetect},
+		Scopes:       splitScopes(c.Scope),
+	}
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, &http.Client{Timeout: 30 * time.Second})
+	return conf.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+}
+
+func splitScopes(raw string) []string {
+	var out []string
+	for _, s := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' }) {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
