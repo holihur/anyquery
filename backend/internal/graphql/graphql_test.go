@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/anyquery/anyquery/internal/connector"
@@ -110,5 +111,39 @@ func TestGraphQLRejectsMutations(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected mutation rejection")
+	}
+}
+
+func TestGraphQLOAuthClientCredentials(t *testing.T) {
+	var tokenCalls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			atomic.AddInt32(&tokenCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "gql-token", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer gql-token" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"items": []map[string]any{{"id": 1}}}})
+	}))
+	defer srv.Close()
+	c, err := (provider{}).Open(context.Background(), map[string]string{
+		"endpoint": srv.URL + "/graphql", "query": "query { items { id } }",
+		"data_path": "items", "auth_type": "client_credentials",
+		"token_url": srv.URL + "/token", "client_id": "client", "client_secret": "secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := c.Fetch(context.Background(), connector.FetchRequest{Table: "data", Limit: 10}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if atomic.LoadInt32(&tokenCalls) != 1 {
+		t.Fatalf("token calls = %d, want 1", tokenCalls)
 	}
 }

@@ -103,7 +103,8 @@ SELECT id, name FROM graphql.users WHERE name LIKE 'A%';
 
 - 默认使用 `POST`；设置 `"http_method": "GET"` 可改用 GraphQL over HTTP GET。
 - `headers` 是 JSON 对象，适合 `Authorization: Bearer ...`、API key 等。
-- Header 作为 Secret 加密保存，API 返回时脱敏。
+- 支持 OAuth2 `client_credentials` / `refresh_token`：配置 `auth_type`、`token_url`、`client_id`、`client_secret`、`refresh_token`、`scope`。
+- Header 和 OAuth secret 加密保存，API 返回时脱敏。
 - 429/502/503/504 会重试最多 3 次，并遵守 `Retry-After`。
 - 响应上限 64MB；请求超时 60 秒。
 

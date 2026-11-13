@@ -216,4 +216,5 @@ func TestProviderSpec(t *testing.T) {
 | `internal/accessdb` | Microsoft Access (mdbtools) |
 | `internal/redisdb` | Redis |
 | `internal/elasticsearch` | Elasticsearch、OpenSearch |
-| `internal/httpjson` | REST / JSON、CSV URL、JSON Lines |
+| `internal/httpjson` | REST / JSON、分页、OAuth2、CSV URL、JSON Lines |
+| `internal/httpauth` | 通用 OAuth2 client credentials / refresh token |

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/anyquery/anyquery/internal/connector"
+	"github.com/anyquery/anyquery/internal/httpauth"
 )
 
 const maxResponseBytes = 64 << 20
@@ -42,6 +43,12 @@ func (provider) Spec() connector.TypeSpec {
 		Fields: []connector.ConfigField{
 			{Key: "endpoint", Label: "GraphQL endpoint", Kind: connector.FieldText, Required: true, Placeholder: "https://api.example.com/graphql"},
 			{Key: "headers", Label: "HTTP headers (JSON)", Kind: connector.FieldTextarea, Secret: true, Placeholder: `{"Authorization":"Bearer ..."}`},
+			{Key: "auth_type", Label: "OAuth2 flow", Kind: connector.FieldSelect, Default: "none", Options: []connector.Option{{Value: "none", Label: "None"}, {Value: "client_credentials", Label: "Client credentials"}, {Value: "refresh_token", Label: "Refresh token"}}},
+			{Key: "token_url", Label: "OAuth2 token URL", Kind: connector.FieldText, Placeholder: "https://auth.example.com/oauth/token"},
+			{Key: "client_id", Label: "OAuth2 client ID", Kind: connector.FieldText},
+			{Key: "client_secret", Label: "OAuth2 client secret", Kind: connector.FieldPassword, Secret: true},
+			{Key: "refresh_token", Label: "OAuth2 refresh token", Kind: connector.FieldPassword, Secret: true},
+			{Key: "scope", Label: "OAuth2 scope", Kind: connector.FieldText, Placeholder: "read:data"},
 			{Key: "queries", Label: "Named queries (JSON)", Kind: connector.FieldTextarea, Placeholder: `{"users":{"query":"query($limit:Int){users(limit:$limit){id name}}","data_path":"users","columns":{"id":"integer","name":"string"}}}`, Help: "Optional map of table name to query config. Mutually exclusive with the single-query fields below."},
 			{Key: "table_name", Label: "Table name (single query)", Kind: connector.FieldText, Default: "data"},
 			{Key: "query", Label: "GraphQL query (single query)", Kind: connector.FieldTextarea, Placeholder: "query($limit:Int) { users(limit:$limit) { id name } }", Help: "Only query operations are supported. Use variables for parameters."},
@@ -64,6 +71,10 @@ func (provider) Open(_ context.Context, cfg map[string]string) (connector.Connec
 		return nil, err
 	}
 	headers, err := parseStringMap(cfg["headers"], "headers")
+	if err != nil {
+		return nil, err
+	}
+	authCfg, err := httpauth.ParseConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -108,6 +119,7 @@ func (provider) Open(_ context.Context, cfg map[string]string) (connector.Connec
 	g := &Conn{
 		endpoint: endpoint,
 		headers:  headers,
+		auth:     httpauth.NewProvider(authCfg),
 		method:   method,
 		queries:  queries,
 		client:   &http.Client{Timeout: 60 * time.Second},
@@ -127,6 +139,7 @@ func (provider) Open(_ context.Context, cfg map[string]string) (connector.Connec
 type Conn struct {
 	endpoint string
 	headers  map[string]string
+	auth     *httpauth.Provider
 	method   string
 	queries  map[string]queryConfig
 	tables   []connector.Table
@@ -422,6 +435,15 @@ func (c *Conn) execute(ctx context.Context, query string, variables map[string]a
 		for k, v := range c.headers {
 			req.Header.Set(k, v)
 		}
+		if c.auth != nil {
+			authHeader, err := c.auth.Authorization(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if authHeader != "" {
+				req.Header.Set("Authorization", authHeader)
+			}
+		}
 		resp, err := c.client.Do(req)
 		if err != nil {
 			return nil, err
@@ -430,6 +452,10 @@ func (c *Conn) execute(ctx context.Context, query string, variables map[string]a
 		resp.Body.Close()
 		if readErr != nil {
 			return nil, readErr
+		}
+		if resp.StatusCode == http.StatusUnauthorized && c.auth != nil && attempt == 0 {
+			c.auth.Invalidate()
+			continue
 		}
 		if (resp.StatusCode == 429 || resp.StatusCode == 502 || resp.StatusCode == 503 || resp.StatusCode == 504) && attempt < 2 {
 			wait := time.Duration(500*(attempt+1)) * time.Millisecond

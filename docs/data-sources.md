@@ -141,9 +141,10 @@ Redis 不是关系型数据库，AnyQuery 将匹配 `key_pattern` 的 key 映射
 ### REST / JSON（21）
 
 - GET 一个 JSON endpoint；根数组或自动识别 `data/items/records/results/rows/values`，也可配置 `records_path`。
-- Header 使用 JSON 配置（Secret 加密），适合 Bearer Token。
-- 嵌套对象会序列化为 JSON 字符串。
-- **无分页协议**：只读取单次响应，最多客户端截断；大 API 建议在网关侧分页或使用专用连接器。
+- Header 使用 JSON 配置（Secret 加密），适合 Bearer Token/API Key。
+- 支持 `page` / `offset` / `cursor` / `Link` header 四种分页，自动跟随并可设置 `max_pages`。
+- 支持 OAuth2 `client_credentials` 和 `refresh_token`，access token 会缓存并在过期前刷新。
+- 429/5xx 自动重试，支持 `Retry-After`；嵌套对象会序列化为 JSON 字符串。
 - 安全问题：URL 由工作区 admin 配置；生产环境请配合出口网络策略防 SSRF。
 
 ### GraphQL（32）
@@ -213,8 +214,7 @@ GROUP BY c.name, p.category
 3. MongoDB 采样 Schema 增加 nested path 展开选项。
 4. Redis 增加 key-pattern 多表映射（按前缀自动分表）与 RedisJSON 支持。
 5. Elasticsearch 使用 PIT + 分页读取超过 10k 行。
-6. REST 连接器增加分页模板（cursor/page/offset）。
-7. Snowflake 多 partition 完整读取、Databricks 外部 links 分块读取。
-8. 数据源健康检查定时任务与最近失败原因展示。
+6. Snowflake 多 partition 完整读取、Databricks 外部 links 分块读取。
+7. 数据源健康检查定时任务与最近失败原因展示。
 
 如果你验证了某个 🟡 数据源，欢迎提交 PR 更新此表并附上连接方式（不含凭据）、Schema 截图和查询样例。
