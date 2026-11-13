@@ -181,6 +181,40 @@ type ValuesTable struct {
 
 func (*ValuesTable) tableNode() {}
 
+// MatchRecognize is a SQL:2016 MATCH_RECOGNIZE row-pattern table expression.
+type MatchRecognize struct {
+	Input       TableExpr
+	PartitionBy []Expr
+	OrderBy     []OrderItem
+	Measures    []MatchMeasure
+	RowsMode    string // one, all
+	AfterSkip   string // past_last, next_row
+	Pattern     *MatchPattern
+	Define      []MatchDefine
+	Alias       string
+}
+
+func (*MatchRecognize) tableNode() {}
+
+type MatchMeasure struct {
+	Expr  Expr
+	Alias string
+}
+
+type MatchDefine struct {
+	Name string
+	Expr Expr
+}
+
+// MatchPattern is a sequence/alternation/quantified row-pattern tree.
+type MatchPattern struct {
+	Kind       string // var, seq, alt
+	Var        string
+	Quantifier string // "", *, +, ?, {n}
+	Lazy       bool
+	Children   []*MatchPattern
+}
+
 // JSONTable is a SQL/JSON JSON_TABLE table expression.
 type JSONTable struct {
 	Expr    Expr
@@ -1055,6 +1089,8 @@ func FormatTableExpr(t TableExpr) string {
 			s += "(" + strings.Join(cols, ", ") + ")"
 		}
 		return s
+	case *MatchRecognize:
+		return formatMatchRecognize(x)
 	case *JSONTable:
 		s := "JSON_TABLE(" + x.Expr.String() + ", " + x.Path.String() + " COLUMNS (" + formatJSONTableColumns(x.Columns) + "))"
 		if x.Alias != "" {
@@ -1154,6 +1190,93 @@ func formatJSONTableColumns(cols []JSONTableColumn) string {
 		parts = append(parts, p)
 	}
 	return strings.Join(parts, ", ")
+}
+
+func formatMatchRecognize(m *MatchRecognize) string {
+	var b strings.Builder
+	b.WriteString(FormatTableExpr(m.Input))
+	b.WriteString(" MATCH_RECOGNIZE (")
+	first := true
+	add := func(s string) {
+		if !first {
+			b.WriteString(" ")
+		}
+		b.WriteString(s)
+		first = false
+	}
+	if len(m.PartitionBy) > 0 {
+		parts := make([]string, len(m.PartitionBy))
+		for i, e := range m.PartitionBy {
+			parts[i] = e.String()
+		}
+		add("PARTITION BY " + strings.Join(parts, ", "))
+	}
+	if len(m.OrderBy) > 0 {
+		add("ORDER BY " + formatOrder(m.OrderBy))
+	}
+	if len(m.Measures) > 0 {
+		parts := make([]string, len(m.Measures))
+		for i, x := range m.Measures {
+			parts[i] = x.Expr.String() + " AS " + FormatIdent(x.Alias)
+		}
+		add("MEASURES " + strings.Join(parts, ", "))
+	}
+	if m.RowsMode == "all" {
+		add("ALL ROWS PER MATCH")
+	} else {
+		add("ONE ROW PER MATCH")
+	}
+	if m.AfterSkip == "next_row" {
+		add("AFTER MATCH SKIP TO NEXT ROW")
+	}
+	if m.Pattern != nil {
+		add("PATTERN (" + formatMatchPattern(m.Pattern) + ")")
+	}
+	if len(m.Define) > 0 {
+		parts := make([]string, len(m.Define))
+		for i, d := range m.Define {
+			parts[i] = FormatIdent(d.Name) + " AS " + d.Expr.String()
+		}
+		add("DEFINE " + strings.Join(parts, ", "))
+	}
+	b.WriteString(")")
+	if m.Alias != "" {
+		b.WriteString(" AS " + FormatIdent(m.Alias))
+	}
+	return b.String()
+}
+
+func formatMatchPattern(p *MatchPattern) string {
+	if p == nil {
+		return ""
+	}
+	switch p.Kind {
+	case "var":
+		s := FormatIdent(p.Var)
+		if p.Quantifier != "" {
+			s += p.Quantifier
+			if p.Lazy {
+				s += "?"
+			}
+		}
+		return s
+	case "alt":
+		parts := make([]string, len(p.Children))
+		for i, c := range p.Children {
+			parts[i] = formatMatchPattern(c)
+		}
+		return strings.Join(parts, " | ")
+	default:
+		parts := make([]string, len(p.Children))
+		for i, c := range p.Children {
+			parts[i] = formatMatchPattern(c)
+		}
+		s := strings.Join(parts, " ")
+		if p.Quantifier != "" {
+			s = "(" + s + ")" + p.Quantifier
+		}
+		return s
+	}
 }
 
 func FormatPipe(p PipeStage) string {

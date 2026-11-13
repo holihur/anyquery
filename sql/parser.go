@@ -776,6 +776,12 @@ func (p *Parser) parseTableExpr() (TableExpr, error) {
 	if err != nil {
 		return nil, err
 	}
+	if p.cur.IsKeyword("MATCH_RECOGNIZE") {
+		left, err = p.parseMatchRecognize(left)
+		if err != nil {
+			return nil, err
+		}
+	}
 	for {
 		jt := JoinType("")
 		natural := false
@@ -873,6 +879,250 @@ func (p *Parser) parseTableExpr() (TableExpr, error) {
 		}
 		left = j
 	}
+}
+
+func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
+	if err := p.advance(); err != nil { // MATCH_RECOGNIZE
+		return nil, err
+	}
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+	m := &MatchRecognize{Input: input, RowsMode: "one", AfterSkip: "past_last"}
+	for !p.cur.IsPunct(")") {
+		switch {
+		case p.cur.IsKeyword("PARTITION"):
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if err := p.expectKeyword("BY"); err != nil {
+				return nil, err
+			}
+			var err error
+			if m.PartitionBy, err = p.parseExprList(); err != nil {
+				return nil, err
+			}
+		case p.cur.IsKeyword("ORDER"):
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if err := p.expectKeyword("BY"); err != nil {
+				return nil, err
+			}
+			var err error
+			if m.OrderBy, err = p.parseOrderItems(); err != nil {
+				return nil, err
+			}
+		case p.cur.IsKeyword("MEASURES"):
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			for {
+				expr, err := p.parseExpr(0)
+				if err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("AS"); err != nil {
+					return nil, err
+				}
+				alias, err := p.parseIdent()
+				if err != nil {
+					return nil, err
+				}
+				m.Measures = append(m.Measures, MatchMeasure{Expr: expr, Alias: alias})
+				if !p.cur.IsPunct(",") {
+					break
+				}
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+			}
+		case p.cur.IsKeyword("ONE"), p.cur.IsKeyword("ALL"):
+			if p.cur.IsKeyword("ALL") {
+				m.RowsMode = "all"
+			} else {
+				m.RowsMode = "one"
+			}
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if p.cur.IsKeyword("ROW") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+			} else if p.cur.IsKeyword("ROWS") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+			} else {
+				return nil, p.errf("expected ROW or ROWS")
+			}
+			if err := p.expectKeyword("PER"); err != nil {
+				return nil, err
+			}
+			if err := p.expectKeyword("MATCH"); err != nil {
+				return nil, err
+			}
+		case p.cur.IsKeyword("AFTER"):
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if err := p.expectKeyword("MATCH"); err != nil {
+				return nil, err
+			}
+			if err := p.expectKeyword("SKIP"); err != nil {
+				return nil, err
+			}
+			if p.cur.IsKeyword("TO") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("NEXT"); err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("ROW"); err != nil {
+					return nil, err
+				}
+				m.AfterSkip = "next_row"
+			} else {
+				if err := p.expectKeyword("PAST"); err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("LAST"); err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("ROW"); err != nil {
+					return nil, err
+				}
+				m.AfterSkip = "past_last"
+			}
+		case p.cur.IsKeyword("PATTERN"):
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if err := p.expectPunct("("); err != nil {
+				return nil, err
+			}
+			var err error
+			if m.Pattern, err = p.parseMatchPattern(); err != nil {
+				return nil, err
+			}
+			if err := p.expectPunct(")"); err != nil {
+				return nil, err
+			}
+		case p.cur.IsKeyword("DEFINE"):
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			for {
+				name, err := p.parseIdent()
+				if err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("AS"); err != nil {
+					return nil, err
+				}
+				expr, err := p.parseExpr(0)
+				if err != nil {
+					return nil, err
+				}
+				m.Define = append(m.Define, MatchDefine{Name: name, Expr: expr})
+				if !p.cur.IsPunct(",") {
+					break
+				}
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+			}
+		default:
+			return nil, p.errf("unexpected %s in MATCH_RECOGNIZE", p.cur)
+		}
+	}
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	alias, _, err := p.parseTableAlias(false)
+	if err != nil {
+		return nil, err
+	}
+	m.Alias = alias
+	return m, nil
+}
+
+func (p *Parser) parseMatchPattern() (*MatchPattern, error) {
+	left, err := p.parseMatchSequence()
+	if err != nil {
+		return nil, err
+	}
+	if !p.cur.IsPunct("|") {
+		return left, nil
+	}
+	alt := &MatchPattern{Kind: "alt", Children: []*MatchPattern{left}}
+	for p.cur.IsPunct("|") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		right, err := p.parseMatchSequence()
+		if err != nil {
+			return nil, err
+		}
+		alt.Children = append(alt.Children, right)
+	}
+	return alt, nil
+}
+
+func (p *Parser) parseMatchSequence() (*MatchPattern, error) {
+	seq := &MatchPattern{Kind: "seq"}
+	for !p.cur.IsPunct(")") && !p.cur.IsPunct("|") {
+		term, err := p.parseMatchTerm()
+		if err != nil {
+			return nil, err
+		}
+		seq.Children = append(seq.Children, term)
+	}
+	if len(seq.Children) == 0 {
+		return nil, p.errf("empty MATCH_RECOGNIZE pattern")
+	}
+	if len(seq.Children) == 1 {
+		return seq.Children[0], nil
+	}
+	return seq, nil
+}
+
+func (p *Parser) parseMatchTerm() (*MatchPattern, error) {
+	var term *MatchPattern
+	if p.cur.IsPunct("(") {
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		inner, err := p.parseMatchPattern()
+		if err != nil {
+			return nil, err
+		}
+		if err := p.expectPunct(")"); err != nil {
+			return nil, err
+		}
+		term = inner
+	} else {
+		name, err := p.parseIdent()
+		if err != nil {
+			return nil, err
+		}
+		term = &MatchPattern{Kind: "var", Var: name}
+	}
+	if p.cur.IsPunct("*") || p.cur.IsPunct("+") || p.cur.IsPunct("?") {
+		term.Quantifier = p.cur.Value
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		if p.cur.IsPunct("?") {
+			term.Lazy = true
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return term, nil
 }
 
 func (p *Parser) parseTablePrimary() (TableExpr, error) {
@@ -3356,7 +3606,7 @@ func isClauseKeyword(s string) bool {
 	switch strings.ToUpper(s) {
 	case "FROM", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT",
 		"JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "ON", "USING",
-		"AND", "OR", "NOT", "IS", "IN", "LIKE", "ILIKE", "BETWEEN", "WHEN", "THEN", "ELSE", "END", "WINDOW", "WITHIN", "GROUPS", "EXCLUDE", "TIES", "OTHERS", "AT", "ZONE", "SYSTEM_TIME", "JSON", "VALUE", "SCALAR", "OBJECT", "UNIQUE", "KEYS", "EMPTY", "ERROR", "DEFAULT", "RETURNING", "WRAPPER", "CONDITIONAL", "UNCONDITIONAL",
+		"AND", "OR", "NOT", "IS", "IN", "LIKE", "ILIKE", "BETWEEN", "WHEN", "THEN", "ELSE", "END", "WINDOW", "WITHIN", "GROUPS", "EXCLUDE", "TIES", "OTHERS", "AT", "ZONE", "SYSTEM_TIME", "MATCH_RECOGNIZE", "MEASURES", "PATTERN", "DEFINE", "AFTER", "SKIP", "PAST", "JSON", "VALUE", "SCALAR", "OBJECT", "UNIQUE", "KEYS", "EMPTY", "ERROR", "DEFAULT", "RETURNING", "WRAPPER", "CONDITIONAL", "UNCONDITIONAL",
 		"ASC", "DESC", "NULLS", "FIRST", "LAST", "AS", "BY", "SELECT", "DISTINCT", "ALL", "AGGREGATE", "FILTER", "OVER", "PARTITION", "ROWS", "RANGE", "UNBOUNDED", "PRECEDING", "FOLLOWING", "CURRENT", "ROW", "FETCH", "ONLY", "RECURSIVE", "ANY", "SOME", "ROLLUP", "CUBE", "GROUPING", "SETS", "TRY_CAST", "PIPE":
 		return true
 	}

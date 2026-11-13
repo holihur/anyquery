@@ -290,3 +290,28 @@ func TestTemporalTableSyntax(t *testing.T) {
 		}
 	}
 }
+
+func TestMatchRecognizeSyntaxRoundTrip(t *testing.T) {
+	cases := []string{
+		"SELECT * FROM mongo.orders MATCH_RECOGNIZE (PARTITION BY region ORDER BY id MEASURES id AS id, match_number() AS m ONE ROW PER MATCH PATTERN (A B*) DEFINE A AS status = 'paid', B AS total > 0) AS mr",
+		"SELECT * FROM mongo.orders MATCH_RECOGNIZE (ORDER BY id MEASURES classifier() AS cls ALL ROWS PER MATCH AFTER MATCH SKIP TO NEXT ROW PATTERN (A+?) DEFINE A AS status = 'paid') AS mr",
+	}
+	for _, query := range cases {
+		stmt, err := Parse(query)
+		if err != nil {
+			t.Fatalf("%q: %v", query, err)
+		}
+		formatted := FormatStatement(stmt)
+		if _, err := Parse(formatted); err != nil {
+			t.Fatalf("%q formatted as %q: %v", query, formatted, err)
+		}
+	}
+	for _, query := range []string{
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN () DEFINE A AS 1 = 1)",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A) DEFINE A)",
+	} {
+		if _, err := Parse(query); err == nil {
+			t.Errorf("%q unexpectedly parsed", query)
+		}
+	}
+}

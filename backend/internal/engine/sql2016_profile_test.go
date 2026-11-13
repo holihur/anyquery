@@ -58,7 +58,7 @@ var sql2016ProfileCases = []sql2016ProfileCase{
 	{ID: "JSON-005", Status: "supported", Query: `SELECT JSON_ARRAYAGG(total ORDER BY total) AS a FROM mongo.orders`},
 	{ID: "JSON-006", Status: "supported", Query: `SELECT id, tag FROM JSON_TABLE('{"items":[{"id":1,"tags":["a"]}]}', '$.items[*]' COLUMNS (id INT PATH '$.id', NESTED PATH '$.tags[*]' COLUMNS (tag VARCHAR(10) PATH '$'))) AS jt`},
 	{ID: "TEMP-001", Status: "supported", Query: `SELECT id FROM mongo.orders FOR SYSTEM_TIME AS OF TIMESTAMP '2024-01-01T00:00:00Z'`},
-	{ID: "RPR-001", Status: "planned"},
+	{ID: "RPR-001", Status: "supported", Query: `SELECT id FROM mongo.orders MATCH_RECOGNIZE (PARTITION BY region ORDER BY id MEASURES id AS id ONE ROW PER MATCH PATTERN (A B*) DEFINE A AS status = 'paid', B AS total > 0) AS mr`},
 	{ID: "META-001", Status: "supported", Query: "SHOW TABLES FROM mongo"},
 	{ID: "AQ-001", Status: "supported", Query: "FROM mongo.orders |> WHERE status = 'paid' |> AGGREGATE region, count(*) AS n GROUP BY region"},
 }

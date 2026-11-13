@@ -58,6 +58,8 @@ func (ec *execCtx) relationForTableExpr(te sql.TableExpr) (*relation, error) {
 		return ec.relationForTableFunction(t)
 	case *sql.JSONTable:
 		return ec.relationForJSONTable(t)
+	case *sql.MatchRecognize:
+		return ec.relationForMatchRecognize(t)
 	case *sql.ValuesTable:
 		return ec.relationForValues(t)
 	case *sql.JoinExpr:

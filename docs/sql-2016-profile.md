@@ -104,7 +104,7 @@ The test tag is the Go subtest under
 | JSON-005 | JSON_ARRAYAGG / JSON_OBJECTAGG | supported | `TestSQL2016ReadOnlyProfileMatrix/JSON-005` |
 | JSON-006 | JSON_TABLE | supported | `TestSQL2016ReadOnlyProfileMatrix/JSON-006` |
 | TEMP-001 | Temporal table reads with FOR SYSTEM_TIME | supported | `TestSQL2016ReadOnlyProfileMatrix/TEMP-001` |
-| RPR-001 | MATCH_RECOGNIZE | planned | `pending` |
+| RPR-001 | MATCH_RECOGNIZE | supported | `TestSQL2016ReadOnlyProfileMatrix/RPR-001` |
 | META-001 | SHOW / DESCRIBE / EXPLAIN | supported | `TestSQL2016ReadOnlyProfileMatrix/META-001` |
 | AQ-001 | FROM-first `|>` analytical pipelines | supported | `TestSQL2016ReadOnlyProfileMatrix/AQ-001` |
 | OUT-001 | DML, DDL and transactions | excluded | `n/a` |

@@ -275,6 +275,28 @@ Rules:
 - Built-ins use the same lookup path, so a future plugin can expose functions
   without changing the parser.
 
+## MATCH_RECOGNIZE
+
+SQL:2016 row-pattern recognition is available as a table expression:
+
+```sql
+SELECT id, cls
+FROM mongo.orders MATCH_RECOGNIZE (
+  PARTITION BY region
+  ORDER BY id
+  MEASURES id AS id, classifier() AS cls
+  ALL ROWS PER MATCH
+  PATTERN (A B*)
+  DEFINE A AS status = 'paid', B AS total > 0
+) AS mr;
+```
+
+Supported: `PARTITION BY`, `ORDER BY`, `MEASURES`, `ONE ROW PER MATCH`,
+`ALL ROWS PER MATCH`, `AFTER MATCH SKIP PAST LAST ROW|TO NEXT ROW`, pattern
+sequence/alternation, `* + ?` quantifiers with lazy `?`, and `DEFINE`. Measures
+support row expressions, `MATCH_NUMBER()`, `CLASSIFIER()`, `FIRST(...)` and
+`LAST(...)`; empty matches are rejected.
+
 ## Temporal tables
 
 The SQL:2016 read-only temporal forms are supported for sources that expose
