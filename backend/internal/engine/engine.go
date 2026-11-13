@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anyquery/anyquery/internal/connector"
@@ -62,13 +63,35 @@ func DefaultOptions() Options {
 // Engine executes queries.
 type Engine struct {
 	Opts Options
+
+	functions *FunctionRegistry
+	funcOnce  sync.Once
 }
 
 func New(opts Options) *Engine {
 	if opts.MaxSourceRows <= 0 {
 		opts = DefaultOptions()
 	}
-	return &Engine{Opts: opts}
+	return &Engine{Opts: opts, functions: defaultFunctionRegistry()}
+}
+
+// Functions returns the scalar function registry. The returned registry is
+// safe for concurrent use; register custom functions before serving queries
+// when possible.
+func (e *Engine) Functions() *FunctionRegistry {
+	e.funcOnce.Do(func() {
+		if e.functions == nil {
+			e.functions = defaultFunctionRegistry()
+		}
+	})
+	return e.functions
+}
+
+// RegisterFunction registers a custom scalar function on this engine. It is a
+// convenience wrapper around Functions().Register and rejects invalid names,
+// arity ranges, nil implementations and duplicate names.
+func (e *Engine) RegisterFunction(name string, minArgs, maxArgs int, fn ScalarFunction) error {
+	return e.Functions().Register(FunctionSpec{Name: name, MinArgs: minArgs, MaxArgs: maxArgs, Fn: fn})
 }
 
 // ResultColumn is one output column.
@@ -213,6 +236,21 @@ func (ec *execCtx) run(stmt sql.Statement) (*Result, error) {
 			return nil, err
 		}
 		return datasetToResult(ds, ec.engine.Opts.MaxResultRows, ec.warnings), nil
+	case *sql.ValuesStmt:
+		ds, err := ec.datasetForValues(&sql.ValuesTable{Rows: s.Rows})
+		if err != nil {
+			return nil, err
+		}
+		return datasetToResult(ds, ec.engine.Opts.MaxResultRows, ec.warnings), nil
+	case *sql.TableStmt:
+		ds, err := ec.executeSelect(&sql.SelectStmt{
+			From:        []sql.TableExpr{s.Ref},
+			Projections: []sql.SelectItem{{Star: true}},
+		})
+		if err != nil {
+			return nil, err
+		}
+		return datasetToResult(ds, ec.engine.Opts.MaxResultRows, ec.warnings), nil
 	case *sql.ShowStmt:
 		ds, err := ec.show(s)
 		if err != nil {
@@ -257,7 +295,7 @@ func explainText(stmt sql.Statement) string {
 		if len(s.OrderBy) > 0 {
 			lines = append(lines, "  sort")
 		}
-		if s.Limit != nil {
+		if s.Limit != nil || s.LimitExpr != nil {
 			lines = append(lines, "  limit")
 		}
 		for _, p := range s.Pipes {

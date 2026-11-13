@@ -9,6 +9,8 @@ AnyQuery uses its own lexer/parser and an in-memory relational engine. The gramm
 ```sql
 SELECT ... [UNION ...] [ORDER BY ...] [LIMIT ...]
 WITH name AS (SELECT ...) SELECT ...
+VALUES (...), (...)
+TABLE source.table
 SHOW TABLES [FROM source]
 SHOW COLUMNS FROM source.table
 SHOW SOURCES
@@ -21,14 +23,36 @@ AnyQuery is read-only: `INSERT`, `UPDATE`, `DELETE`, DDL and transactions are no
 ## SELECT
 
 - `SELECT [ALL|DISTINCT]`, arbitrary expressions, aliases (`AS` optional)
-- `FROM` tables, comma-separated cross joins, derived tables, CTEs
-- `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT/OFFSET`, `FETCH FIRST n ROWS ONLY`, `LIMIT ALL`
+- `FROM` tables, comma-separated cross joins, derived tables, `LATERAL`, `UNNEST`, `TABLESAMPLE`, CTEs
+- Derived tables support column aliases: `(SELECT ...) AS t(a, b)`
+- `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT/OFFSET`, `FETCH FIRST n ROWS ONLY`, `FETCH FIRST n ROWS WITH TIES`, `LIMIT ALL`
+- `LIMIT`/`OFFSET`/fetch counts accept integer expressions and bind parameters
 - `ORDER BY` supports aliases, select-list ordinals (`ORDER BY 1`) and `NULLS FIRST|LAST` (default: nulls last)
 - `GROUP BY` supports aliases and select-list ordinals
 - `INNER / LEFT / RIGHT / FULL / CROSS JOIN`, `ON` / `USING`, `NATURAL [LEFT|RIGHT|FULL] JOIN`
 - `USING` / `NATURAL` common columns are coalesced in `SELECT *`; qualified references such as `right_alias.id` remain available
 
 Table names use `` `source`.`table` ``. A table name may contain a schema: `` `pg`.`public.users` ``. CTE names are referenced without a source.
+
+```sql
+-- Correlated LATERAL subquery
+SELECT c.name, x.n
+FROM mongo.customers c,
+LATERAL (SELECT count(*) AS n FROM mongo.orders o WHERE o.customer_id = c.id) x;
+
+-- JSON array expansion
+SELECT x FROM UNNEST(json_extract('[1,2,3]', '$')) AS u(x);
+
+-- Deterministic sampling
+SELECT * FROM mongo.orders TABLESAMPLE SYSTEM (10) REPEATABLE (42);
+
+-- Fetch rows tied at the ORDER BY boundary
+SELECT * FROM mongo.orders ORDER BY region FETCH FIRST 1 ROWS WITH TIES;
+
+-- Top-level VALUES / TABLE
+VALUES (1, 'a'), (2, 'b');
+TABLE mongo.orders;
+```
 
 ### Set operations
 
@@ -195,6 +219,37 @@ SELECT EXTRACT(year FROM created_at) AS y,
 FROM mongo.customers;
 ```
 
+## Custom scalar functions
+
+The engine uses a function registry for both built-in and user-registered
+scalar functions. Register custom functions on an engine instance before
+serving queries:
+
+```go
+e := engine.New(engine.DefaultOptions())
+if err := e.RegisterFunction("bucket", 1, 1, func(ctx context.Context, args []any) (any, error) {
+    if args[0] == nil {
+        return nil, nil
+    }
+    return fmt.Sprintf("b-%v", args[0]), nil
+}); err != nil {
+    return err
+}
+
+// SELECT bucket(region) FROM mongo.orders;
+```
+
+Rules:
+
+- Names are case-insensitive and duplicate names are rejected; custom functions
+  cannot silently shadow a built-in.
+- `MinArgs`/`MaxArgs` are checked by the engine; use `-1` for variadic.
+- Arguments are already evaluated; SQL `NULL` is passed as `nil`.
+- Registrations are scoped to one `Engine` and the registry is concurrency-safe.
+- The request context is available to custom functions through `ctx`.
+- Built-ins use the same lookup path, so a future plugin can expose functions
+  without changing the parser.
+
 ## Pipelines
 
 AnyQuery's `|>` stages remain available alongside standard SQL:
@@ -223,8 +278,10 @@ Use filters early. The scan planner performs capability-gated projection, filter
 ## Known limitations
 
 - No DML/DDL or transactions.
-- No `PIVOT`/`UNPIVOT`, `DISTINCT ON`, `QUALIFY`, `TOP`, `LATERAL`, `UNNEST`, or named window definitions.
-- `LIMIT`/`OFFSET` and window frame offsets accept integer literals, not bind parameters.
+- No `PIVOT`/`UNPIVOT`, `DISTINCT ON`, `QUALIFY`, `TOP`, or named window definitions.
+- `UNNEST` currently expands JSON arrays and internal array values; arbitrary user-defined table functions are not implemented.
+- Window frame offsets accept integer literals, not bind parameters.
+- `TABLESAMPLE SYSTEM`/`BERNOULLI` are implemented as deterministic-capable row sampling in the engine; source-level page sampling is connector-specific.
 - No full interval/array/map/JSON type system; typed date/time values are represented as normalized strings.
 - No cost-based join reordering; joins follow the written order and choose the smaller inner-join build side.
 - Window functions are not available inside `|>` pipeline stages.

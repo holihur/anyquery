@@ -582,6 +582,37 @@ func evalFunction(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 		}
 		args[i] = v
 	}
+	// GROUPING() depends on the current grouping-set state, not just argument
+	// values, so it is resolved by the engine rather than the scalar registry.
+	if name == "grouping" || name == "grouping_id" {
+		return evalGrouping(ctx, f)
+	}
+	registry := ctx.exec.engine.Functions()
+	spec, ok := registry.lookup(name)
+	if !ok {
+		return nil, errf("unknown_function", "unknown function %s", strings.ToUpper(name))
+	}
+	if err := spec.checkArity(name, len(args)); err != nil {
+		return nil, err
+	}
+	return spec.fn(ctx.exec.ctx, args)
+}
+
+func evalGrouping(ctx *evalCtx, f *sql.FuncCall) (any, error) {
+	name := strings.ToLower(f.Name)
+	if len(f.Args) == 0 {
+		return nil, errf("invalid_arguments", "%s expects at least one argument", strings.ToUpper(name))
+	}
+	result := int64(0)
+	for i, a := range f.Args {
+		if ctx.grouping[a.String()] {
+			result |= 1 << uint(len(f.Args)-1-i)
+		}
+	}
+	return result, nil
+}
+
+func evalBuiltinFunction(name string, args []any) (any, error) {
 	arg := func(i int) any {
 		if i < len(args) {
 			return args[i]
@@ -880,17 +911,6 @@ func evalFunction(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 			return time.Unix(int64(f), 0).UTC().Format(time.RFC3339Nano), nil
 		}
 		return nil, errf("type_error", "TO_TIMESTAMP expects a timestamp string or epoch")
-	case "grouping", "grouping_id":
-		if len(args) == 0 {
-			return nil, errf("invalid_arguments", "%s expects at least one argument", strings.ToUpper(name))
-		}
-		result := int64(0)
-		for i, a := range f.Args {
-			if ctx.grouping[a.String()] {
-				result |= 1 << uint(len(f.Args)-1-i)
-			}
-		}
-		return result, nil
 	case "json_extract", "json_extract_scalar":
 		return jsonExtract(arg(0), arg(1), name == "json_extract_scalar")
 	case "extract", "date_part":
