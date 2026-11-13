@@ -45,6 +45,8 @@ type Dialect struct {
 	Introspect func(ctx context.Context, db *sql.DB, cfg map[string]string) ([]connector.Table, error)
 	// PingSQL is optional; most databases accept SELECT 1.
 	PingSQL string
+	// SystemTime enables FOR SYSTEM_TIME temporal reads.
+	SystemTime bool
 }
 
 // Provider adapts a Dialect to connector.Provider.
@@ -108,7 +110,7 @@ func (c *Conn) Ping(ctx context.Context) error {
 }
 
 func (c *Conn) Capabilities() connector.Capabilities {
-	return connector.Capabilities{LimitPushdown: true, ProjectionPushdown: true, FilterPushdown: true}
+	return connector.Capabilities{LimitPushdown: true, ProjectionPushdown: true, FilterPushdown: true, SystemTime: c.dialect.SystemTime}
 }
 
 func (c *Conn) Close() error { return c.db.Close() }
@@ -198,13 +200,37 @@ func (c *Conn) buildFetchQuery(req connector.FetchRequest) (string, []any) {
 		}
 		cols = strings.Join(quoted, ", ")
 	}
-	where, args := c.buildWhere(req.Predicates)
+	temporal, temporalArgs := c.buildTemporal(req.Temporal)
+	where, whereArgs := c.buildWhereFrom(req.Predicates, len(temporalArgs))
+	args := append(temporalArgs, whereArgs...)
 	if strings.EqualFold(c.dialect.Type, "sqlserver") {
-		return fmt.Sprintf("SELECT TOP (%d) %s FROM %s%s", req.Limit, cols, qualified, where), args
+		return fmt.Sprintf("SELECT TOP (%d) %s FROM %s%s%s", req.Limit, cols, qualified, temporal, where), args
 	}
-	return fmt.Sprintf("SELECT %s FROM %s%s%s", cols, qualified, where, c.dialect.LimitSQL(req.Limit)), args
+	return fmt.Sprintf("SELECT %s FROM %s%s%s%s", cols, qualified, temporal, where, c.dialect.LimitSQL(req.Limit)), args
+}
+
+func (c *Conn) buildTemporal(t *connector.TemporalRange) (string, []any) {
+	if t == nil {
+		return "", nil
+	}
+	switch t.Mode {
+	case "as_of":
+		return " FOR SYSTEM_TIME AS OF " + c.placeholder(1), []any{t.AsOf}
+	case "from_to":
+		return " FOR SYSTEM_TIME FROM " + c.placeholder(1) + " TO " + c.placeholder(2), []any{t.From, t.To}
+	case "between":
+		return " FOR SYSTEM_TIME BETWEEN " + c.placeholder(1) + " AND " + c.placeholder(2), []any{t.From, t.To}
+	case "all":
+		return " FOR SYSTEM_TIME ALL", nil
+	default:
+		return "", nil
+	}
 }
 func (c *Conn) buildWhere(preds []connector.Predicate) (string, []any) {
+	return c.buildWhereFrom(preds, 0)
+}
+
+func (c *Conn) buildWhereFrom(preds []connector.Predicate, offset int) (string, []any) {
 	if len(preds) == 0 {
 		return "", nil
 	}
@@ -234,7 +260,7 @@ func (c *Conn) buildWhere(preds []connector.Predicate) (string, []any) {
 			continue
 		}
 		args = append(args, p.Value)
-		parts = append(parts, fmt.Sprintf("%s %s %s", c.dialect.Quote(p.Column), op, c.placeholder(len(args))))
+		parts = append(parts, fmt.Sprintf("%s %s %s", c.dialect.Quote(p.Column), op, c.placeholder(offset+len(args))))
 	}
 	if len(parts) == 0 {
 		return "", nil
@@ -708,7 +734,7 @@ func Dialects() []Dialect {
 					`SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS
 					 WHERE TABLE_SCHEMA = SCHEMA_NAME() ORDER BY TABLE_NAME, ORDINAL_POSITION`)
 			},
-			PingSQL: "SELECT 1",
+			PingSQL: "SELECT 1", SystemTime: true,
 		},
 		{
 			Type: "sqlite", Name: "SQLite", Driver: "sqlite", Icon: "sqlite", DefaultPort: "",

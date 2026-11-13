@@ -97,13 +97,13 @@ The test tag is the Go subtest under
 | EXPR-005 | INTERVAL values and arithmetic | supported | `TestSQL2016ReadOnlyProfileMatrix/EXPR-005` |
 | EXPR-006 | Date/time/time-zone semantics | supported | `TestSQL2016ReadOnlyProfileMatrix/EXPR-006` |
 | EXPR-007 | Bound parameters in expressions | supported | `TestSQL2016ReadOnlyProfileMatrix/EXPR-007` |
-| JSON-001 | IS JSON | planned | `pending` |
-| JSON-002 | JSON_VALUE and JSON_QUERY | planned | `pending` |
-| JSON-003 | JSON_EXISTS | planned | `pending` |
-| JSON-004 | JSON_OBJECT / JSON_ARRAY constructors | planned | `pending` |
-| JSON-005 | JSON_ARRAYAGG / JSON_OBJECTAGG | planned | `pending` |
-| JSON-006 | JSON_TABLE | planned | `pending` |
-| TEMP-001 | Temporal table reads with FOR SYSTEM_TIME | planned | `pending` |
+| JSON-001 | IS JSON | supported | `TestSQL2016ReadOnlyProfileMatrix/JSON-001` |
+| JSON-002 | JSON_VALUE and JSON_QUERY | supported | `TestSQL2016ReadOnlyProfileMatrix/JSON-002` |
+| JSON-003 | JSON_EXISTS | supported | `TestSQL2016ReadOnlyProfileMatrix/JSON-003` |
+| JSON-004 | JSON_OBJECT / JSON_ARRAY constructors | supported | `TestSQL2016ReadOnlyProfileMatrix/JSON-004` |
+| JSON-005 | JSON_ARRAYAGG / JSON_OBJECTAGG | supported | `TestSQL2016ReadOnlyProfileMatrix/JSON-005` |
+| JSON-006 | JSON_TABLE | supported | `TestSQL2016ReadOnlyProfileMatrix/JSON-006` |
+| TEMP-001 | Temporal table reads with FOR SYSTEM_TIME | supported | `TestSQL2016ReadOnlyProfileMatrix/TEMP-001` |
 | RPR-001 | MATCH_RECOGNIZE | planned | `pending` |
 | META-001 | SHOW / DESCRIBE / EXPLAIN | supported | `TestSQL2016ReadOnlyProfileMatrix/META-001` |
 | AQ-001 | FROM-first `|>` analytical pipelines | supported | `TestSQL2016ReadOnlyProfileMatrix/AQ-001` |

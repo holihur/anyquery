@@ -910,6 +910,10 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 		return &DerivedTable{Query: sub, Alias: alias, Columns: columns}, nil
 	}
 
+	// SQL/JSON table function.
+	if p.cur.IsKeyword("JSON_TABLE") && p.peek.IsPunct("(") {
+		return p.parseJSONTable()
+	}
 	// Table functions, e.g. UNNEST(json_extract(...)).
 	if p.cur.Kind == TokIdent && p.peek.IsPunct("(") {
 		return p.parseTableFunction()
@@ -927,6 +931,12 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 		ref.Source = parts[0]
 		ref.Table = strings.Join(parts[1:], ".")
 	}
+	if p.cur.IsKeyword("FOR") && p.peek.IsKeyword("SYSTEM_TIME") {
+		ref.Temporal, err = p.parseTemporalClause()
+		if err != nil {
+			return nil, err
+		}
+	}
 	if p.cur.IsKeyword("TABLESAMPLE") {
 		ref.Sample, err = p.parseTableSample()
 		if err != nil {
@@ -938,6 +948,160 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 		return nil, err
 	}
 	return ref, nil
+}
+
+func (p *Parser) parseJSONTable() (TableExpr, error) {
+	if err := p.advance(); err != nil { // JSON_TABLE
+		return nil, err
+	}
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+	expr, err := p.parseExpr(0)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.expectPunct(","); err != nil {
+		return nil, err
+	}
+	path, err := p.parseExpr(0)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.expectKeyword("COLUMNS"); err != nil {
+		return nil, err
+	}
+	columns, err := p.parseJSONTableColumns()
+	if err != nil {
+		return nil, err
+	}
+	// PLAN and ON ERROR are accepted syntactically but not executed yet.
+	for p.cur.IsKeyword("PLAN") || p.cur.IsKeyword("ON") {
+		if p.cur.IsKeyword("PLAN") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if p.cur.IsKeyword("DEFAULT") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+			}
+			continue
+		}
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		if p.cur.IsKeyword("ERROR") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			break
+		}
+		break
+	}
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	alias, _, err := p.parseTableAlias(false)
+	if err != nil {
+		return nil, err
+	}
+	return &JSONTable{Expr: expr, Path: path, Columns: columns, Alias: alias}, nil
+}
+
+func (p *Parser) parseJSONTableColumns() ([]JSONTableColumn, error) {
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+	var cols []JSONTableColumn
+	for {
+		if p.cur.IsPunct(")") {
+			break
+		}
+		if p.cur.IsKeyword("NESTED") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if p.cur.IsKeyword("PATH") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+			}
+			path, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			if err := p.expectKeyword("COLUMNS"); err != nil {
+				return nil, err
+			}
+			nested, err := p.parseJSONTableColumns()
+			if err != nil {
+				return nil, err
+			}
+			cols = append(cols, JSONTableColumn{NestedPath: path, Nested: nested})
+		} else {
+			name, err := p.parseIdent()
+			if err != nil {
+				return nil, err
+			}
+			col := JSONTableColumn{Name: name}
+			if p.cur.IsKeyword("FOR") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("ORDINALITY"); err != nil {
+					return nil, err
+				}
+				col.Ordinality = true
+			} else {
+				typ, err := p.parseTypeName()
+				if err != nil {
+					return nil, err
+				}
+				col.Type = typ
+				if p.cur.IsKeyword("PATH") {
+					if err := p.advance(); err != nil {
+						return nil, err
+					}
+					col.Path, err = p.parseExpr(0)
+					if err != nil {
+						return nil, err
+					}
+				}
+				// Consume column error/empty/default options.
+				for {
+					if p.cur.IsKeyword("NULL") || p.cur.IsKeyword("ERROR") || p.cur.IsKeyword("DEFAULT") {
+						if err := p.advance(); err != nil {
+							return nil, err
+						}
+						if p.cur.IsKeyword("ON") {
+							if err := p.advance(); err != nil {
+								return nil, err
+							}
+							if p.cur.IsKeyword("EMPTY") || p.cur.IsKeyword("ERROR") {
+								if err := p.advance(); err != nil {
+									return nil, err
+								}
+							}
+						}
+						continue
+					}
+					break
+				}
+			}
+			cols = append(cols, col)
+		}
+		if !p.cur.IsPunct(",") {
+			break
+		}
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+	}
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	return cols, nil
 }
 
 func (p *Parser) parseTableFunction() (TableExpr, error) {
@@ -985,6 +1149,70 @@ func (p *Parser) parseTableAlias(required bool) (string, []string, error) {
 		}
 	}
 	return alias, columns, nil
+}
+
+func (p *Parser) parseTemporalClause() (*TemporalClause, error) {
+	if err := p.expectKeyword("FOR"); err != nil {
+		return nil, err
+	}
+	if err := p.expectKeyword("SYSTEM_TIME"); err != nil {
+		return nil, err
+	}
+	t := &TemporalClause{}
+	switch {
+	case p.cur.IsKeyword("AS"):
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		if err := p.expectKeyword("OF"); err != nil {
+			return nil, err
+		}
+		expr, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		t.Mode, t.AsOf = "as_of", expr
+	case p.cur.IsKeyword("FROM"):
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		from, err := p.parseExpr(precAnd + 1)
+		if err != nil {
+			return nil, err
+		}
+		if err := p.expectKeyword("TO"); err != nil {
+			return nil, err
+		}
+		to, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		t.Mode, t.From, t.To = "from_to", from, to
+	case p.cur.IsKeyword("BETWEEN"):
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		from, err := p.parseExpr(precAnd + 1)
+		if err != nil {
+			return nil, err
+		}
+		if err := p.expectKeyword("AND"); err != nil {
+			return nil, err
+		}
+		to, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		t.Mode, t.From, t.To = "between", from, to
+	case p.cur.IsKeyword("ALL"):
+		t.Mode = "all"
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, p.errf("expected AS OF, FROM, BETWEEN or ALL after FOR SYSTEM_TIME")
+	}
+	return t, nil
 }
 
 func (p *Parser) parseTableSample() (*TableSample, error) {
@@ -1723,6 +1951,32 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 			}
 			return &IsExpr{Left: left, Right: right, What: "distinct", Negated: isNeg}, nil
 		}
+		if p.cur.IsKeyword("JSON") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			is := &IsExpr{Left: left, What: "json", Negated: isNeg}
+			if p.cur.IsKeyword("VALUE") || p.cur.IsKeyword("SCALAR") || p.cur.IsKeyword("ARRAY") || p.cur.IsKeyword("OBJECT") {
+				is.JSONType = strings.ToUpper(p.cur.Value)
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+			}
+			if p.cur.IsKeyword("WITH") || p.cur.IsKeyword("WITHOUT") {
+				is.JSONUnique = p.cur.IsKeyword("WITH")
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("UNIQUE"); err != nil {
+					return nil, err
+				}
+				if err := p.expectKeyword("KEYS"); err != nil {
+					return nil, err
+				}
+				is.JSONUniqueSet = true
+			}
+			return is, nil
+		}
 		var what string
 		switch {
 		case p.cur.IsKeyword("NULL"):
@@ -1931,6 +2185,9 @@ func (p *Parser) parsePrimary() (Expr, error) {
 	case t.Kind == TokIdent:
 		if t.IsKeyword("ARRAY") && p.peek.Bracket {
 			return nil, p.errf("ARRAY constructors are not supported")
+		}
+		if isJSONFunctionName(t.Value) && p.peek.IsPunct("(") {
+			return p.parseJSONFunction()
 		}
 		// Function call?
 		if p.peek.IsPunct("(") {
@@ -2144,6 +2401,247 @@ func (p *Parser) parseOverlay() (Expr, error) {
 		return nil, err
 	}
 	return &FuncCall{Name: "overlay", Args: args}, nil
+}
+
+func isJSONFunctionName(name string) bool {
+	switch strings.ToUpper(name) {
+	case "JSON_VALUE", "JSON_QUERY", "JSON_EXISTS", "JSON_OBJECT", "JSON_ARRAY", "JSON_ARRAYAGG", "JSON_OBJECTAGG":
+		return true
+	}
+	return false
+}
+
+func (p *Parser) parseJSONFunction() (Expr, error) {
+	name := strings.ToUpper(p.cur.Value)
+	if err := p.advance(); err != nil { // name
+		return nil, err
+	}
+	if err := p.expectPunct("("); err != nil {
+		return nil, err
+	}
+	fn := &FuncCall{Name: strings.ToLower(name)}
+	switch name {
+	case "JSON_VALUE", "JSON_QUERY", "JSON_EXISTS":
+		if p.cur.IsPunct(")") {
+			return nil, p.errf("%s expects a value and a path", name)
+		}
+		v, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		fn.Args = []Expr{v}
+		if err := p.expectPunct(","); err != nil {
+			return nil, err
+		}
+		path, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		fn.JSONPath = path
+		if err := p.parseJSONOptions(fn); err != nil {
+			return nil, err
+		}
+	case "JSON_OBJECT":
+		for {
+			key, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			if p.cur.IsKeyword("VALUE") {
+				if err := p.advance(); err != nil {
+					return nil, err
+				}
+			} else if err := p.expectPunct(":"); err != nil {
+				return nil, err
+			}
+			value, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			fn.JSONPairs = append(fn.JSONPairs, JSONPair{Key: key, Value: value})
+			if !p.cur.IsPunct(",") {
+				break
+			}
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		}
+		if err := p.parseJSONOptions(fn); err != nil {
+			return nil, err
+		}
+	case "JSON_ARRAY":
+		for !p.cur.IsPunct(")") {
+			v, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			fn.Args = append(fn.Args, v)
+			if !p.cur.IsPunct(",") {
+				break
+			}
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		}
+		if err := p.parseJSONOptions(fn); err != nil {
+			return nil, err
+		}
+	case "JSON_ARRAYAGG":
+		v, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		fn.Args = []Expr{v}
+		if p.cur.IsKeyword("ORDER") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if err := p.expectKeyword("BY"); err != nil {
+				return nil, err
+			}
+			if fn.JSONOrder, err = p.parseOrderItems(); err != nil {
+				return nil, err
+			}
+		}
+		if err := p.parseJSONOptions(fn); err != nil {
+			return nil, err
+		}
+	case "JSON_OBJECTAGG":
+		key, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		if p.cur.IsKeyword("VALUE") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		} else if err := p.expectPunct(":"); err != nil {
+			return nil, err
+		}
+		value, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		fn.JSONPairs = []JSONPair{{Key: key, Value: value}}
+		if p.cur.IsKeyword("ORDER") {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			if err := p.expectKeyword("BY"); err != nil {
+				return nil, err
+			}
+			if fn.JSONOrder, err = p.parseOrderItems(); err != nil {
+				return nil, err
+			}
+		}
+		if err := p.parseJSONOptions(fn); err != nil {
+			return nil, err
+		}
+	}
+	if err := p.expectPunct(")"); err != nil {
+		return nil, err
+	}
+	return fn, nil
+}
+
+func (p *Parser) parseJSONOptions(fn *FuncCall) error {
+	for {
+		switch {
+		case p.cur.IsKeyword("NULL"):
+			if err := p.advance(); err != nil {
+				return err
+			}
+			if err := p.expectKeyword("ON"); err != nil {
+				return err
+			}
+			if err := p.expectKeyword("NULL"); err != nil {
+				return err
+			}
+			fn.JSONNullBehavior = "null"
+		case p.cur.IsKeyword("ABSENT"):
+			if err := p.advance(); err != nil {
+				return err
+			}
+			if err := p.expectKeyword("ON"); err != nil {
+				return err
+			}
+			if err := p.expectKeyword("NULL"); err != nil {
+				return err
+			}
+			fn.JSONNullBehavior = "absent"
+		case p.cur.IsKeyword("WITH") || p.cur.IsKeyword("WITHOUT"):
+			with := p.cur.IsKeyword("WITH")
+			if err := p.advance(); err != nil {
+				return err
+			}
+			if err := p.expectKeyword("UNIQUE"); err != nil {
+				return err
+			}
+			if err := p.expectKeyword("KEYS"); err != nil {
+				return err
+			}
+			fn.JSONUnique = with
+		case p.cur.IsKeyword("RETURNING"):
+			if err := p.advance(); err != nil {
+				return err
+			}
+			typ, err := p.parseTypeName()
+			if err != nil {
+				return err
+			}
+			fn.JSONReturning = typ
+		case p.cur.IsKeyword("ON"):
+			if err := p.advance(); err != nil {
+				return err
+			}
+			var field *string
+			switch {
+			case p.cur.IsKeyword("EMPTY"):
+				field = &fn.JSONOnEmpty
+			case p.cur.IsKeyword("ERROR"):
+				field = &fn.JSONOnError
+			default:
+				return p.errf("expected EMPTY or ERROR after ON")
+			}
+			if err := p.advance(); err != nil {
+				return err
+			}
+			switch {
+			case p.cur.IsKeyword("ERROR"):
+				*field = "error"
+				if err := p.advance(); err != nil {
+					return err
+				}
+			case p.cur.IsKeyword("NULL"):
+				*field = "null"
+				if err := p.advance(); err != nil {
+					return err
+				}
+			case p.cur.IsKeyword("DEFAULT"):
+				*field = "default"
+				if err := p.advance(); err != nil {
+					return err
+				}
+				if _, err := p.parseExpr(0); err != nil {
+					return err
+				}
+			default:
+				return p.errf("expected ERROR, NULL or DEFAULT")
+			}
+		case p.cur.IsKeyword("WRAPPER"):
+			if err := p.advance(); err != nil {
+				return err
+			}
+			if p.cur.IsKeyword("CONDITIONAL") || p.cur.IsKeyword("UNCONDITIONAL") {
+				fn.JSONWrapper = strings.ToUpper(p.cur.Value)
+				if err := p.advance(); err != nil {
+					return err
+				}
+			}
+		default:
+			return nil
+		}
+	}
 }
 
 func (p *Parser) parseWindowSpec() (*WindowSpec, error) {
@@ -2858,7 +3356,7 @@ func isClauseKeyword(s string) bool {
 	switch strings.ToUpper(s) {
 	case "FROM", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT",
 		"JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "ON", "USING",
-		"AND", "OR", "NOT", "IS", "IN", "LIKE", "ILIKE", "BETWEEN", "WHEN", "THEN", "ELSE", "END", "WINDOW", "WITHIN", "GROUPS", "EXCLUDE", "TIES", "OTHERS", "AT", "ZONE",
+		"AND", "OR", "NOT", "IS", "IN", "LIKE", "ILIKE", "BETWEEN", "WHEN", "THEN", "ELSE", "END", "WINDOW", "WITHIN", "GROUPS", "EXCLUDE", "TIES", "OTHERS", "AT", "ZONE", "SYSTEM_TIME", "JSON", "VALUE", "SCALAR", "OBJECT", "UNIQUE", "KEYS", "EMPTY", "ERROR", "DEFAULT", "RETURNING", "WRAPPER", "CONDITIONAL", "UNCONDITIONAL",
 		"ASC", "DESC", "NULLS", "FIRST", "LAST", "AS", "BY", "SELECT", "DISTINCT", "ALL", "AGGREGATE", "FILTER", "OVER", "PARTITION", "ROWS", "RANGE", "UNBOUNDED", "PRECEDING", "FOLLOWING", "CURRENT", "ROW", "FETCH", "ONLY", "RECURSIVE", "ANY", "SOME", "ROLLUP", "CUBE", "GROUPING", "SETS", "TRY_CAST", "PIPE":
 		return true
 	}

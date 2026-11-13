@@ -231,3 +231,62 @@ func TestIntervalTrimOverlayAndTimeZoneParsing(t *testing.T) {
 		}
 	}
 }
+
+func TestJSONSyntaxRoundTrip(t *testing.T) {
+	cases := []string{
+		"SELECT JSON_VALUE(doc, '$.a'), JSON_QUERY(doc, 'strict $.a[0]'), JSON_EXISTS(doc, '$.a') FROM t",
+		"SELECT JSON_OBJECT('a': 1, 'b': NULL ABSENT ON NULL) FROM t",
+		"SELECT JSON_ARRAY(1, 2, NULL) FROM t",
+		"SELECT JSON_ARRAYAGG(x ORDER BY y) FROM t",
+		"SELECT JSON_OBJECTAGG(k: v) FROM t",
+		"SELECT doc IS JSON OBJECT WITH UNIQUE KEYS, doc IS NOT JSON ARRAY FROM t",
+		"SELECT * FROM JSON_TABLE(doc, '$.items[*]' COLUMNS (id INT PATH '$.id', ord FOR ORDINALITY, NESTED PATH '$.tags[*]' COLUMNS (tag VARCHAR(20) PATH '$'))) AS jt",
+	}
+	for _, query := range cases {
+		stmt, err := Parse(query)
+		if err != nil {
+			t.Fatalf("%q: %v", query, err)
+		}
+		formatted := FormatStatement(stmt)
+		if _, err := Parse(formatted); err != nil {
+			t.Fatalf("%q formatted as %q: %v", query, formatted, err)
+		}
+	}
+	for _, query := range []string{
+		"SELECT JSON_VALUE(doc) FROM t",
+		"SELECT JSON_TABLE(doc, '$.a' COLUMNS (id INT PATH)) FROM t",
+		"SELECT doc IS JSON OBJECT WITH UNIQUE FROM t",
+	} {
+		if _, err := Parse(query); err == nil {
+			t.Errorf("%q unexpectedly parsed", query)
+		}
+	}
+}
+
+func TestTemporalTableSyntax(t *testing.T) {
+	cases := []string{
+		"SELECT * FROM mongo.orders FOR SYSTEM_TIME AS OF TIMESTAMP '2024-01-01T00:00:00Z'",
+		"SELECT * FROM mongo.orders FOR SYSTEM_TIME FROM TIMESTAMP '2024-01-01T00:00:00Z' TO TIMESTAMP '2024-02-01T00:00:00Z'",
+		"SELECT * FROM mongo.orders FOR SYSTEM_TIME BETWEEN TIMESTAMP '2024-01-01T00:00:00Z' AND TIMESTAMP '2024-02-01T00:00:00Z'",
+		"SELECT * FROM mongo.orders FOR SYSTEM_TIME ALL",
+	}
+	for _, query := range cases {
+		stmt, err := Parse(query)
+		if err != nil {
+			t.Fatalf("%q: %v", query, err)
+		}
+		formatted := FormatStatement(stmt)
+		if _, err := Parse(formatted); err != nil {
+			t.Fatalf("%q formatted as %q: %v", query, formatted, err)
+		}
+	}
+	for _, query := range []string{
+		"SELECT * FROM mongo.orders FOR SYSTEM_TIME",
+		"SELECT * FROM mongo.orders FOR SYSTEM_TIME AS OF",
+		"SELECT * FROM mongo.orders FOR SYSTEM_TIME BETWEEN 'a'",
+	} {
+		if _, err := Parse(query); err == nil {
+			t.Errorf("%q unexpectedly parsed", query)
+		}
+	}
+}

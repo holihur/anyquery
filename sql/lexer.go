@@ -158,7 +158,7 @@ func (l *Lexer) Next() (Token, error) {
 		return Token{Kind: TokPunct, Value: two, Line: startLine, Col: startCol}, nil
 	}
 
-	if strings.ContainsRune("()[],.;+*/%<>=|&~!-^?$", r) {
+	if strings.ContainsRune("()[],.;:+*/%<>=|&~!-^?$", r) {
 		l.advance(r, size)
 		return Token{Kind: TokPunct, Value: string(r), Line: startLine, Col: startCol}, nil
 	}

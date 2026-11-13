@@ -190,6 +190,13 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		if x.What == "json" {
+			result := evalIsJSON(v, x.JSONType, x.JSONUniqueSet && x.JSONUnique)
+			if x.Negated {
+				result = !result
+			}
+			return result, nil
+		}
 		if x.What == "distinct" {
 			rv, err := evalExpr(ctx, x.Right)
 			if err != nil {
@@ -224,6 +231,9 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 				return nil, errf("invalid_window", "window function %s was not computed", strings.ToUpper(x.Name))
 			}
 			return v, nil
+		}
+		if isJSONScalarFunction(x.Name) {
+			return evalJSONFunction(ctx, x)
 		}
 		if sql.IsAggregate(x.Name) {
 			if ctx.group == nil {
@@ -1473,7 +1483,7 @@ func evalAggregate(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	if star && name != "count" {
 		return nil, errf("invalid_aggregate", "%s(*) is not supported", strings.ToUpper(name))
 	}
-	if !star && len(f.Args) == 0 && name != "mode" {
+	if !star && len(f.Args) == 0 && name != "mode" && name != "json_objectagg" {
 		return nil, errf("invalid_aggregate", "%s requires an argument", strings.ToUpper(name))
 	}
 	if star && name == "count" {
@@ -1495,6 +1505,9 @@ func evalAggregate(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 			}
 		}
 		return n, nil
+	}
+	if name == "json_arrayagg" || name == "json_objectagg" {
+		return evalJSONAggregate(ctx, f, group)
 	}
 	if len(f.WithinGroup) > 0 || name == "percentile_cont" || name == "percentile_disc" || name == "mode" {
 		return evalOrderedSetAggregate(ctx, f, group)

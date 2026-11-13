@@ -9,14 +9,15 @@ import (
 )
 
 type fakeConn struct {
-	tables  map[string][]map[string]any
-	lastReq *connector.FetchRequest
-	reqs    []connector.FetchRequest
+	tables     map[string][]map[string]any
+	lastReq    *connector.FetchRequest
+	reqs       []connector.FetchRequest
+	systemTime bool
 }
 
 func (f *fakeConn) Ping(context.Context) error { return nil }
 func (f *fakeConn) Capabilities() connector.Capabilities {
-	return connector.Capabilities{LimitPushdown: true, ProjectionPushdown: true, FilterPushdown: true}
+	return connector.Capabilities{LimitPushdown: true, ProjectionPushdown: true, FilterPushdown: true, SystemTime: f.systemTime}
 }
 func (f *fakeConn) Close() error { return nil }
 func (f *fakeConn) DescribeFetch(req connector.FetchRequest) (string, []any, error) {
@@ -74,7 +75,7 @@ func testCatalog() *fakeCatalog {
 		{"id": int64(10), "customer_id": float64(1), "category": "software"},
 		{"id": int64(11), "customer_id": int64(9), "category": "services"},
 	}
-	mongoConn := &fakeConn{tables: map[string][]map[string]any{
+	mongoConn := &fakeConn{systemTime: true, tables: map[string][]map[string]any{
 		"orders":    orders,
 		"customers": customers,
 	}}

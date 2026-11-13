@@ -108,6 +108,7 @@ type Capabilities struct {
 	FilterPushdown     bool `json:"filterPushdown"`
 	LimitPushdown      bool `json:"limitPushdown"`
 	ProjectionPushdown bool `json:"projectionPushdown"`
+	SystemTime         bool `json:"systemTime"` // supports FOR SYSTEM_TIME temporal reads
 }
 
 // FetchRequest asks a connector for rows. Limit is a hard safety cap; the
@@ -117,6 +118,21 @@ type FetchRequest struct {
 	Columns    []string
 	Limit      int
 	Predicates []Predicate
+	Temporal   *TemporalRange
+}
+
+// TemporalRange is a read-only SQL:2016 FOR SYSTEM_TIME selection. Exactly one
+// form is represented by Mode:
+//
+//	as_of:    AsOf
+//	from_to:  From, To
+//	between:  From, To
+//	all:      no timestamps
+type TemporalRange struct {
+	Mode string
+	AsOf time.Time
+	From time.Time
+	To   time.Time
 }
 
 // Predicate is a simple column comparison that a connector may push to the

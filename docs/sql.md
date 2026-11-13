@@ -213,6 +213,7 @@ GROUP BY region;
 - comparisons: `= != <> < <= > >=`, `LIKE`, `ILIKE`, `REGEXP`
 - `IN (...)`, `ANY`/`SOME`/`ALL`, `BETWEEN`, `IS [NOT] NULL/TRUE/FALSE`, `IS [NOT] DISTINCT FROM`
 - `CASE`, `CAST`, `TRY_CAST`, `::`, `EXISTS`, scalar subqueries
+- SQL/JSON predicates and functions: `IS [NOT] JSON`, `JSON_VALUE`, `JSON_QUERY`, `JSON_EXISTS`, `JSON_OBJECT`, `JSON_ARRAY`, `JSON_ARRAYAGG`, `JSON_OBJECTAGG`, `JSON_TABLE`
 - typed literals: `DATE '2024-01-01'`, `TIMESTAMP '2024-01-01 12:00:00'`, `TIMESTAMPTZ '...'`
 - `INTERVAL '1 day'`, `INTERVAL '1' DAY`, `INTERVAL '1-2' YEAR TO MONTH`, `INTERVAL '1 02:03:04' DAY TO SECOND`
 - timestamp/interval arithmetic (`ts + interval`, `ts - timestamp`, `interval * number`)
@@ -230,7 +231,8 @@ GROUP BY region;
 | Date / time | `now`, `current_date`, `current_timestamp`, `date_trunc`, `extract`, `date_part`, `date_add`/`dateadd`, `date_sub`/`datesub`, `date_diff`/`datediff`, `to_timestamp`, `timezone` |
 | Interval | `INTERVAL` literals, calendar month/day/time arithmetic, `EXTRACT`/CAST to interval |
 | String standard forms | `TRIM([BOTH|LEADING|TRAILING] ... FROM ...)`, `OVERLAY(... PLACING ... FROM ... FOR ...)` |
-| JSON / hashing | `json_extract`, `json_extract_scalar`, `md5`, `sha256` |
+| JSON | `JSON_VALUE`, `JSON_QUERY`, `JSON_EXISTS`, `JSON_OBJECT`, `JSON_ARRAY`, `JSON_ARRAYAGG`, `JSON_OBJECTAGG`, `JSON_TABLE`, `json_extract`, `json_extract_scalar` |
+| Hashing | `md5`, `sha256` |
 | Random | `random`/`rand` |
 
 ### SQL-standard shorthand
@@ -272,6 +274,47 @@ Rules:
 - The request context is available to custom functions through `ctx`.
 - Built-ins use the same lookup path, so a future plugin can expose functions
   without changing the parser.
+
+## Temporal tables
+
+The SQL:2016 read-only temporal forms are supported for sources that expose
+system-time history:
+
+```sql
+SELECT * FROM mongo.orders FOR SYSTEM_TIME AS OF TIMESTAMP '2024-01-01T00:00:00Z';
+SELECT * FROM mongo.orders FOR SYSTEM_TIME FROM TIMESTAMP '2024-01-01T00:00:00Z'
+  TO TIMESTAMP '2024-02-01T00:00:00Z';
+SELECT * FROM mongo.orders FOR SYSTEM_TIME BETWEEN TIMESTAMP '2024-01-01T00:00:00Z'
+  AND TIMESTAMP '2024-02-01T00:00:00Z';
+SELECT * FROM mongo.orders FOR SYSTEM_TIME ALL;
+```
+
+A connector must advertise `Capabilities.SystemTime`; otherwise the engine returns
+`temporal_not_supported` rather than reading current rows silently. The SQL
+Server connector advertises system-time support and renders the clause in the
+pushed source statement.
+
+## SQL/JSON
+
+```sql
+SELECT JSON_VALUE(payload, '$.user.name') AS name,
+       JSON_QUERY(payload, '$.items') AS items,
+       JSON_EXISTS(payload, '$.items[*]') AS has_items
+FROM mongo.events;
+
+SELECT JSON_OBJECT('id': id, 'tags': JSON_ARRAY(region, status)) AS doc
+FROM mongo.orders;
+
+SELECT id, tag
+FROM JSON_TABLE(
+  payload, '$.items[*]' COLUMNS (
+    id INT PATH '$.id',
+    NESTED PATH '$.tags[*]' COLUMNS (tag VARCHAR(20) PATH '$')
+  )
+) AS jt;
+```
+
+JSON paths support `$`, dot members, quoted members, array indexes, `[*]` and recursive `..member`. A leading `strict` makes missing paths an error; `lax` returns NULL. `IS JSON [VALUE|SCALAR|ARRAY|OBJECT]` validates decoded JSON.
 
 ## Pipelines
 

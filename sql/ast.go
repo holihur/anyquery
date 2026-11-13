@@ -104,10 +104,36 @@ type TableExpr interface {
 // TableRef references source.table (table may contain dots after the source,
 // e.g. pg.public.users -> Source=pg, Table=public.users).
 type TableRef struct {
-	Source string
-	Table  string
-	Alias  string
-	Sample *TableSample
+	Source   string
+	Table    string
+	Alias    string
+	Temporal *TemporalClause
+	Sample   *TableSample
+}
+
+// TemporalClause is a SQL:2016 FOR SYSTEM_TIME table selection.
+type TemporalClause struct {
+	Mode string // as_of, from_to, between, all
+	AsOf Expr
+	From Expr
+	To   Expr
+}
+
+func (t *TemporalClause) String() string {
+	if t == nil {
+		return ""
+	}
+	switch t.Mode {
+	case "as_of":
+		return "FOR SYSTEM_TIME AS OF " + t.AsOf.String()
+	case "from_to":
+		return "FOR SYSTEM_TIME FROM " + t.From.String() + " TO " + t.To.String()
+	case "between":
+		return "FOR SYSTEM_TIME BETWEEN " + t.From.String() + " AND " + t.To.String()
+	case "all":
+		return "FOR SYSTEM_TIME ALL"
+	}
+	return ""
 }
 
 // TableSample describes TABLESAMPLE SYSTEM/BERNOULLI and REPEATABLE.
@@ -154,6 +180,26 @@ type ValuesTable struct {
 }
 
 func (*ValuesTable) tableNode() {}
+
+// JSONTable is a SQL/JSON JSON_TABLE table expression.
+type JSONTable struct {
+	Expr    Expr
+	Path    Expr
+	Columns []JSONTableColumn
+	Alias   string
+}
+
+func (*JSONTable) tableNode() {}
+
+// JSONTableColumn is one column in JSON_TABLE's COLUMNS clause.
+type JSONTableColumn struct {
+	Name       string
+	Type       string
+	Path       Expr
+	Ordinality bool
+	NestedPath Expr
+	Nested     []JSONTableColumn
+}
 
 // ValuesStmt is a top-level VALUES statement.
 type ValuesStmt struct {
@@ -337,10 +383,13 @@ type BetweenExpr struct {
 func (*BetweenExpr) exprNode() {}
 
 type IsExpr struct {
-	Left    Expr
-	Right   Expr   // set for IS [NOT] DISTINCT FROM
-	What    string // null, true, false, unknown, distinct
-	Negated bool
+	Left          Expr
+	Right         Expr   // set for IS [NOT] DISTINCT FROM
+	What          string // null, true, false, unknown, distinct, json
+	Negated       bool
+	JSONType      string // "", VALUE, SCALAR, ARRAY, OBJECT
+	JSONUnique    bool
+	JSONUniqueSet bool
 }
 
 func (*IsExpr) exprNode() {}
@@ -353,6 +402,23 @@ type FuncCall struct {
 	Filter      Expr
 	WithinGroup []OrderItem
 	Window      *WindowSpec
+
+	// SQL/JSON function metadata.
+	JSONPath         Expr
+	JSONPairs        []JSONPair
+	JSONOrder        []OrderItem
+	JSONReturning    string
+	JSONOnError      string
+	JSONOnEmpty      string
+	JSONWrapper      string
+	JSONNullBehavior string // null or absent
+	JSONUnique       bool
+}
+
+// JSONPair is one key/value pair in JSON_OBJECT / JSON_OBJECTAGG.
+type JSONPair struct {
+	Key   Expr
+	Value Expr
 }
 
 // WindowSpec is an OVER (...) clause. FrameStart/FrameEnd use the values
@@ -467,14 +533,20 @@ func formatQualifiedName(s string) string {
 }
 
 func FormatTableRef(t *TableRef) string {
+	var out string
 	if t.Source == "" {
-		return formatQualifiedName(t.Table)
+		out = formatQualifiedName(t.Table)
+	} else {
+		parts := []string{FormatIdent(t.Source)}
+		if t.Table != "" {
+			parts = append(parts, formatQualifiedName(t.Table))
+		}
+		out = strings.Join(parts, ".")
 	}
-	parts := []string{FormatIdent(t.Source)}
-	if t.Table != "" {
-		parts = append(parts, formatQualifiedName(t.Table))
+	if t.Temporal != nil {
+		out += " " + t.Temporal.String()
 	}
-	return strings.Join(parts, ".")
+	return out
 }
 
 func (p *Parameter) String() string {
@@ -575,10 +647,27 @@ func (i *IsExpr) String() string {
 	if i.What == "distinct" {
 		return "(" + i.Left.String() + op + "DISTINCT FROM " + i.Right.String() + ")"
 	}
+	if i.What == "json" {
+		out := "(" + i.Left.String() + op + "JSON"
+		if i.JSONType != "" {
+			out += " " + i.JSONType
+		}
+		if i.JSONUniqueSet {
+			if i.JSONUnique {
+				out += " WITH UNIQUE KEYS"
+			} else {
+				out += " WITHOUT UNIQUE KEYS"
+			}
+		}
+		return out + ")"
+	}
 	return "(" + i.Left.String() + op + strings.ToUpper(i.What) + ")"
 }
 
 func (f *FuncCall) String() string {
+	if out := formatJSONFunc(f); out != "" {
+		return out
+	}
 	if strings.EqualFold(f.Name, "overlay") && (len(f.Args) == 3 || len(f.Args) == 4) {
 		out := "overlay(" + f.Args[0].String() + " PLACING " + f.Args[1].String() + " FROM " + f.Args[2].String()
 		if len(f.Args) == 4 {
@@ -695,6 +784,60 @@ func (c *CastExpr) String() string {
 func (e *ExistsExpr) String() string { return "EXISTS(" + FormatSelect(e.Query) + ")" }
 
 func (s *SubqueryExpr) String() string { return "(" + FormatSelect(s.Query) + ")" }
+
+func formatJSONFunc(f *FuncCall) string {
+	name := strings.ToLower(f.Name)
+	var out string
+	switch name {
+	case "json_value", "json_query", "json_exists":
+		if len(f.Args) != 1 || f.JSONPath == nil {
+			return ""
+		}
+		out = name + "(" + f.Args[0].String() + ", " + f.JSONPath.String()
+	case "json_object":
+		parts := make([]string, len(f.JSONPairs))
+		for i, p := range f.JSONPairs {
+			parts[i] = p.Key.String() + ": " + p.Value.String()
+		}
+		out = "json_object(" + strings.Join(parts, ", ")
+	case "json_array":
+		parts := make([]string, len(f.Args))
+		for i, a := range f.Args {
+			parts[i] = a.String()
+		}
+		out = "json_array(" + strings.Join(parts, ", ")
+	case "json_arrayagg":
+		if len(f.Args) != 1 {
+			return ""
+		}
+		out = "json_arrayagg(" + f.Args[0].String()
+		if len(f.JSONOrder) > 0 {
+			out += " ORDER BY " + formatOrder(f.JSONOrder)
+		}
+	case "json_objectagg":
+		if len(f.JSONPairs) != 1 {
+			return ""
+		}
+		out = "json_objectagg(" + f.JSONPairs[0].Key.String() + ": " + f.JSONPairs[0].Value.String()
+		if len(f.JSONOrder) > 0 {
+			out += " ORDER BY " + formatOrder(f.JSONOrder)
+		}
+	default:
+		return ""
+	}
+	if f.JSONReturning != "" {
+		out += " RETURNING " + f.JSONReturning
+	}
+	if f.JSONUnique {
+		out += " WITH UNIQUE KEYS"
+	}
+	if f.JSONNullBehavior == "null" {
+		out += " NULL ON NULL"
+	} else if f.JSONNullBehavior == "absent" {
+		out += " ABSENT ON NULL"
+	}
+	return out + ")"
+}
 
 func FormatSelectItem(i SelectItem) string {
 	var s string
@@ -912,6 +1055,12 @@ func FormatTableExpr(t TableExpr) string {
 			s += "(" + strings.Join(cols, ", ") + ")"
 		}
 		return s
+	case *JSONTable:
+		s := "JSON_TABLE(" + x.Expr.String() + ", " + x.Path.String() + " COLUMNS (" + formatJSONTableColumns(x.Columns) + "))"
+		if x.Alias != "" {
+			s += " AS " + FormatIdent(x.Alias)
+		}
+		return s
 	case *JoinExpr:
 		prefix := ""
 		if x.Natural {
@@ -984,6 +1133,27 @@ func FormatStatement(stmt Statement) string {
 		return FormatTable(s)
 	}
 	return ""
+}
+
+func formatJSONTableColumns(cols []JSONTableColumn) string {
+	parts := make([]string, 0, len(cols))
+	for _, c := range cols {
+		if c.NestedPath != nil {
+			parts = append(parts, "NESTED PATH "+c.NestedPath.String()+" COLUMNS ("+formatJSONTableColumns(c.Nested)+")")
+			continue
+		}
+		p := FormatIdent(c.Name)
+		if c.Ordinality {
+			p += " FOR ORDINALITY"
+		} else {
+			p += " " + c.Type
+			if c.Path != nil {
+				p += " PATH " + c.Path.String()
+			}
+		}
+		parts = append(parts, p)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func FormatPipe(p PipeStage) string {
@@ -1114,6 +1284,19 @@ func WalkExpr(e Expr, fn func(Expr) bool) bool {
 				return false
 			}
 		}
+		for _, o := range x.JSONOrder {
+			if !WalkExpr(o.Expr, fn) {
+				return false
+			}
+		}
+		for _, p := range x.JSONPairs {
+			if !WalkExpr(p.Key, fn) || !WalkExpr(p.Value, fn) {
+				return false
+			}
+		}
+		if x.JSONPath != nil && !WalkExpr(x.JSONPath, fn) {
+			return false
+		}
 		if x.Window != nil {
 			for _, e := range x.Window.PartitionBy {
 				if !WalkExpr(e, fn) {
@@ -1176,7 +1359,7 @@ func IsWindow(f *FuncCall) bool { return f != nil && f.Window != nil }
 // IsAggregate reports whether name is an aggregate function.
 func IsAggregate(name string) bool {
 	switch strings.ToLower(name) {
-	case "count", "sum", "avg", "min", "max", "stddev", "stddev_pop", "stddev_samp", "variance", "var_pop", "var_samp", "group_concat", "string_agg", "array_agg", "bool_and", "bool_or", "percentile_cont", "percentile_disc", "mode":
+	case "count", "sum", "avg", "min", "max", "stddev", "stddev_pop", "stddev_samp", "variance", "var_pop", "var_samp", "group_concat", "string_agg", "array_agg", "bool_and", "bool_or", "percentile_cont", "percentile_disc", "mode", "json_arrayagg", "json_objectagg":
 		return true
 	}
 	return false

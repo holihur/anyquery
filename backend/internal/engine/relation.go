@@ -56,6 +56,8 @@ func (ec *execCtx) relationForTableExpr(te sql.TableExpr) (*relation, error) {
 		return datasetToRelation(ds, t.Alias, t.Alias), nil
 	case *sql.TableFunction:
 		return ec.relationForTableFunction(t)
+	case *sql.JSONTable:
+		return ec.relationForJSONTable(t)
 	case *sql.ValuesTable:
 		return ec.relationForValues(t)
 	case *sql.JoinExpr:
@@ -254,6 +256,9 @@ func (ec *execCtx) relationForTableRef(ref *sql.TableRef) (*relation, error) {
 		if !ok {
 			return nil, &Error{Code: "unknown_table", Message: fmt.Sprintf("unknown table or CTE %q", ref.Table), Hint: "reference tables as <source>.<table>, or define a CTE"}
 		}
+		if ref.Temporal != nil {
+			return nil, &Error{Code: "temporal_not_supported", Message: "FOR SYSTEM_TIME requires a data-source table, not a CTE"}
+		}
 		if alias == "" {
 			alias = ref.Table
 		}
@@ -280,6 +285,16 @@ func (ec *execCtx) relationForTableRef(ref *sql.TableRef) (*relation, error) {
 	req := connector.FetchRequest{Table: tm.Name, Limit: fetchLimit}
 	pushedLimit := false
 	caps := c.Capabilities()
+	if ref.Temporal != nil {
+		if !caps.SystemTime {
+			return nil, &Error{Code: "temporal_not_supported", Message: fmt.Sprintf("data source %q does not support FOR SYSTEM_TIME reads", ref.Source), Hint: "use a source with system-time history support or remove the temporal clause"}
+		}
+		temporal, err := ec.resolveTemporal(ref.Temporal)
+		if err != nil {
+			return nil, err
+		}
+		req.Temporal = temporal
+	}
 	if hint := ec.scanHintFor(ref); hint != nil {
 		if caps.ProjectionPushdown && len(hint.columns) > 0 {
 			req.Columns = hint.columns
@@ -385,6 +400,51 @@ func (ec *execCtx) relationForTableRef(ref *sql.TableRef) (*relation, error) {
 	}
 	rel = ensureUniqueKeys(rel)
 	return rel, nil
+}
+
+func (ec *execCtx) resolveTemporal(t *sql.TemporalClause) (*connector.TemporalRange, error) {
+	if t == nil {
+		return nil, nil
+	}
+	parse := func(e sql.Expr, label string) (time.Time, error) {
+		if e == nil {
+			return time.Time{}, errf("invalid_temporal", "FOR SYSTEM_TIME %s is missing a timestamp", label)
+		}
+		v, err := evalExpr(&evalCtx{outer: ec.outerEval, exec: ec}, e)
+		if err != nil {
+			return time.Time{}, err
+		}
+		tm, ok := toTime(v)
+		if !ok {
+			return time.Time{}, errf("invalid_temporal", "FOR SYSTEM_TIME %s expects a timestamp", label)
+		}
+		return tm.UTC(), nil
+	}
+	switch t.Mode {
+	case "as_of":
+		tm, err := parse(t.AsOf, "AS OF")
+		if err != nil {
+			return nil, err
+		}
+		return &connector.TemporalRange{Mode: "as_of", AsOf: tm}, nil
+	case "from_to", "between":
+		from, err := parse(t.From, "FROM")
+		if err != nil {
+			return nil, err
+		}
+		to, err := parse(t.To, "TO")
+		if err != nil {
+			return nil, err
+		}
+		if to.Before(from) {
+			return nil, errf("invalid_temporal", "FOR SYSTEM_TIME end time must not be before start time")
+		}
+		return &connector.TemporalRange{Mode: t.Mode, From: from, To: to}, nil
+	case "all":
+		return &connector.TemporalRange{Mode: "all"}, nil
+	default:
+		return nil, errf("invalid_temporal", "unsupported FOR SYSTEM_TIME mode %q", t.Mode)
+	}
 }
 
 func sampleRows(rows []map[string]any, sample *sql.TableSample) []map[string]any {
