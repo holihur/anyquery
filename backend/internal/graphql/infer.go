@@ -376,3 +376,75 @@ func columnFields(fields []*gqlField) []connector.Column {
 	}
 	return out
 }
+
+// inferRelayPagination detects the common Relay connection shape:
+//
+//	issues(first: 100, after: $after) {
+//	  nodes { ... }
+//	  pageInfo { hasNextPage endCursor }
+//	}
+//
+// It is best-effort and only fills unset pagination fields. APIs with a
+// different cursor argument or pageInfo shape can still configure them
+// explicitly.
+func inferRelayPagination(query, dataPath string) (cursorVar, cursorPath, hasNextPath string) {
+	fields := (&gqlParser{tokens: lexGraphQL(query)}).parseDocument()
+	if len(fields) == 0 {
+		return "", "", ""
+	}
+	path := strings.Split(normalizePath(dataPath), ".")
+	if strings.TrimSpace(dataPath) == "" {
+		path = nil
+	}
+	root := fields[0]
+	parentPath := root.ResponseName
+	if len(path) > 0 {
+		root = findField(fields, path[0])
+		if root == nil {
+			return "", "", ""
+		}
+		parentPath = root.ResponseName
+		// pageInfo is a sibling of the connection's nodes/edges list.
+		if len(path) > 1 && (strings.EqualFold(path[len(path)-1], "nodes") || strings.EqualFold(path[len(path)-1], "edges")) {
+			// parentPath already points at the connection field.
+		}
+	}
+	pageInfo := findField(root.Children, "pageInfo")
+	if pageInfo == nil {
+		return "", "", ""
+	}
+	has := findField(pageInfo.Children, "hasNextPage") != nil
+	end := findField(pageInfo.Children, "endCursor") != nil
+	if !has && !end {
+		return "", "", ""
+	}
+	cursorVar = relayCursorVariable(query)
+	if cursorVar == "" {
+		return "", "", ""
+	}
+	if end {
+		cursorPath = parentPath + ".pageInfo.endCursor"
+	}
+	if has {
+		hasNextPath = parentPath + ".pageInfo.hasNextPage"
+	}
+	return cursorVar, cursorPath, hasNextPath
+}
+
+func relayCursorVariable(query string) string {
+	tokens := lexGraphQL(query)
+	var names []string
+	for i := 0; i+1 < len(tokens); i++ {
+		if tokens[i].text == "$" {
+			names = append(names, tokens[i+1].text)
+		}
+	}
+	for _, want := range []string{"after", "cursor", "endCursor"} {
+		for _, name := range names {
+			if strings.EqualFold(name, want) {
+				return name
+			}
+		}
+	}
+	return ""
+}

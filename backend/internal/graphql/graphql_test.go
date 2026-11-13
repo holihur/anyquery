@@ -147,3 +147,49 @@ func TestGraphQLOAuthClientCredentials(t *testing.T) {
 		t.Fatalf("token calls = %d, want 1", tokenCalls)
 	}
 }
+
+func TestGraphQLAutoRelayPagination(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Variables map[string]any `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		calls++
+		if body.Variables["after"] == "c2" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"issues": map[string]any{
+					"nodes":    []map[string]any{{"id": 3, "title": "C"}},
+					"pageInfo": map[string]any{"hasNextPage": false, "endCursor": "c3"},
+				},
+			}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+			"issues": map[string]any{
+				"nodes":    []map[string]any{{"id": 1, "title": "A"}, {"id": 2, "title": "B"}},
+				"pageInfo": map[string]any{"hasNextPage": true, "endCursor": "c2"},
+			},
+		}})
+	}))
+	defer srv.Close()
+	c, err := (provider{}).Open(context.Background(), map[string]string{
+		"endpoint": srv.URL, "table_name": "issues", "data_path": "issues.nodes",
+		"query": `query($limit: Int, $after: String) {
+			issues(first: $limit, after: $after) {
+				nodes { id title }
+				pageInfo { hasNextPage endCursor }
+			}
+		}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := c.Fetch(context.Background(), connector.FetchRequest{Table: "issues", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || len(res.Rows) != 3 {
+		t.Fatalf("calls=%d rows=%+v", calls, res.Rows)
+	}
+}

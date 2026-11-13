@@ -71,7 +71,9 @@ SELECT id, name FROM graphql.users WHERE name LIKE 'A%';
 
 ## 分页
 
-支持 cursor 分页：
+支持 cursor 分页。常见的 Relay connection 会自动识别：只要 query 中出现
+`pageInfo { hasNextPage endCursor }`、`$after` 以及 `nodes`/`edges` 包装，
+即使没有配置 `cursor_variable` / `cursor_path`，也会自动翻页。
 
 | 字段 | 作用 |
 | --- | --- |
@@ -130,6 +132,6 @@ SELECT id, name FROM graphql.users WHERE name LIKE 'A%';
 ## 当前限制
 
 - 不做 GraphQL schema 自动发现；需要显式配置 query 和列。
-- 复杂 required arguments、嵌套对象展开、Relay connection 的自动分页尚未内置；
-  可用 `data_path`、`cursor_*` 和显式 variables 适配。
+- 非标准 Relay 参数（例如自定义 cursor 参数名或没有 `pageInfo` 的 API）仍需
+  显式配置 `cursor_variable` / `cursor_path`。
 - 一次扫描对应一条 query；跨表 JOIN 由 AnyQuery 引擎完成。

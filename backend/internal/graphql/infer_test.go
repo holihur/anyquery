@@ -49,3 +49,23 @@ func TestGraphQLInfersColumnsOnOpen(t *testing.T) {
 		t.Fatalf("tables = %+v", tables)
 	}
 }
+
+func TestInferRelayPagination(t *testing.T) {
+	query := `query($after: String, $limit: Int) {
+  issues(first: $limit, after: $after) {
+    nodes { id title }
+    pageInfo { hasNextPage endCursor }
+  }
+}`
+	cv, cp, hp := inferRelayPagination(query, "issues.nodes")
+	if cv != "after" || cp != "issues.pageInfo.endCursor" || hp != "issues.pageInfo.hasNextPage" {
+		t.Fatalf("cursor=%q path=%q hasNext=%q", cv, cp, hp)
+	}
+	cv, cp, hp = inferRelayPagination(query, "")
+	if cv != "after" || cp == "" || hp == "" {
+		t.Fatalf("auto path cursor=%q path=%q hasNext=%q", cv, cp, hp)
+	}
+	if cv, _, _ := inferRelayPagination(`query { users { id } }`, ""); cv != "" {
+		t.Fatalf("unexpected cursor %q", cv)
+	}
+}

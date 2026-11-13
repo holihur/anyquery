@@ -359,6 +359,18 @@ func parseQueries(cfg map[string]string, defaults queryConfig) (map[string]query
 			if len(q.Columns) == 0 {
 				q.Columns = inferQueryColumns(q.Query, q.DataPath)
 			}
+			if q.CursorVar == "" || q.CursorPath == "" || q.HasNextPath == "" {
+				cv, cp, hp := inferRelayPagination(q.Query, q.DataPath)
+				if q.CursorVar == "" {
+					q.CursorVar = cv
+				}
+				if q.CursorPath == "" {
+					q.CursorPath = cp
+				}
+				if q.HasNextPath == "" {
+					q.HasNextPath = hp
+				}
+			}
 			out[name] = q
 		}
 		if len(out) == 0 {
@@ -382,6 +394,18 @@ func parseQueries(cfg map[string]string, defaults queryConfig) (map[string]query
 	}
 	if len(defaults.Columns) == 0 {
 		defaults.Columns = inferQueryColumns(defaults.Query, defaults.DataPath)
+	}
+	if defaults.CursorVar == "" || defaults.CursorPath == "" || defaults.HasNextPath == "" {
+		cv, cp, hp := inferRelayPagination(defaults.Query, defaults.DataPath)
+		if defaults.CursorVar == "" {
+			defaults.CursorVar = cv
+		}
+		if defaults.CursorPath == "" {
+			defaults.CursorPath = cp
+		}
+		if defaults.HasNextPath == "" {
+			defaults.HasNextPath = hp
+		}
 	}
 	out[name] = defaults
 	return out, nil
