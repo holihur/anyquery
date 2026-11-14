@@ -147,6 +147,9 @@ func (ec *execCtx) computeWindows(src *windowSource, calls []*sql.FuncCall) ([]m
 }
 
 func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs []int, orderKeys [][]any, out []map[string]any) error {
+	if err := validateWindowFrameValues(f.Window, orderKeys); err != nil {
+		return err
+	}
 	name := strings.ToLower(f.Name)
 	n := len(idxs)
 	if n == 0 {
@@ -359,6 +362,9 @@ func (ec *execCtx) evalWindowAggregate(src *windowSource, f *sql.FuncCall, idxs 
 	if !star && len(f.Args) == 0 {
 		return nil, errf("invalid_window", "%s requires an argument", strings.ToUpper(name))
 	}
+	if end < start {
+		return nil, errf("invalid_window", "window frame bounds are reversed")
+	}
 	values := make([]any, 0, end-start+1)
 	sep := ","
 	for pos := start; pos <= end && pos < len(idxs); pos++ {
@@ -528,12 +534,85 @@ func sameOrderKeys(a, b []any) bool {
 // value offsets for a single numeric ORDER BY key; other RANGE offsets fall
 // back to row positions.
 func validateWindowFrame(w *sql.WindowSpec) error {
-	if w == nil || w.FrameKind != "RANGE" {
+	if w == nil {
 		return nil
 	}
+	if w.FrameKind == "ROWS" && (w.FrameStartExpr != nil || w.FrameEndExpr != nil) {
+		return errf("invalid_window", "ROWS frame bounds must be integer row counts")
+	}
+	if w.FrameKind == "GROUPS" && (w.FrameStartExpr != nil || w.FrameEndExpr != nil) {
+		return errf("invalid_window", "GROUPS frame offsets must be integer group counts")
+	}
 	needsOrder := w.FrameStart == "preceding" || w.FrameStart == "following" || w.FrameEnd == "preceding" || w.FrameEnd == "following" || w.FrameStartExpr != nil || w.FrameEndExpr != nil
-	if needsOrder && len(w.OrderBy) != 1 {
+	if w.FrameKind == "RANGE" && needsOrder && len(w.OrderBy) != 1 {
 		return errf("invalid_window", "RANGE with offset bounds requires exactly one ORDER BY expression")
+	}
+	if w.FrameStart == "unbounded_following" && w.FrameEnd != "unbounded_following" {
+		return errf("invalid_window", "window frame starts after it ends")
+	}
+	if w.FrameEnd == "unbounded_preceding" && w.FrameStart != "unbounded_preceding" {
+		return errf("invalid_window", "window frame ends before it starts")
+	}
+	if (w.FrameStart == "following" && (w.FrameEnd == "current_row" || w.FrameEnd == "preceding")) ||
+		(w.FrameStart == "current_row" && w.FrameEnd == "preceding") {
+		return errf("invalid_window", "window frame starts after it ends")
+	}
+	if w.FrameStart == "following" && w.FrameEnd == "following" && w.FrameStartOffset > w.FrameEndOffset {
+		return errf("invalid_window", "window frame starts after it ends")
+	}
+	if w.FrameStart == "preceding" && w.FrameEnd == "preceding" && w.FrameStartOffset < w.FrameEndOffset {
+		return errf("invalid_window", "window frame starts after it ends")
+	}
+	return nil
+}
+
+func validateWindowFrameValues(w *sql.WindowSpec, orderKeys [][]any) error {
+	if w == nil || len(orderKeys) == 0 {
+		return nil
+	}
+	var key any
+	for _, keys := range orderKeys {
+		if len(keys) > 0 && keys[0] != nil {
+			key = keys[0]
+			break
+		}
+	}
+	if key == nil {
+		return nil
+	}
+	if w.FrameKind == "GROUPS" {
+		if w.FrameStartExpr != nil || w.FrameEndExpr != nil {
+			return errf("invalid_window", "GROUPS frame offsets must be integer group counts")
+		}
+		return nil
+	}
+	if w.FrameKind != "RANGE" {
+		return nil
+	}
+	_, isTime := toTime(key)
+	numeric := false
+	if _, ok := toFloat(key); ok {
+		numeric = true
+	}
+	for _, bound := range []struct {
+		kind string
+		off  int
+		expr sql.Expr
+	}{{w.FrameStart, w.FrameStartOffset, w.FrameStartExpr}, {w.FrameEnd, w.FrameEndOffset, w.FrameEndExpr}} {
+		if bound.kind != "preceding" && bound.kind != "following" {
+			continue
+		}
+		if bound.expr != nil {
+			if _, ok := bound.expr.(*sql.IntervalExpr); ok {
+				if !isTime {
+					return errf("invalid_window", "RANGE interval offsets require a time ORDER BY expression")
+				}
+			} else if !numeric {
+				return errf("invalid_window", "RANGE offset requires a numeric ORDER BY expression")
+			}
+		} else if !numeric {
+			return errf("invalid_window", "RANGE numeric offsets require a numeric ORDER BY expression")
+		}
 	}
 	return nil
 }

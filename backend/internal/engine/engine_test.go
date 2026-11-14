@@ -698,3 +698,12 @@ ORDER BY region NULLS LAST, status NULLS LAST`)
 		t.Fatalf("rows = %d %+v", res.RowCount, res.Rows)
 	}
 }
+
+func TestAggregateRequiresGroupedColumns(t *testing.T) {
+	if _, err := New(DefaultOptions()).Execute(t.Context(), `SELECT region, count(*) FROM mongo.orders`, testCatalog()); err == nil {
+		t.Fatal("expected non-grouped column error")
+	}
+	if _, err := New(DefaultOptions()).Execute(t.Context(), `SELECT region, count(*) FROM mongo.orders GROUP BY region`, testCatalog()); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -162,3 +162,17 @@ func TestNTileDistribution(t *testing.T) {
 		}
 	}
 }
+
+func TestInvalidWindowFramesAndOffsets(t *testing.T) {
+	qs := []string{
+		`SELECT sum(x) OVER (ORDER BY id ROWS BETWEEN 1 FOLLOWING AND 1 PRECEDING) FROM (VALUES (1,10),(2,20)) t(id,x)`,
+		`SELECT sum(x) OVER (ORDER BY id RANGE BETWEEN UNBOUNDED FOLLOWING AND CURRENT ROW) FROM (VALUES (1,10),(2,20)) t(id,x)`,
+		`SELECT sum(x) OVER (ORDER BY tag RANGE BETWEEN 1 PRECEDING AND CURRENT ROW) FROM (VALUES (1,'a',10),(2,'b',20)) t(id,tag,x)`,
+		`SELECT sum(x) OVER (ORDER BY id GROUPS BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW) FROM (VALUES (1,10),(2,20)) t(id,x)`,
+	}
+	for _, q := range qs {
+		if _, err := New(DefaultOptions()).Execute(t.Context(), q, testCatalog()); err == nil {
+			t.Errorf("expected window frame error for %s", q)
+		}
+	}
+}

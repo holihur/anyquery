@@ -468,6 +468,7 @@ type FuncCall struct {
 	// SQL/JSON function metadata.
 	JSONPath         Expr
 	JSONPairs        []JSONPair
+	JSONFormats      []bool
 	JSONPassing      []JSONPair
 	JSONOrder        []OrderItem
 	JSONReturning    string
@@ -483,8 +484,9 @@ type FuncCall struct {
 
 // JSONPair is one key/value pair in JSON_OBJECT / JSON_OBJECTAGG.
 type JSONPair struct {
-	Key   Expr
-	Value Expr
+	Key    Expr
+	Value  Expr
+	Format bool
 }
 
 // WindowSpec is an OVER (...) clause. FrameStart/FrameEnd use the values
@@ -924,12 +926,18 @@ func formatJSONFunc(f *FuncCall) string {
 		parts := make([]string, len(f.JSONPairs))
 		for i, p := range f.JSONPairs {
 			parts[i] = p.Key.String() + ": " + p.Value.String()
+			if p.Format {
+				parts[i] += " FORMAT JSON"
+			}
 		}
 		out = "json_object(" + strings.Join(parts, ", ")
 	case "json_array":
 		parts := make([]string, len(f.Args))
 		for i, a := range f.Args {
 			parts[i] = a.String()
+			if i < len(f.JSONFormats) && f.JSONFormats[i] {
+				parts[i] += " FORMAT JSON"
+			}
 		}
 		out = "json_array(" + strings.Join(parts, ", ")
 	case "json_arrayagg":
@@ -1399,6 +1407,9 @@ func formatJSONTableColumns(cols []JSONTableColumn) string {
 		if c.Ordinality {
 			p += " FOR ORDINALITY"
 		} else if c.Exists {
+			if c.Type != "" {
+				p += " " + c.Type
+			}
 			p += " EXISTS"
 			if c.Path != nil {
 				p += " PATH " + c.Path.String()

@@ -100,7 +100,7 @@ func evalJSONLookup(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	default: // json_query
 		upper := strings.ToUpper(f.JSONWrapper)
 		wrap := strings.HasPrefix(upper, "WITH") && !strings.HasPrefix(upper, "WITHOUT")
-		conditional := strings.Contains(upper, "CONDITIONAL")
+		conditional := strings.HasPrefix(upper, "CONDITIONAL") || strings.HasPrefix(upper, "WITH CONDITIONAL")
 		v := matches[0]
 		if f.JSONQuotes != "" {
 			if f.JSONQuotes == "omit" {
@@ -216,6 +216,17 @@ func jsonLookupEmpty(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	return nil, nil
 }
 
+func formatJSONValue(v any) any {
+	if s, ok := v.(string); ok {
+		dec := json.NewDecoder(strings.NewReader(s))
+		var out any
+		if err := dec.Decode(&out); err == nil {
+			return out
+		}
+	}
+	return v
+}
+
 func evalJSONObject(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	out := map[string]any{}
 	for _, pair := range f.JSONPairs {
@@ -226,6 +237,9 @@ func evalJSONObject(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 		value, err := evalExpr(ctx, pair.Value)
 		if err != nil {
 			return nil, err
+		}
+		if pair.Format {
+			value = formatJSONValue(value)
 		}
 		if value == nil && f.JSONNullBehavior == "absent" {
 			continue
@@ -241,10 +255,13 @@ func evalJSONObject(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 
 func evalJSONArray(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	out := make([]any, 0, len(f.Args))
-	for _, arg := range f.Args {
+	for i, arg := range f.Args {
 		v, err := evalExpr(ctx, arg)
 		if err != nil {
 			return nil, err
+		}
+		if i < len(f.JSONFormats) && f.JSONFormats[i] {
+			v = formatJSONValue(v)
 		}
 		if v == nil && f.JSONNullBehavior == "absent" {
 			continue

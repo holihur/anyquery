@@ -195,6 +195,9 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 			groupSets = [][]sql.Expr{groupBy}
 			allGroupExprs = groupBy
 		}
+		if err := validateGroupedProjections(s.Projections, allGroupExprs); err != nil {
+			return nil, err
+		}
 		for _, groupBy := range groupSets {
 			groupItems, err := buildGroupPlans(rel, groupBy)
 			if err != nil {
@@ -617,6 +620,39 @@ func combineSetRows(op string, all bool, left, right []evalRow, columns []Result
 	default:
 		return nil, errf("set_operation_error", "unsupported set operation %s", op)
 	}
+}
+
+func validateGroupedProjections(items []sql.SelectItem, groupExprs []sql.Expr) error {
+	allowedExact := map[string]bool{}
+	allowedRefs := map[string]bool{}
+	for _, e := range groupExprs {
+		allowedExact[e.String()] = true
+		if ref, ok := e.(*sql.ColumnRef); ok {
+			allowedRefs[strings.ToLower(ref.String())] = true
+		}
+	}
+	for _, item := range items {
+		if item.Star || item.Expr == nil || sql.ContainsAggregate(item.Expr) || sql.ContainsWindow(item.Expr) {
+			continue
+		}
+		if allowedExact[item.Expr.String()] {
+			continue
+		}
+		var missing string
+		sql.WalkExpr(item.Expr, func(e sql.Expr) bool {
+			if ref, ok := e.(*sql.ColumnRef); ok {
+				if !allowedRefs[strings.ToLower(ref.String())] {
+					missing = ref.String()
+					return false
+				}
+			}
+			return true
+		})
+		if missing != "" {
+			return errf("invalid_group", "column %q must appear in GROUP BY or be used in an aggregate", missing)
+		}
+	}
+	return nil
 }
 
 func resolveGroupBy(s *sql.SelectStmt) ([]sql.Expr, error) {

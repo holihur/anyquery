@@ -306,3 +306,21 @@ func TestJSONAggregateDistinctAndFilter(t *testing.T) {
 		t.Fatalf("filtered = %+v", filtered.Rows[0])
 	}
 }
+
+func TestJSONWrapperFormatAndTypedExists(t *testing.T) {
+	res := execParams(t, `SELECT JSON_QUERY('{"a":[1,2]}', '$.a' WITH UNCONDITIONAL WRAPPER) AS q`, nil)
+	if res.Rows[0]["q"] != `[[1,2]]` {
+		t.Fatalf("wrapper = %+v", res.Rows[0])
+	}
+	jt := execParams(t, `SELECT has FROM JSON_TABLE('{"a":{"b":1}}', '$' COLUMNS (has INT EXISTS PATH '$.a.b')) jt`, nil)
+	if jt.Rows[0]["has"] != true {
+		t.Fatalf("exists = %+v", jt.Rows[0])
+	}
+	formatted := execParams(t, `SELECT JSON_OBJECT('a' VALUE 1 FORMAT JSON) AS o, JSON_ARRAY(1 FORMAT JSON) AS a`, nil)
+	if fmt.Sprint(formatted.Rows[0]["o"].(map[string]any)["a"]) != "1" {
+		t.Fatalf("object format = %+v", formatted.Rows[0])
+	}
+	if arr := formatted.Rows[0]["a"].([]any); len(arr) != 1 || fmt.Sprint(arr[0]) != "1" {
+		t.Fatalf("array format = %+v", formatted.Rows[0])
+	}
+}

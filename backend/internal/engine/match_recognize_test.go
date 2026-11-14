@@ -261,3 +261,13 @@ func TestMatchRecognizeOneRowLastQualifiedAndRunning(t *testing.T) {
 		t.Fatalf("running = %+v", running.Rows)
 	}
 }
+
+func TestMatchRecognizeQuantifiedAlternationSequence(t *testing.T) {
+	res := execParams(t, `SELECT id FROM (VALUES (1,'a'),(2,'b'),(3,'c'),(4,'d')) t(id,tag)
+		MATCH_RECOGNIZE (ORDER BY id MEASURES id AS id ONE ROW PER MATCH
+		PATTERN ((A B)|(A B C))+ D
+		DEFINE A AS tag='a', B AS tag='b', C AS tag='c', D AS tag='d') mr`, nil)
+	if res.RowCount != 1 || res.Rows[0]["id"] != int64(4) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}

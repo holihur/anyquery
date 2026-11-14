@@ -17,6 +17,9 @@ func TestProfileExtraSyntaxRoundTrip(t *testing.T) {
 		`SELECT CAST('1 day' AS INTERVAL) AS a, CAST('1 day' AS INTERVAL DAY) AS b`,
 		`SELECT CAST(x AS INTERVAL HOUR TO MINUTE) AS c, CAST(x AS INTERVAL YEAR TO MONTH) AS d`,
 		`SELECT CAST(x AS INTERVAL SECOND) AS e, CAST(x AS INTERVAL HOUR TO SECOND) AS f`,
+		`SELECT JSON_OBJECT('a' VALUE 1 FORMAT JSON) AS o, JSON_ARRAY(1 FORMAT JSON) AS a`,
+		`SELECT * FROM JSON_TABLE('{"a":{"b":1}}', '$' COLUMNS (has INT EXISTS PATH '$.a.b')) jt`,
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A B)+? DEFINE A AS x = 1, B AS y = 2) AS m",
 		`SELECT JSON_EXISTS('{"a":1}', 'strict $.b' UNKNOWN ON ERROR) AS u`,
 		`SELECT JSON_EXISTS('{"a":1}', 'strict $.b' ON ERROR UNKNOWN) AS u`,
 		`SELECT JSON_QUERY('{"a":1}', 'strict $.b' ON ERROR EMPTY ARRAY) AS ea`,
@@ -75,6 +78,21 @@ func TestProfileExtraDirectBranches(t *testing.T) {
 	}
 	if _, err := parserAt("JSON_TABLE(x, '$.a' COLUMNS (x INT) NULL ON)").parseJSONTable(); err == nil {
 		t.Fatal("expected incomplete NULL ON ERROR")
+	}
+	if _, err := Parse("SELECT * FROM t MATCH_RECOGNIZE (PATTERN ((A) DEFINE A AS x = 1) AS m"); err == nil {
+		t.Fatal("expected malformed grouped pattern error")
+	}
+	if _, err := parserAt("(A").parseMatchPattern(); err == nil {
+		t.Fatal("expected missing pattern close error")
+	}
+	for _, q := range []string{
+		`SELECT * FROM JSON_TABLE('{}', '$' COLUMNS (has INT EXISTS PATH)) jt`,
+		`SELECT JSON_OBJECT('a' VALUE 1 FORMAT)`,
+		`SELECT JSON_ARRAY(1 FORMAT)`,
+	} {
+		if _, err := Parse(q); err == nil {
+			t.Errorf("expected format/path error for %q", q)
+		}
 	}
 	for _, src := range []string{
 		"JSON_ARRAYAGG(x) FILTER",

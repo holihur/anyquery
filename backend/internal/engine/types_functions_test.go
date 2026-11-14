@@ -297,3 +297,18 @@ func TestTypedZoneLiteralFormatterRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestCastNumericPrecisionAndWidth(t *testing.T) {
+	for _, q := range []string{
+		`SELECT CAST(1234.56 AS DECIMAL(3,1))`,
+		`SELECT CAST(32768 AS SMALLINT)`,
+		`SELECT CAST(2147483648 AS INT)`,
+	} {
+		if _, err := New(DefaultOptions()).Execute(t.Context(), q, testCatalog()); err == nil {
+			t.Errorf("expected cast error for %s", q)
+		}
+	}
+	if res := execParams(t, `SELECT CAST(99.9 AS DECIMAL(3,1)) AS x`, nil); res.Rows[0]["x"] != 99.9 {
+		t.Fatalf("decimal = %+v", res.Rows[0])
+	}
+}

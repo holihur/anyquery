@@ -938,23 +938,12 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 			m.Unmatched = true
 		case p.cur.IsKeyword("PATTERN"):
 			p.advance()
-			if err := p.expectPunct("("); err != nil {
-				return nil, err
-			}
+			// PATTERN's outer parentheses are parsed as part of the pattern
+			// expression. This accepts both PATTERN (A B*) and quantified
+			// sequences such as PATTERN ((A B)|(A B C))+ D.
 			var err error
 			if m.Pattern, err = p.parseMatchPattern(); err != nil {
 				return nil, err
-			}
-			if err := p.expectPunct(")"); err != nil {
-				return nil, err
-			}
-			if p.cur.IsPunct("*") || p.cur.IsPunct("+") || p.cur.IsPunct("?") {
-				m.Pattern.Quantifier = p.cur.Value
-				p.advance()
-				if p.cur.IsPunct("?") {
-					m.Pattern.Lazy = true
-					p.advance()
-				}
 			}
 		case p.cur.IsKeyword("DEFINE"):
 			p.advance()
@@ -1011,7 +1000,7 @@ func (p *Parser) parseMatchPattern() (*MatchPattern, error) {
 
 func (p *Parser) parseMatchSequence() (*MatchPattern, error) {
 	seq := &MatchPattern{Kind: "seq"}
-	for !p.cur.IsPunct(")") && !p.cur.IsPunct("|") && p.cur.Kind != TokEOF {
+	for !p.cur.IsPunct(")") && !p.cur.IsPunct("|") && p.cur.Kind != TokEOF && !isMatchClauseKeyword(p.cur) {
 		term, err := p.parseMatchTerm()
 		if err != nil {
 			return nil, err
@@ -1315,15 +1304,27 @@ func (p *Parser) parseJSONTableColumns() ([]JSONTableColumn, error) {
 					return nil, err
 				}
 				col.Type = typ
-				if p.cur.IsKeyword("PATH") {
+				if p.cur.IsKeyword("EXISTS") {
 					p.advance()
+					col.Exists = true
+					if p.cur.IsKeyword("PATH") {
+						p.advance()
+					}
 					col.Path, err = p.parseExpr(0)
 					if err != nil {
 						return nil, err
 					}
-				}
-				if err := p.parseJSONColumnOptions(&col); err != nil {
-					return nil, err
+				} else {
+					if p.cur.IsKeyword("PATH") {
+						p.advance()
+						col.Path, err = p.parseExpr(0)
+						if err != nil {
+							return nil, err
+						}
+					}
+					if err := p.parseJSONColumnOptions(&col); err != nil {
+						return nil, err
+					}
 				}
 			}
 			cols = append(cols, col)
@@ -2746,7 +2747,15 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			fn.JSONPairs = append(fn.JSONPairs, JSONPair{Key: key, Value: value})
+			pair := JSONPair{Key: key, Value: value}
+			if p.cur.IsKeyword("FORMAT") {
+				p.advance()
+				if err := p.expectKeyword("JSON"); err != nil {
+					return nil, err
+				}
+				pair.Format = true
+			}
+			fn.JSONPairs = append(fn.JSONPairs, pair)
 			if !p.cur.IsPunct(",") {
 				break
 			}
@@ -2762,6 +2771,15 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 				return nil, err
 			}
 			fn.Args = append(fn.Args, v)
+			format := false
+			if p.cur.IsKeyword("FORMAT") {
+				p.advance()
+				if err := p.expectKeyword("JSON"); err != nil {
+					return nil, err
+				}
+				format = true
+			}
+			fn.JSONFormats = append(fn.JSONFormats, format)
 			if !p.cur.IsPunct(",") {
 				break
 			}
@@ -3704,6 +3722,14 @@ func isNumericToken(s string) bool {
 
 func (p *Parser) errf(format string, args ...any) error {
 	return errorAt(p.cur.Line, p.cur.Col, format, args...)
+}
+
+func isMatchClauseKeyword(t Token) bool {
+	switch {
+	case t.IsKeyword("DEFINE"), t.IsKeyword("MEASURES"), t.IsKeyword("PATTERN"), t.IsKeyword("AFTER"), t.IsKeyword("SUBSET"), t.IsKeyword("SHOW"), t.IsKeyword("OMIT"), t.IsKeyword("PARTITION"), t.IsKeyword("ORDER"):
+		return true
+	}
+	return false
 }
 
 func isClauseKeyword(s string) bool {

@@ -2355,7 +2355,18 @@ func castValue(v any, typ string) (any, error) {
 		if f > float64(1<<63-1) || f < -float64(1<<63) {
 			return nil, errf("cast_error", "integer value out of range: %v", v)
 		}
-		return int64(f), nil
+		i := int64(f)
+		switch {
+		case strings.HasPrefix(t, "smallint"):
+			if i < -32768 || i > 32767 {
+				return nil, errf("cast_error", "smallint value out of range: %v", v)
+			}
+		case strings.HasPrefix(t, "int"), t == "integer":
+			if i < -2147483648 || i > 2147483647 {
+				return nil, errf("cast_error", "integer value out of range: %v", v)
+			}
+		}
+		return i, nil
 	case strings.HasPrefix(t, "decimal"), strings.HasPrefix(t, "numeric"), strings.HasPrefix(t, "float"), strings.HasPrefix(t, "double"), strings.HasPrefix(t, "real"):
 		f, ok := toFloat(v)
 		if !ok {
@@ -2365,6 +2376,13 @@ func castValue(v any, typ string) (any, error) {
 			if scale, ok := typeScale(t); ok {
 				pow := math.Pow10(scale)
 				f = math.Round(f*pow) / pow
+			}
+			if params, ok := typeParams(t); ok && len(params) >= 2 {
+				precision, scale := params[0], params[1]
+				limit := math.Pow10(precision - scale)
+				if math.Abs(f) >= limit {
+					return nil, errf("cast_error", "numeric value %v exceeds DECIMAL(%d,%d)", v, precision, scale)
+				}
 			}
 		}
 		return f, nil
