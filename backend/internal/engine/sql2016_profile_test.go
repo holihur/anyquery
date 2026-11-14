@@ -114,7 +114,7 @@ var profileWantFirst = map[string]map[string]any{
 	"JSON-003": {"ok": true},
 	"JSON-006": {"id": int64(1), "tag": "a"},
 	"TEMP-001": {"id": int64(1)},
-	"RPR-001":  {"id": int64(1)},
+	"RPR-001":  {"id": int64(2)},
 	"AQ-001":   {"region": "EU", "n": int64(2)},
 }
 

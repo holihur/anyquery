@@ -128,9 +128,10 @@ func (ec *execCtx) relationForMatchRecognize(m *sql.MatchRecognize) (*relation, 
 				if m.EmptyMatches == "show" && start < len(p.rows) {
 					matchNo++
 					row := mrOutputRow(input, p.rows[start].row)
-					if err := ec.addMRMeasures(row, m.Measures, p.rows, start, start, start, true, state.bindings, matchNo, input, subsets); err != nil {
-						return nil, err
+					for _, f := range input.fields {
+						row[strings.ToLower(f.Name)] = nil
 					}
+					ec.addEmptyMRMeasures(row, m.Measures, matchNo)
 					ds.rows = append(ds.rows, row)
 					start++
 					continue
@@ -151,8 +152,12 @@ func (ec *execCtx) relationForMatchRecognize(m *sql.MatchRecognize) (*relation, 
 					ds.rows = append(ds.rows, row)
 				}
 			} else {
-				row := mrOutputRow(input, p.rows[start].row)
-				if err := ec.addMRMeasures(row, m.Measures, p.rows, start, end, start, true, state.bindings, matchNo, input, subsets); err != nil {
+				last := end - 1
+				if last < start {
+					last = start
+				}
+				row := mrOutputRow(input, p.rows[last].row)
+				if err := ec.addMRMeasures(row, m.Measures, p.rows, start, end, last, true, state.bindings, matchNo, input, subsets); err != nil {
 					return nil, err
 				}
 				ds.rows = append(ds.rows, row)
@@ -381,13 +386,17 @@ func matchQuantified(p *sql.MatchPattern, min, max, pos int, rows []mrRow, rel *
 func (ec *execCtx) addMRMeasures(row map[string]any, measures []sql.MatchMeasure, rows []mrRow, start, end, current int, single bool, bindings map[string][]int, matchNo int, rel *relation, subsets map[string][]string) error {
 	for _, measure := range measures {
 		at := current
-		if measure.Mode == "final" && end > start {
+		mode := measure.Mode
+		if mode == "final" && end > start {
 			at = end - 1
 		}
-		if single && measure.Mode == "running" && end > start {
+		if single && mode == "running" && end > start {
 			at = end - 1
 		}
-		v, err := ec.evalMRMeasure(measure.Expr, rows, start, end, at, bindings, matchNo, rel, measure.Mode, subsets)
+		if mode == "" && !single {
+			mode = "running"
+		}
+		v, err := ec.evalMRMeasure(measure.Expr, rows, start, end, at, bindings, matchNo, rel, mode, subsets)
 		if err != nil {
 			return err
 		}
@@ -396,7 +405,42 @@ func (ec *execCtx) addMRMeasures(row map[string]any, measures []sql.MatchMeasure
 	return nil
 }
 
+func (ec *execCtx) addEmptyMRMeasures(row map[string]any, measures []sql.MatchMeasure, matchNo int) {
+	for _, measure := range measures {
+		var value any
+		if f, ok := measure.Expr.(*sql.FuncCall); ok {
+			switch strings.ToLower(f.Name) {
+			case "match_number":
+				value = int64(matchNo)
+			case "count":
+				value = int64(0)
+			}
+		}
+		row[strings.ToLower(measure.Alias)] = value
+	}
+}
+
 func (ec *execCtx) evalMRMeasure(e sql.Expr, rows []mrRow, start, end, current int, bindings map[string][]int, matchNo int, rel *relation, mode string, subsets map[string][]string) (any, error) {
+	if ref, ok := e.(*sql.ColumnRef); ok && len(ref.Parts) > 1 {
+		name := strings.ToLower(ref.Parts[0])
+		if idxs, ok := bindings[name]; ok && len(idxs) > 0 {
+			at := idxs[0]
+			for _, idx := range idxs {
+				if idx <= current {
+					at = idx
+				}
+			}
+			ctx := &evalCtx{rel: rel, row: rows[at].row, outer: ec.outerEval, exec: ec}
+			return evalExpr(ctx, &sql.ColumnRef{Parts: ref.Parts[1:]})
+		}
+		if rel != nil {
+			if _, _, err := rel.resolve(ref); err != nil {
+				// An unbound pattern variable (for example B in a match where B* is
+				// empty) has no row and therefore evaluates to NULL.
+				return nil, nil
+			}
+		}
+	}
 	if f, ok := e.(*sql.FuncCall); ok {
 		name := strings.ToLower(f.Name)
 		switch name {

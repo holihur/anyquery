@@ -296,8 +296,12 @@ FROM mongo.orders MATCH_RECOGNIZE (
 Supported: `PARTITION BY`, `ORDER BY`, `MEASURES`, `ONE ROW PER MATCH`,
 `ALL ROWS PER MATCH`, `AFTER MATCH SKIP PAST LAST ROW|TO NEXT ROW`, pattern
 sequence/alternation, `* + ?` quantifiers with lazy `?`, and `DEFINE`. Measures
-support row expressions, `MATCH_NUMBER()`, `CLASSIFIER()`, `FIRST(...)` and
-`LAST(...)`; `SHOW EMPTY MATCHES` emits empty matches and `OMIT EMPTY MATCHES` suppresses them.
+support row expressions, qualified pattern columns such as `A.id`,
+`MATCH_NUMBER()`, `CLASSIFIER()`, `FIRST(...)` and `LAST(...)`. In
+`ONE ROW PER MATCH` the output row is positioned on the last row of the match.
+In `ALL ROWS PER MATCH`, aggregate measures default to `RUNNING`; use `FINAL`
+for the whole-match value. `SHOW EMPTY MATCHES` emits empty matches with null
+row references, `COUNT(*) = 0`, and `OMIT EMPTY MATCHES` suppresses them.
 
 ## Temporal tables
 

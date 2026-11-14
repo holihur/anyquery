@@ -16,7 +16,7 @@ func TestMatchRecognizeOneRow(t *testing.T) {
 	if res.RowCount != 2 {
 		t.Fatalf("rows = %+v", res.Rows)
 	}
-	if res.Rows[0]["id"] != int64(1) || res.Rows[0]["m"] != int64(1) {
+	if res.Rows[0]["id"] != int64(2) || res.Rows[0]["m"] != int64(1) {
 		t.Fatalf("first = %+v", res.Rows[0])
 	}
 	if res.Rows[1]["id"] != int64(4) {
@@ -176,7 +176,7 @@ func TestMatchRecognizeSkipToLastAndRunningOneRow(t *testing.T) {
 		MATCH_RECOGNIZE (ORDER BY id MEASURES id AS id ONE ROW PER MATCH
 		AFTER MATCH SKIP TO LAST A PATTERN (A+ B)
 		DEFINE A AS tag='a', B AS tag='b') AS mr ORDER BY id`, nil)
-	if skip.RowCount != 2 || skip.Rows[0]["id"] != int64(1) || skip.Rows[1]["id"] != int64(2) {
+	if skip.RowCount != 2 || skip.Rows[0]["id"] != int64(3) || skip.Rows[1]["id"] != int64(3) {
 		t.Fatalf("skip rows = %+v", skip.Rows)
 	}
 	running := execParams(t, `SELECT n FROM (VALUES (1,'a'),(2,'a'),(3,'a')) AS t(id, tag)
@@ -199,7 +199,7 @@ func TestMatchNumberRestartsPerPartition(t *testing.T) {
 
 func TestMatchRecognizeEmptyMatches(t *testing.T) {
 	base := `SELECT * FROM mongo.orders MATCH_RECOGNIZE (
-		ORDER BY id MEASURES match_number() AS m, id AS id ALL ROWS PER MATCH %s EMPTY MATCHES
+		ORDER BY id MEASURES match_number() AS m, id AS id, count(*) AS n ALL ROWS PER MATCH %s EMPTY MATCHES
 		PATTERN (A*) DEFINE A AS total > 1000) AS mr ORDER BY id`
 	show, err := New(DefaultOptions()).Execute(t.Context(), fmt.Sprintf(base, "SHOW"), testCatalog())
 	if err != nil {
@@ -209,7 +209,7 @@ func TestMatchRecognizeEmptyMatches(t *testing.T) {
 		t.Fatalf("show rows = %+v", show.Rows)
 	}
 	for i, row := range show.Rows {
-		if row["m"] != int64(i+1) || row["id"] != int64(i+1) {
+		if row["m"] != int64(i+1) || row["id"] != nil || row["n"] != int64(0) {
 			t.Fatalf("show rows = %+v", show.Rows)
 		}
 	}
@@ -236,5 +236,28 @@ func TestMatchRecognizeLazyQuantifierBacktracks(t *testing.T) {
 		DEFINE A AS tag='a', B AS tag='b') mr ORDER BY id`, nil)
 	if res.RowCount != 2 {
 		t.Fatalf("star lazy rows = %+v", res.Rows)
+	}
+}
+
+func TestMatchRecognizeOneRowLastQualifiedAndRunning(t *testing.T) {
+	last := execParams(t, `SELECT id, cls FROM (VALUES (1,'a'),(2,'a'),(3,'b')) t(id,tag)
+		MATCH_RECOGNIZE (ORDER BY id MEASURES id AS id, classifier() AS cls
+		ONE ROW PER MATCH PATTERN (A B*)
+		DEFINE A AS tag='a', B AS tag='b') mr ORDER BY id`, nil)
+	if last.RowCount != 2 || last.Rows[0]["id"] != int64(1) || last.Rows[0]["cls"] != "a" || last.Rows[1]["id"] != int64(3) || last.Rows[1]["cls"] != "b" {
+		t.Fatalf("one row last = %+v", last.Rows)
+	}
+	qualified := execParams(t, `SELECT a_id, b_id FROM (VALUES (1,'a'),(3,'b')) t(id,tag)
+		MATCH_RECOGNIZE (ORDER BY id MEASURES A.id AS a_id, B.id AS b_id
+		ONE ROW PER MATCH PATTERN (A B)
+		DEFINE A AS tag='a', B AS tag='b') mr`, nil)
+	if qualified.Rows[0]["a_id"] != int64(1) || qualified.Rows[0]["b_id"] != int64(3) {
+		t.Fatalf("qualified = %+v", qualified.Rows)
+	}
+	running := execParams(t, `SELECT id, n, f FROM (VALUES (1,'a'),(2,'a'),(3,'a')) t(id,tag)
+		MATCH_RECOGNIZE (ORDER BY id MEASURES id AS id, count(*) AS n, FINAL count(*) AS f
+		ALL ROWS PER MATCH PATTERN (A+) DEFINE A AS tag='a') mr ORDER BY id`, nil)
+	if running.Rows[0]["n"] != int64(1) || running.Rows[1]["n"] != int64(2) || running.Rows[2]["n"] != int64(3) || running.Rows[2]["f"] != int64(3) {
+		t.Fatalf("running = %+v", running.Rows)
 	}
 }
