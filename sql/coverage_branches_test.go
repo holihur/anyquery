@@ -1,7 +1,6 @@
 package sql
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -105,13 +104,17 @@ func TestLexerStringAndScanBranches(t *testing.T) {
 	for _, k := range []TokenKind{TokEOF, TokIdent, TokNumber, TokString, TokPunct, TokenKind(99)} {
 		_ = k.String()
 	}
-	tokens, err := Tokenize(`'a\n\t\r\\\'x' "a""b" [a]]b] 1e+2 .5`)
+	tokens, err := Tokenize(`'a\b' "a""b" [a]]b] 1e+2 .5 'a''b'`)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var values []string
 	for _, tok := range tokens {
-		if tok.Kind == TokString && !strings.Contains(tok.Value, "\n") {
-			t.Fatalf("string escape missing: %q", tok.Value)
+		if tok.Kind == TokString {
+			values = append(values, tok.Value)
 		}
+	}
+	if len(values) != 2 || values[0] != `a\b` || values[1] != "a'b" {
+		t.Fatalf("string values = %#v", values)
 	}
 }

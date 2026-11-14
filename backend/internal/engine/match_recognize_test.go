@@ -167,3 +167,19 @@ func TestMatchRecognizePrevNextQualified(t *testing.T) {
 		t.Fatalf("rows = %+v", res.Rows)
 	}
 }
+
+func TestMatchRecognizeSkipToLastAndRunningOneRow(t *testing.T) {
+	skip := execParams(t, `SELECT id FROM (VALUES (1,'a'),(2,'a'),(3,'b')) AS t(id, tag)
+		MATCH_RECOGNIZE (ORDER BY id MEASURES id AS id ONE ROW PER MATCH
+		AFTER MATCH SKIP TO LAST A PATTERN (A+ B)
+		DEFINE A AS tag='a', B AS tag='b') AS mr ORDER BY id`, nil)
+	if skip.RowCount != 2 || skip.Rows[0]["id"] != int64(1) || skip.Rows[1]["id"] != int64(2) {
+		t.Fatalf("skip rows = %+v", skip.Rows)
+	}
+	running := execParams(t, `SELECT n FROM (VALUES (1,'a'),(2,'a'),(3,'a')) AS t(id, tag)
+		MATCH_RECOGNIZE (ORDER BY id MEASURES RUNNING count(*) AS n ONE ROW PER MATCH
+		PATTERN (A+) DEFINE A AS tag='a') AS mr`, nil)
+	if running.Rows[0]["n"] != int64(3) {
+		t.Fatalf("running = %+v", running.Rows)
+	}
+}

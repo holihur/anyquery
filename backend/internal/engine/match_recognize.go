@@ -131,21 +131,35 @@ func (ec *execCtx) relationForMatchRecognize(m *sql.MatchRecognize) (*relation, 
 			if m.RowsMode == "all" {
 				for i := start; i < end; i++ {
 					row := mrOutputRow(input, p.rows[i].row)
-					if err := ec.addMRMeasures(row, m.Measures, p.rows, start, end, i, state.bindings, matchNo, input, subsets); err != nil {
+					if err := ec.addMRMeasures(row, m.Measures, p.rows, start, end, i, false, state.bindings, matchNo, input, subsets); err != nil {
 						return nil, err
 					}
 					ds.rows = append(ds.rows, row)
 				}
 			} else {
 				row := mrOutputRow(input, p.rows[start].row)
-				if err := ec.addMRMeasures(row, m.Measures, p.rows, start, end, start, state.bindings, matchNo, input, subsets); err != nil {
+				if err := ec.addMRMeasures(row, m.Measures, p.rows, start, end, start, true, state.bindings, matchNo, input, subsets); err != nil {
 					return nil, err
 				}
 				ds.rows = append(ds.rows, row)
 			}
-			if m.AfterSkip == "next_row" {
+			switch {
+			case m.AfterSkip == "next_row":
 				start++
-			} else {
+			case strings.HasPrefix(m.AfterSkip, "first:") || strings.HasPrefix(m.AfterSkip, "last:"):
+				varName := m.AfterSkip[strings.IndexByte(m.AfterSkip, ':')+1:]
+				idx := -1
+				for _, at := range state.bindings[strings.ToLower(varName)] {
+					if at > start && (idx < 0 || (strings.HasPrefix(m.AfterSkip, "first:") && at < idx) || (strings.HasPrefix(m.AfterSkip, "last:") && at > idx)) {
+						idx = at
+					}
+				}
+				if idx >= 0 {
+					start = idx
+				} else {
+					start = end
+				}
+			default:
 				start = end
 			}
 		}
@@ -354,10 +368,13 @@ func matchQuantified(p *sql.MatchPattern, min, max, pos int, rows []mrRow, rel *
 	return out, nil
 }
 
-func (ec *execCtx) addMRMeasures(row map[string]any, measures []sql.MatchMeasure, rows []mrRow, start, end, current int, bindings map[string][]int, matchNo int, rel *relation, subsets map[string][]string) error {
+func (ec *execCtx) addMRMeasures(row map[string]any, measures []sql.MatchMeasure, rows []mrRow, start, end, current int, single bool, bindings map[string][]int, matchNo int, rel *relation, subsets map[string][]string) error {
 	for _, measure := range measures {
 		at := current
 		if measure.Mode == "final" && end > start {
+			at = end - 1
+		}
+		if single && measure.Mode == "running" && end > start {
 			at = end - 1
 		}
 		v, err := ec.evalMRMeasure(measure.Expr, rows, start, end, at, bindings, matchNo, rel, measure.Mode, subsets)

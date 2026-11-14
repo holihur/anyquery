@@ -862,16 +862,18 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 					m.AfterSkip = "next_row"
 				case p.cur.IsKeyword("FIRST"):
 					p.advance()
-					if p.cur.Kind == TokIdent {
+					m.AfterSkip = "first"
+					if p.cur.Kind == TokIdent && !isClauseKeyword(p.cur.Value) {
+						m.AfterSkip = "first:" + p.cur.Value
 						p.advance()
 					}
-					m.AfterSkip = "first"
 				case p.cur.IsKeyword("LAST"):
 					p.advance()
-					if p.cur.Kind == TokIdent {
+					m.AfterSkip = "last"
+					if p.cur.Kind == TokIdent && !isClauseKeyword(p.cur.Value) {
+						m.AfterSkip = "last:" + p.cur.Value
 						p.advance()
 					}
-					m.AfterSkip = "last"
 				default:
 					return nil, p.errf("expected NEXT, FIRST or LAST after MATCH SKIP TO")
 				}
@@ -2267,12 +2269,6 @@ func (p *Parser) parsePrimary() (Expr, error) {
 
 	case t.IsKeyword("CURRENT_TIMESTAMP"), t.IsKeyword("CURRENT_DATE"), t.IsKeyword("CURRENT_TIME"), t.IsKeyword("NOW"), t.IsKeyword("LOCALTIMESTAMP"), t.IsKeyword("LOCALTIME"):
 		name := strings.ToLower(t.Value)
-		if name == "localtimestamp" {
-			name = "current_timestamp"
-		}
-		if name == "localtime" {
-			name = "current_time"
-		}
 		p.advance()
 		if p.cur.IsPunct("(") {
 			args, err := p.parseCallArgs()
@@ -2300,36 +2296,43 @@ func (p *Parser) parsePrimary() (Expr, error) {
 			return nil, err
 		}
 		if p.cur.IsPunct(",") {
-			p.advance()
-			b, err := p.parseExpr(0)
-			if err != nil {
-				return nil, err
+			values := []Expr{e}
+			for p.cur.IsPunct(",") {
+				p.advance()
+				v, err := p.parseExpr(0)
+				if err != nil {
+					return nil, err
+				}
+				values = append(values, v)
 			}
 			if err := p.expectPunct(")"); err != nil {
 				return nil, err
 			}
-			if !p.cur.IsKeyword("OVERLAPS") {
-				return nil, p.errf("expected OVERLAPS after date pair")
+			if p.cur.IsKeyword("OVERLAPS") {
+				if len(values) != 2 {
+					return nil, p.errf("OVERLAPS requires two values per period")
+				}
+				p.advance()
+				if err := p.expectPunct("("); err != nil {
+					return nil, err
+				}
+				c, err := p.parseExpr(0)
+				if err != nil {
+					return nil, err
+				}
+				if err := p.expectPunct(","); err != nil {
+					return nil, err
+				}
+				d, err := p.parseExpr(0)
+				if err != nil {
+					return nil, err
+				}
+				if err := p.expectPunct(")"); err != nil {
+					return nil, err
+				}
+				return &FuncCall{Name: "overlaps", Args: []Expr{values[0], values[1], c, d}}, nil
 			}
-			p.advance()
-			if err := p.expectPunct("("); err != nil {
-				return nil, err
-			}
-			c, err := p.parseExpr(0)
-			if err != nil {
-				return nil, err
-			}
-			if err := p.expectPunct(","); err != nil {
-				return nil, err
-			}
-			d, err := p.parseExpr(0)
-			if err != nil {
-				return nil, err
-			}
-			if err := p.expectPunct(")"); err != nil {
-				return nil, err
-			}
-			return &FuncCall{Name: "overlaps", Args: []Expr{e, b, c, d}}, nil
+			return &RowExpr{Values: values}, nil
 		}
 		if err := p.expectPunct(")"); err != nil {
 			return nil, err

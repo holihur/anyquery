@@ -132,3 +132,19 @@ func TestCoverageNewBranches2(t *testing.T) {
 		}
 	}
 }
+
+func TestRowExprCoverage(t *testing.T) {
+	row := &RowExpr{Values: []Expr{&ColumnRef{Parts: []string{"a"}}, &ColumnRef{Parts: []string{"b"}}}}
+	if row.String() == "" {
+		t.Fatal("empty row string")
+	}
+	if WalkExpr(row, func(e Expr) bool { return e != row.Values[0] }) == true {
+		t.Fatal("walk should stop")
+	}
+	if _, err := Parse("SELECT (1,2,3) OVERLAPS (1,2)"); err == nil {
+		t.Error("expected row OVERLAPS error")
+	}
+	if _, err := Parse("SELECT (a,b) FROM t"); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -532,8 +532,7 @@ type IntervalExpr struct {
 func (*IntervalExpr) exprNode() { _ = 0 }
 
 func (i *IntervalExpr) String() string {
-	v := strings.ReplaceAll(i.Value, "\\", "\\\\")
-	v = strings.ReplaceAll(v, "'", "''")
+	v := strings.ReplaceAll(i.Value, "'", "''")
 	out := "INTERVAL '" + v + "'"
 	if i.Qualifier != "" {
 		out += " " + i.Qualifier
@@ -544,6 +543,18 @@ func (i *IntervalExpr) String() string {
 type ExistsExpr struct{ Query *SelectStmt }
 
 func (*ExistsExpr) exprNode() { _ = 0 }
+
+type RowExpr struct{ Values []Expr }
+
+func (*RowExpr) exprNode() {}
+
+func (r *RowExpr) String() string {
+	parts := make([]string, len(r.Values))
+	for i, e := range r.Values {
+		parts[i] = e.String()
+	}
+	return "(" + strings.Join(parts, ", ") + ")"
+}
 
 type SubqueryExpr struct{ Query *SelectStmt }
 
@@ -631,8 +642,7 @@ func (l *Literal) String() string {
 		}
 		return "FALSE"
 	case LitString:
-		v := strings.ReplaceAll(fmt.Sprint(l.Value), "\\", "\\\\")
-		v = strings.ReplaceAll(v, "'", "''")
+		v := strings.ReplaceAll(fmt.Sprint(l.Value), "'", "''")
 		return "'" + v + "'"
 	default:
 		return fmt.Sprint(l.Value)
@@ -757,6 +767,9 @@ func (f *FuncCall) String() string {
 		return "position(" + f.Args[0].String() + " IN " + f.Args[1].String() + ")"
 	}
 	var out string
+	if (strings.EqualFold(f.Name, "localtime") || strings.EqualFold(f.Name, "localtimestamp")) && len(f.Args) == 0 {
+		return strings.ToUpper(f.Name)
+	}
 	if f.Star {
 		out = f.Name + "(*)"
 	} else {
@@ -808,7 +821,7 @@ func (w *WindowSpec) String() string {
 			frame += " " + formatFrameBoundExpr(w.FrameStart, w.FrameStartOffset, w.FrameStartExpr)
 		}
 		if w.FrameExclusion != "" {
-			frame += " EXCLUDE " + strings.ToUpper(w.FrameExclusion)
+			frame += " EXCLUDE " + strings.ToUpper(strings.ReplaceAll(w.FrameExclusion, "_", " "))
 		}
 		parts = append(parts, frame)
 	}
@@ -1422,8 +1435,19 @@ func formatMatchRecognize(m *MatchRecognize) string {
 	} else {
 		add("ONE ROW PER MATCH")
 	}
-	if m.AfterSkip == "next_row" {
-		add("AFTER MATCH SKIP TO NEXT ROW")
+	if m.AfterSkip != "" && m.AfterSkip != "past_last" {
+		switch {
+		case m.AfterSkip == "next_row":
+			add("AFTER MATCH SKIP TO NEXT ROW")
+		case strings.HasPrefix(m.AfterSkip, "first:"):
+			add("AFTER MATCH SKIP TO FIRST " + FormatIdent(strings.TrimPrefix(m.AfterSkip, "first:")))
+		case strings.HasPrefix(m.AfterSkip, "last:"):
+			add("AFTER MATCH SKIP TO LAST " + FormatIdent(strings.TrimPrefix(m.AfterSkip, "last:")))
+		case m.AfterSkip == "first":
+			add("AFTER MATCH SKIP TO FIRST")
+		case m.AfterSkip == "last":
+			add("AFTER MATCH SKIP TO LAST")
+		}
 	}
 	if len(m.Subsets) > 0 {
 		parts := make([]string, len(m.Subsets))
@@ -1687,6 +1711,13 @@ func WalkExpr(e Expr, fn func(Expr) bool) bool {
 		}
 	case *CastExpr:
 		return WalkExpr(x.Expr, fn)
+	case *RowExpr:
+		for _, v := range x.Values {
+			if !WalkExpr(v, fn) {
+				return false
+			}
+		}
+		return true
 	}
 	return true
 }

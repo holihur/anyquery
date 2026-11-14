@@ -167,6 +167,20 @@ func TestSQL2016ReadOnlyProfileMatrix(t *testing.T) {
 			if _, err := sql.Parse(formatted); err != nil {
 				t.Fatalf("formatted query does not parse: %v\ninput: %s\noutput: %s", err, tc.Query, formatted)
 			}
+			formattedRes, err := e.ExecuteParams(context.Background(), formatted, tc.Params, testCatalog())
+			if err != nil {
+				t.Fatalf("formatted query does not execute: %v\noutput: %s", err, formatted)
+			}
+			if formattedRes.RowCount != res.RowCount {
+				t.Fatalf("formatted row count = %d, want %d\noutput: %s", formattedRes.RowCount, res.RowCount, formatted)
+			}
+			if want, ok := profileWantFirst[tc.ID]; ok {
+				for k, v := range want {
+					if fmt.Sprint(formattedRes.Rows[0][k]) != fmt.Sprint(v) {
+						t.Fatalf("formatted first row %s = %#v, want %#v\noutput: %s", k, formattedRes.Rows[0][k], v, formatted)
+					}
+				}
+			}
 		})
 	}
 }

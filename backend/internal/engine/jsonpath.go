@@ -140,9 +140,17 @@ func evalJSONPath(v any, raw string) ([]any, jsonPathQuery, error) {
 }
 
 func jsonPathIndex(s string) (int, error) {
-	s = strings.TrimSpace(s)
-	if strings.EqualFold(s, "last") {
-		return -1, nil
+	s = strings.TrimSpace(strings.ToLower(s))
+	if strings.HasPrefix(s, "last") {
+		n := -1
+		if len(s) > 4 {
+			off, err := strconv.Atoi(strings.TrimSpace(s[4:]))
+			if err != nil {
+				return 0, errf("json_path", "invalid JSON path index %q", s)
+			}
+			n += off
+		}
+		return n, nil
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil {

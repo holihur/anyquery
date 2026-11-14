@@ -603,7 +603,7 @@ func TestMoreSQL2016Syntax(t *testing.T) {
 			t.Fatalf("%q roundtrip: %v", q, err)
 		}
 	}
-	for _, q := range []string{"SELECT (DATE '2024-01-01', DATE '2024-02-01')"} {
+	for _, q := range []string{"SELECT (DATE '2024-01-01',"} {
 		if _, err := Parse(q); err == nil {
 			t.Errorf("%q unexpectedly parsed", q)
 		}
@@ -623,7 +623,6 @@ func TestOverlapsAndConditionalArrayWrapperEdges(t *testing.T) {
 	for _, q := range []string{
 		"SELECT (1,",
 		"SELECT (1,2",
-		"SELECT (1,2) FOO",
 		"SELECT (1,2) OVERLAPS",
 		"SELECT (1,2) OVERLAPS (",
 		"SELECT (1,2) OVERLAPS (3",
@@ -644,5 +643,49 @@ func TestPatternTrailingQuantifier(t *testing.T) {
 	}
 	if _, err := Parse(FormatStatement(stmt)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMatchSkipWithoutVariable(t *testing.T) {
+	for _, q := range []string{
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A) DEFINE A AS 1 = 1 AFTER MATCH SKIP TO FIRST) AS m",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A) DEFINE A AS 1 = 1 AFTER MATCH SKIP TO LAST) AS m",
+	} {
+		st, err := Parse(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Parse(FormatStatement(st)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestLocaltimeFormatting(t *testing.T) {
+	for _, q := range []string{"SELECT LOCALTIME", "SELECT LOCALTIMESTAMP"} {
+		st, err := Parse(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Parse(FormatStatement(st)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestExcludeAndSkipFormatterRoundTrip(t *testing.T) {
+	for _, q := range []string{
+		"SELECT sum(x) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW) FROM t",
+		"SELECT sum(x) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE NO OTHERS) FROM t",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A) DEFINE A AS 1 = 1 AFTER MATCH SKIP TO LAST A) AS m",
+	} {
+		st, err := Parse(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := FormatStatement(st)
+		if _, err := Parse(out); err != nil {
+			t.Fatalf("%q -> %q: %v", q, out, err)
+		}
 	}
 }

@@ -241,3 +241,14 @@ func TestJSONTablePassingAndOnError(t *testing.T) {
 		t.Fatalf("on error empty = %+v", empty.Rows)
 	}
 }
+
+func TestJSONPathLastArithmeticAndRegexFlag(t *testing.T) {
+	res := execParams(t, `SELECT
+		JSON_EXISTS('[1,2,3]', '$[last-1]') AS last_minus,
+		JSON_EXISTS('[1,2,3]', '$[last-1 to last]') AS last_range,
+		JSON_EXISTS('{"a":"abc"}', '$.a ? (@ like_regex "^A" flag "i")') AS regex`, nil)
+	row := res.Rows[0]
+	if row["last_minus"] != true || row["last_range"] != true || row["regex"] != true {
+		t.Fatalf("row = %+v", row)
+	}
+}

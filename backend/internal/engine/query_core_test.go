@@ -232,3 +232,16 @@ func TestEmptyGroupingSet(t *testing.T) {
 		t.Fatalf("rows = %+v", res.Rows)
 	}
 }
+
+func TestRowValuePredicates(t *testing.T) {
+	res := execParams(t, `SELECT id FROM mongo.orders
+		WHERE (region, status) = ('EU', 'paid') ORDER BY id`, nil)
+	if res.RowCount != 2 || res.Rows[0]["id"] != int64(1) {
+		t.Fatalf("row equality = %+v", res.Rows)
+	}
+	res = execParams(t, `SELECT id FROM mongo.orders
+		WHERE (region, status) IN (('EU','paid'), ('US','refunded')) ORDER BY id`, nil)
+	if res.RowCount != 3 || res.Rows[2]["id"] != int64(3) {
+		t.Fatalf("row IN = %+v", res.Rows)
+	}
+}

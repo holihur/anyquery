@@ -141,7 +141,7 @@ var builtinScalarNames = []string{
 	"trim", "btrim", "ltrim", "rtrim", "substring", "substr", "concat", "concat_ws",
 	"coalesce", "ifnull", "nvl", "nullif", "abs", "ceil", "ceiling", "floor", "round",
 	"sqrt", "power", "pow", "mod", "greatest", "least", "replace", "split_part",
-	"now", "current_timestamp", "current_time", "current_date", "date_trunc", "md5",
+	"now", "current_timestamp", "current_time", "localtime", "localtimestamp", "current_date", "date_trunc", "md5",
 	"sha256", "random", "rand", "timezone", "to_timestamp", "json_extract",
 	"json_extract_scalar", "extract", "date_part", "date_add", "date_sub", "dateadd",
 	"datesub", "timestampadd", "date_diff", "datediff", "timestampdiff", "left",

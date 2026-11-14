@@ -83,6 +83,16 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 	switch x := e.(type) {
 	case *sql.Literal:
 		return x.Value, nil
+	case *sql.RowExpr:
+		values := make(rowValue, len(x.Values))
+		for i, e := range x.Values {
+			v, err := evalExpr(ctx, e)
+			if err != nil {
+				return nil, err
+			}
+			values[i] = v
+		}
+		return values, nil
 	case *sql.IntervalExpr:
 		return parseInterval(x.Value, x.Qualifier)
 	case *sql.Parameter:
@@ -984,8 +994,10 @@ func evalBuiltinFunction(name string, args []any) (any, error) {
 			return "", nil
 		}
 		return parts[n-1], nil
-	case "now", "current_timestamp", "current_time":
+	case "now", "current_timestamp", "localtimestamp":
 		return time.Now().UTC().Format(time.RFC3339Nano), nil
+	case "current_time", "localtime":
+		return time.Now().UTC().Format("15:04:05"), nil
 	case "current_date":
 		return time.Now().UTC().Format("2006-01-02"), nil
 	case "date_trunc":
@@ -1204,22 +1216,32 @@ func evalBuiltinFunction(name string, args []any) (any, error) {
 		return m[idx], nil
 	case "overlaps":
 		if len(args) != 4 {
-			return nil, errf("invalid_arguments", "OVERLAPS expects four timestamps")
+			return nil, errf("invalid_arguments", "OVERLAPS expects two periods")
 		}
-		a, aok := toTime(args[0])
-		b, bok := toTime(args[1])
-		c, cok := toTime(args[2])
-		d, dok := toTime(args[3])
-		if !aok || !bok || !cok || !dok {
-			return nil, errf("type_error", "OVERLAPS expects timestamps")
+		period := func(start, end any) (time.Time, time.Time, bool) {
+			a, aok := toTime(start)
+			if !aok {
+				return time.Time{}, time.Time{}, false
+			}
+			if iv, ok := end.(intervalValue); ok {
+				return a, addInterval(a, iv), true
+			}
+			b, bok := toTime(end)
+			if !bok {
+				return time.Time{}, time.Time{}, false
+			}
+			if a.After(b) {
+				a, b = b, a
+			}
+			return a, b, true
 		}
-		if a.After(b) {
-			a, b = b, a
-		}
-		if c.After(d) {
-			c, d = d, c
+		a, b, ok1 := period(args[0], args[1])
+		c, d, ok2 := period(args[2], args[3])
+		if !ok1 || !ok2 {
+			return nil, errf("type_error", "OVERLAPS expects timestamps or timestamp/interval pairs")
 		}
 		return !a.After(d) && !c.After(b), nil
+
 	case "if", "iff":
 		if len(args) != 3 {
 			return nil, errf("invalid_arguments", "%s expects 3 arguments", strings.ToUpper(name))
@@ -1309,6 +1331,24 @@ func jsonExtract(v, path any, scalar bool) (any, error) {
 }
 
 func extractPart(part string, v any) (any, error) {
+	if iv, ok := v.(intervalValue); ok {
+		switch strings.ToLower(part) {
+		case "year":
+			return int64(iv.months / 12), nil
+		case "month":
+			return int64(iv.months % 12), nil
+		case "day":
+			return int64(iv.days), nil
+		case "hour":
+			return int64(iv.nanos / int64(time.Hour)), nil
+		case "minute":
+			return int64((iv.nanos % int64(time.Hour)) / int64(time.Minute)), nil
+		case "second":
+			return float64(iv.nanos%int64(time.Minute)) / float64(time.Second), nil
+		default:
+			return nil, errf("invalid_arguments", "unsupported EXTRACT field %q for interval", part)
+		}
+	}
 	t, ok := toTime(v)
 	if !ok {
 		return nil, errf("type_error", "EXTRACT expects a timestamp")
@@ -1868,9 +1908,23 @@ func toFloat(v any) (float64, bool) {
 	return 0, false
 }
 
+type rowValue []any
+
 func valuesEqual(a, b any) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
+	}
+	if ar, ok := a.(rowValue); ok {
+		br, ok := b.(rowValue)
+		if !ok || len(ar) != len(br) {
+			return false
+		}
+		for i := range ar {
+			if !valuesEqual(ar[i], br[i]) {
+				return false
+			}
+		}
+		return true
 	}
 	if ai, ok := a.(intervalValue); ok {
 		if bi, ok := b.(intervalValue); ok {

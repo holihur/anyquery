@@ -650,11 +650,21 @@ func evalJSONFilter(node any, expr string, vars map[string]any) (bool, error) {
 			return strings.HasPrefix(fmt.Sprint(left), fmt.Sprint(right)), nil
 		}
 		if op == "like_regex" {
-			right, err := evalJSONFilterOperand(node, expr[idx+len(op):], vars)
+			raw := strings.TrimSpace(expr[idx+len(op):])
+			flags := ""
+			if fi := strings.Index(strings.ToLower(raw), " flag "); fi >= 0 {
+				flags = raw[fi+len(" flag "):]
+				raw = strings.TrimSpace(raw[:fi])
+			}
+			right, err := evalJSONFilterOperand(node, raw, vars)
 			if err != nil {
 				return false, err
 			}
-			re, err := regexp.Compile(fmt.Sprint(right))
+			pattern := fmt.Sprint(right)
+			if strings.Contains(flags, "i") {
+				pattern = "(?i)" + pattern
+			}
+			re, err := regexp.Compile(pattern)
 			if err != nil {
 				return false, err
 			}

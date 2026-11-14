@@ -18,7 +18,7 @@ func TestASTMarkerInterfaces(t *testing.T) {
 	for _, n := range []Expr{
 		&Parameter{}, &Literal{}, &ColumnRef{}, &StarExpr{}, &UnaryExpr{}, &BinaryExpr{}, &CompareExpr{},
 		&InExpr{}, &QuantifiedExpr{}, &BetweenExpr{}, &IsExpr{}, &FuncCall{}, &CaseExpr{}, &CastExpr{},
-		&IntervalExpr{}, &ExistsExpr{}, &SubqueryExpr{}, &AtTimeZoneExpr{},
+		&IntervalExpr{}, &ExistsExpr{}, &SubqueryExpr{}, &AtTimeZoneExpr{}, &RowExpr{},
 	} {
 		n.exprNode()
 	}

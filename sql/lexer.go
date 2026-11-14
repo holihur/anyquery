@@ -211,26 +211,6 @@ func (l *Lexer) scanString(line, col int) (Token, error) {
 			l.advanceRune()
 			return Token{Kind: TokString, Value: sb.String(), Line: line, Col: col}, nil
 		}
-		if r == '\\' && l.pos+1 < len(l.src) {
-			l.advanceRune()
-			esc, size := utf8.DecodeRuneInString(l.src[l.pos:])
-			l.advance(esc, size)
-			switch esc {
-			case 'n':
-				sb.WriteByte('\n')
-			case 't':
-				sb.WriteByte('\t')
-			case 'r':
-				sb.WriteByte('\r')
-			case '\\':
-				sb.WriteByte('\\')
-			case '\'':
-				sb.WriteByte('\'')
-			default:
-				sb.WriteRune(esc)
-			}
-			continue
-		}
 		sb.WriteRune(r)
 		l.advance(r, size)
 	}

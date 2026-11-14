@@ -103,7 +103,7 @@ func TestCastOverflowAndNullFunctions(t *testing.T) {
 
 func TestLikeEscapeAndSimilarTo(t *testing.T) {
 	res := execParams(t, `SELECT
-		'100%' LIKE '100\\%' ESCAPE '\\' AS escaped,
+		'100%' LIKE '100\%' ESCAPE '\' AS escaped,
 		'abc' SIMILAR TO 'a_c' AS similar,
 		'abc' NOT SIMILAR TO 'x%' AS not_similar`, nil)
 	row := res.Rows[0]
@@ -154,5 +154,16 @@ func TestTimeIntervalAndOverlaps(t *testing.T) {
 		(DATE '2024-01-01', DATE '2024-02-01') OVERLAPS (DATE '2024-01-15', DATE '2024-03-01') AS o`, nil)
 	if res.Rows[0]["t"] != "13:00:00" || res.Rows[0]["o"] != true {
 		t.Fatalf("row = %+v", res.Rows[0])
+	}
+}
+
+func TestDateTimeExtensions(t *testing.T) {
+	res := execParams(t, `SELECT
+		EXTRACT(MONTH FROM INTERVAL '1-2' YEAR TO MONTH) AS mon,
+		(TIME '10:00:00', INTERVAL '1' HOUR) OVERLAPS (TIME '10:30:00', INTERVAL '1' HOUR) AS ov,
+		LENGTH(CURRENT_TIME) AS ct`, nil)
+	row := res.Rows[0]
+	if row["mon"] != int64(2) || row["ov"] != true || row["ct"] != int64(8) {
+		t.Fatalf("row = %+v", row)
 	}
 }
