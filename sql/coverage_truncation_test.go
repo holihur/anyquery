@@ -19,7 +19,7 @@ func TestParserTruncationCoverage(t *testing.T) {
 	}
 	for _, q := range queries {
 		for i := 1; i <= len(q); i++ {
-			_, _ = Parse(q[:i])
+			checkParserError(t, func() error { _, err := Parse(q[:i]); return err }())
 		}
 	}
 }
@@ -39,7 +39,7 @@ func TestMoreASTCoverage(t *testing.T) {
 	} {
 		_ = WalkExpr(e, func(x Expr) bool { return x != col })
 	}
-	_, _ = Tokenize("'a\\q'")
+	checkParserError(t, func() error { _, err := Tokenize("'a\\q'"); return err }())
 	_ = isNumericToken("1a")
 	_ = isNumericToken("")
 	if _, err := parserAt("").parseTypeName(); err == nil {
