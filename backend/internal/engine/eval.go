@@ -530,6 +530,9 @@ func evalBinary(ctx *evalCtx, b *sql.BinaryExpr) (any, error) {
 				return iv.add(ov), nil
 			}
 			if op == "+" {
+				if tv, ok := right.(timeValue); ok {
+					return addTimeValue(tv, iv), nil
+				}
 				if t, ok := toTime(right); ok {
 					return addInterval(t, iv).UTC().Format(time.RFC3339Nano), nil
 				}
@@ -551,6 +554,9 @@ func evalBinary(ctx *evalCtx, b *sql.BinaryExpr) (any, error) {
 	if iv, ok := right.(intervalValue); ok {
 		switch op {
 		case "+":
+			if tv, ok := left.(timeValue); ok {
+				return addTimeValue(tv, iv), nil
+			}
 			if t, ok := toTime(left); ok {
 				return addInterval(t, iv).UTC().Format(time.RFC3339Nano), nil
 			}
@@ -558,6 +564,9 @@ func evalBinary(ctx *evalCtx, b *sql.BinaryExpr) (any, error) {
 				return lv.add(iv), nil
 			}
 		case "-":
+			if tv, ok := left.(timeValue); ok {
+				return addTimeValue(tv, iv.neg()), nil
+			}
 			if t, ok := toTime(left); ok {
 				return addInterval(t, iv.neg()).UTC().Format(time.RFC3339Nano), nil
 			}
@@ -2085,6 +2094,17 @@ func compareValues(a, b any) int {
 			return ai.compare(bi)
 		}
 	}
+	if at, ok := toTime(a); ok {
+		if bt, ok := toTime(b); ok {
+			if at.Before(bt) {
+				return -1
+			}
+			if at.After(bt) {
+				return 1
+			}
+			return 0
+		}
+	}
 	if isNumeric(a) || isNumeric(b) {
 		af, aok := toFloat(a)
 		bf, bok := toFloat(b)
@@ -2178,18 +2198,24 @@ func parseWallInLocation(s string, loc *time.Location) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+func addTimeValue(tv timeValue, iv intervalValue) timeValue {
+	t := tv.t.AddDate(0, 0, iv.days).Add(time.Duration(iv.nanos))
+	return timeValue{t: t, precision: tv.precision, precisionSet: tv.precisionSet, zoned: tv.zoned}
+}
+
 func atLocal(v any) (any, error) {
 	if v == nil {
 		return nil, nil
 	}
-	if s, ok := v.(string); ok && timeOnlyRE.MatchString(s) {
+	s := fmt.Sprint(v)
+	if timeOnlyRE.MatchString(s) {
 		return nil, errf("type_error", "AT LOCAL is undefined for TIME values")
 	}
 	tm, ok := toTime(v)
 	if !ok {
 		return nil, errf("type_error", "AT LOCAL expects a timestamp")
 	}
-	if s, ok := v.(string); ok && !hasExplicitZone(s) {
+	if !hasExplicitZone(s) {
 		if wall, ok := parseWallInLocation(s, time.Local); ok {
 			tm = wall
 		}
@@ -2226,6 +2252,12 @@ func toTime(v any) (time.Time, bool) {
 	switch x := v.(type) {
 	case time.Time:
 		return x, true
+	case dateValue:
+		return x.t, true
+	case timeValue:
+		return x.t, true
+	case timestampValue:
+		return x.t, true
 	case string:
 		return parseTimeString(x)
 	}
@@ -2321,13 +2353,31 @@ func castPreservingZone(v any, typ string) (any, error) {
 	// TIMEZONE_HOUR/MINUTE and display semantics remain observable. A literal
 	// without a zone stays naive so AT LOCAL/AT TIME ZONE can resolve it in the
 	// intended wall-clock zone.
+	p, set := typePrecision(typ)
 	if hasExplicitZone(s) {
 		if strings.HasPrefix(strings.ToLower(typ), "time ") {
-			return tm.Format("15:04:05Z07:00"), nil
+			return timeValue{t: tm, precision: p, precisionSet: set, zoned: true}, nil
 		}
-		return tm.Format(time.RFC3339Nano), nil
+		return timestampValue{t: tm, precision: p, precisionSet: set}, nil
 	}
-	return s, nil
+	if strings.HasPrefix(strings.ToLower(typ), "time ") {
+		return timeValue{t: tm, precision: p, precisionSet: set}, nil
+	}
+	return timestampValue{t: tm, precision: p, precisionSet: set, naive: true}, nil
+}
+
+func fractionDigits(s string) int {
+	if i := strings.LastIndexByte(s, '.'); i >= 0 {
+		n := 0
+		for _, r := range s[i+1:] {
+			if r < '0' || r > '9' {
+				break
+			}
+			n++
+		}
+		return n
+	}
+	return 0
 }
 
 func castValue(v any, typ string) (any, error) {
@@ -2402,25 +2452,28 @@ func castValue(v any, typ string) (any, error) {
 		if !ok {
 			return nil, errf("cast_error", "cannot cast %v to timestamp", v)
 		}
-		if p, ok := typePrecision(t); ok {
-			return formatTimestampPrecision(tm.UTC(), p), nil
-		}
-		return tm.UTC().Format(time.RFC3339Nano), nil
+		p, set := typePrecision(t)
+		return timestampValue{t: tm.UTC(), precision: p, precisionSet: set}, nil
 	case strings.HasPrefix(t, "date"):
 		tm, ok := toTime(v)
 		if !ok {
 			return nil, errf("cast_error", "cannot cast %v to date", v)
 		}
-		return tm.UTC().Format("2006-01-02"), nil
+		return dateValue{t: tm.UTC()}, nil
 	case strings.HasPrefix(t, "time"):
 		tm, ok := toTime(v)
 		if !ok {
 			return nil, errf("cast_error", "cannot cast %v to time", v)
 		}
-		if p, ok := typePrecision(t); ok {
-			return formatClockPrecision(tm.UTC(), p), nil
+		p, set := typePrecision(t)
+		if !set {
+			if s, ok := v.(string); ok {
+				if n := fractionDigits(s); n > 0 {
+					p, set = n, true
+				}
+			}
 		}
-		return tm.UTC().Format("15:04:05"), nil
+		return timeValue{t: tm.UTC(), precision: p, precisionSet: set}, nil
 	case strings.HasPrefix(t, "text"), strings.HasPrefix(t, "varchar"), strings.HasPrefix(t, "char"), strings.HasPrefix(t, "string"):
 		out := fmt.Sprint(v)
 		if n, ok := typeLength(t); ok {

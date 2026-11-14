@@ -1032,6 +1032,10 @@ func joinKey(vals []any) (string, bool) {
 		if v == nil {
 			return "", false
 		}
+		if t, ok := toTime(v); ok {
+			parts[i] = "t:" + t.UTC().Format(time.RFC3339Nano)
+			continue
+		}
 		if s, ok := v.(string); ok {
 			if f, err := strconv.ParseFloat(s, 64); err == nil && strings.TrimSpace(s) != "" {
 				parts[i] = "n:" + strconv.FormatFloat(f, 'g', -1, 64)
@@ -1076,6 +1080,12 @@ func inferType(v any) string {
 		return "object"
 	case intervalValue:
 		return "interval"
+	case dateValue:
+		return "date"
+	case timeValue:
+		return "time"
+	case timestampValue:
+		return "timestamp"
 	case string:
 		return "string"
 	default:

@@ -460,6 +460,12 @@ func toJSONValue(v any) any {
 		return x.UTC().Format(time.RFC3339Nano)
 	case intervalValue:
 		return x.String()
+	case dateValue:
+		return x.String()
+	case timeValue:
+		return x.String()
+	case timestampValue:
+		return x.String()
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, v := range x {

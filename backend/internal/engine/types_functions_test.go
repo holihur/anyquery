@@ -312,3 +312,20 @@ func TestCastNumericPrecisionAndWidth(t *testing.T) {
 		t.Fatalf("decimal = %+v", res.Rows[0])
 	}
 }
+
+func TestTypedTemporalValues(t *testing.T) {
+	res := execParams(t, `SELECT DATE '2024-01-01' AS d, TIME '12:00:00.123' AS t,
+		TIMESTAMP '2024-01-01 12:00:00.123' AS ts,
+		DATE '2024-01-01' = DATE '2024-01-01' AS eq`, nil)
+	row := res.Rows[0]
+	if row["d"] != "2024-01-01" || row["t"] != "12:00:00.123" || row["ts"] != "2024-01-01T12:00:00.123" || row["eq"] != true {
+		t.Fatalf("row = %+v", row)
+	}
+	types := map[string]string{}
+	for _, c := range res.Columns {
+		types[c.Name] = c.Type
+	}
+	if types["d"] != "date" || types["t"] != "time" || types["ts"] != "timestamp" {
+		t.Fatalf("types = %+v", types)
+	}
+}

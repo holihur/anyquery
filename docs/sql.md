@@ -376,8 +376,8 @@ Use filters early. The scan planner performs capability-gated projection, filter
 - `UNNEST` expands JSON arrays and internal array values; additional Go table functions can be registered with `Engine.RegisterTableFunction`.
 - Window frame offsets accept integer literals and bind parameters; arbitrary offset expressions are rejected.
 - `TABLESAMPLE SYSTEM`/`BERNOULLI` are implemented as deterministic-capable row sampling in the engine; source-level page sampling is connector-specific.
-- INTERVAL supports calendar month/day/time arithmetic; there is no full interval type system, array/map type, or typed JSON operator set.
-- Date/time values are represented as normalized strings; `AT TIME ZONE` and `TIMEZONE` return normalized timestamp strings.
+- INTERVAL uses an internal calendar value with month/day/time arithmetic; there is no interval DDL type, array/map type, or typed JSON operator set.
+- Date/time/timestamp values use typed internal values with precision and explicit/naive zone handling; results are emitted as stable normalized text.
 - No cost-based join reordering; joins follow the written order and choose the smaller inner-join build side.
 - Window functions are not available inside `|>` pipeline stages.
 - Recursive CTEs require a single `UNION`/`UNION ALL` term and have the documented iteration/row guards.

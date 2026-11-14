@@ -82,8 +82,9 @@ non-standard workloads:
 - window frame offsets support integer literals and bind parameters; arbitrary offset expressions are rejected
 - UNNEST expands JSON/array values; additional table functions can be registered with `Engine.RegisterTableFunction`
 - temporal reads require a connector to advertise `Capabilities.SystemTime`
-- interval and date/time values are normalized strings, not a full SQL type
-  system
+- interval and date/time/timestamp values are typed internally (precision and
+  explicit/naive zone distinction); result text is normalized and there is no
+  full SQL DDL/catalog type system
 
 ## Verification
 
