@@ -2771,6 +2771,12 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 			return nil, err
 		}
 	case "JSON_ARRAYAGG":
+		if p.cur.IsKeyword("DISTINCT") {
+			fn.Distinct = true
+			p.advance()
+		} else if p.cur.IsKeyword("ALL") {
+			p.advance()
+		}
 		v, err := p.parseExpr(0)
 		if err != nil {
 			return nil, err
@@ -2789,6 +2795,15 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 			return nil, err
 		}
 	case "JSON_OBJECTAGG":
+		if p.cur.IsKeyword("DISTINCT") {
+			fn.Distinct = true
+			p.advance()
+		} else if p.cur.IsKeyword("ALL") {
+			p.advance()
+		}
+		if p.cur.IsKeyword("KEY") {
+			p.advance()
+		}
 		key, err := p.parseExpr(0)
 		if err != nil {
 			return nil, err
@@ -2818,6 +2833,23 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 	}
 	if err := p.expectPunct(")"); err != nil {
 		return nil, err
+	}
+	if p.cur.IsKeyword("FILTER") {
+		p.advance()
+		if err := p.expectPunct("("); err != nil {
+			return nil, err
+		}
+		if err := p.expectKeyword("WHERE"); err != nil {
+			return nil, err
+		}
+		filter, ferr := p.parseExpr(0)
+		if ferr != nil {
+			return nil, ferr
+		}
+		fn.Filter = filter
+		if err := p.expectPunct(")"); err != nil {
+			return nil, err
+		}
 	}
 	return fn, nil
 }
@@ -3496,6 +3528,19 @@ func (p *Parser) parseTypeName() (string, error) {
 		if p.cur.IsKeyword("VARCHAR") {
 			parts = append(parts, "VARCHAR")
 			p.advance()
+		}
+	case "INTERVAL":
+		if p.cur.IsKeyword("YEAR") || p.cur.IsKeyword("MONTH") || p.cur.IsKeyword("DAY") || p.cur.IsKeyword("HOUR") || p.cur.IsKeyword("MINUTE") || p.cur.IsKeyword("SECOND") {
+			parts = append(parts, strings.ToUpper(p.cur.Value))
+			p.advance()
+			if p.cur.IsKeyword("TO") {
+				parts = append(parts, "TO")
+				p.advance()
+				if p.cur.IsKeyword("MONTH") || p.cur.IsKeyword("HOUR") || p.cur.IsKeyword("MINUTE") || p.cur.IsKeyword("SECOND") {
+					parts = append(parts, strings.ToUpper(p.cur.Value))
+					p.advance()
+				}
+			}
 		}
 	}
 	for p.cur.IsKeyword("WITHOUT") || p.cur.IsKeyword("WITH") {

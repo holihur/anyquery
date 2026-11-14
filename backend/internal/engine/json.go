@@ -334,9 +334,17 @@ func evalJSONAggregate(ctx *evalCtx, f *sql.FuncCall, group []map[string]any) (a
 		return out, nil
 	}
 	out := make([]any, 0, len(rows))
+	seen := map[string]bool{}
 	for _, rv := range rows {
 		if rv.value == nil && f.JSONNullBehavior == "absent" {
 			continue
+		}
+		if f.Distinct {
+			key := canonicalValues([]any{rv.value})
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
 		}
 		out = append(out, rv.value)
 	}

@@ -308,11 +308,7 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		t, ok := toTime(v)
-		if !ok {
-			return nil, errf("type_error", "AT LOCAL expects a timestamp")
-		}
-		return t.In(time.Local).Format("2006-01-02 15:04:05.999999999"), nil
+		return atLocal(v)
 	case *sql.AtTimeZoneExpr:
 		v, err := evalExpr(ctx, x.Expr)
 		if err != nil {
@@ -2144,7 +2140,7 @@ func atTimeZone(v, zone any) (any, error) {
 		hasZone = true
 	} else {
 		s := fmt.Sprint(v)
-		hasZone = strings.HasSuffix(strings.ToUpper(s), "Z") || zoneOffsetSuffix(s)
+		hasZone = hasExplicitZone(s)
 		if hasZone {
 			tm, ok := parseTimeString(s)
 			if !ok {
@@ -2152,21 +2148,53 @@ func atTimeZone(v, zone any) (any, error) {
 			}
 			t = tm
 		} else {
-			for _, layout := range []string{"2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02"} {
-				if tm, err := time.ParseInLocation(layout, s, loc); err == nil {
-					t, hasZone = tm, true
-					break
-				}
-			}
-			if !hasZone {
+			tm, ok := parseWallInLocation(s, loc)
+			if !ok {
 				return nil, errf("type_error", "AT TIME ZONE expects a timestamp")
 			}
+			t, hasZone = tm, true
 		}
 	}
-	if hasZone {
-		return t.In(loc).Format("2006-01-02 15:04:05.999999999"), nil
+	return t.In(loc).Format("2006-01-02 15:04:05.999999999"), nil
+}
+
+var timeOnlyRE = regexp.MustCompile(`^\s*\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:\s*(?:Z|[+-]\d{2}:?\d{2}|UTC|GMT))?\s*$`)
+
+func hasExplicitZone(s string) bool {
+	u := strings.ToUpper(strings.TrimSpace(s))
+	return strings.HasSuffix(u, "Z") || zoneOffsetSuffix(s) ||
+		strings.HasSuffix(u, " UTC") || strings.HasSuffix(u, " GMT")
+}
+
+func parseWallInLocation(s string, loc *time.Location) (time.Time, bool) {
+	for _, layout := range []string{
+		"2006-01-02T15:04:05.999999999", "2006-01-02T15:04:05",
+		"2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02",
+	} {
+		if tm, err := time.ParseInLocation(layout, s, loc); err == nil {
+			return tm, true
+		}
 	}
-	return t.UTC().Format(time.RFC3339Nano), nil
+	return time.Time{}, false
+}
+
+func atLocal(v any) (any, error) {
+	if v == nil {
+		return nil, nil
+	}
+	if s, ok := v.(string); ok && timeOnlyRE.MatchString(s) {
+		return nil, errf("type_error", "AT LOCAL is undefined for TIME values")
+	}
+	tm, ok := toTime(v)
+	if !ok {
+		return nil, errf("type_error", "AT LOCAL expects a timestamp")
+	}
+	if s, ok := v.(string); ok && !hasExplicitZone(s) {
+		if wall, ok := parseWallInLocation(s, time.Local); ok {
+			tm = wall
+		}
+	}
+	return tm.In(time.Local).Format(time.RFC3339Nano), nil
 }
 
 func zoneOffsetSuffix(s string) bool {
@@ -2290,14 +2318,16 @@ func castPreservingZone(v any, typ string) (any, error) {
 		return castValue(v, typ)
 	}
 	// A timestamp literal with an explicit numeric offset keeps that offset so
-	// TIMEZONE_HOUR/MINUTE and display semantics remain observable.
-	if strings.Contains(s, "+") || strings.Count(s, "-") > 2 {
+	// TIMEZONE_HOUR/MINUTE and display semantics remain observable. A literal
+	// without a zone stays naive so AT LOCAL/AT TIME ZONE can resolve it in the
+	// intended wall-clock zone.
+	if hasExplicitZone(s) {
 		if strings.HasPrefix(strings.ToLower(typ), "time ") {
 			return tm.Format("15:04:05Z07:00"), nil
 		}
 		return tm.Format(time.RFC3339Nano), nil
 	}
-	return castValue(v, typ)
+	return s, nil
 }
 
 func castValue(v any, typ string) (any, error) {
@@ -2306,6 +2336,17 @@ func castValue(v any, typ string) (any, error) {
 		return nil, nil
 	}
 	switch {
+	case strings.HasPrefix(t, "interval"):
+		if iv, ok := v.(intervalValue); ok {
+			return iv, nil
+		}
+		q := strings.ToUpper(strings.TrimSpace(strings.TrimPrefix(t, "interval")))
+		if q != "" {
+			if iv, err := parseInterval(fmt.Sprint(v), q); err == nil {
+				return iv, nil
+			}
+		}
+		return parseInterval(fmt.Sprint(v), "")
 	case strings.HasPrefix(t, "int"), strings.HasPrefix(t, "bigint"), strings.HasPrefix(t, "smallint"), t == "integer":
 		f, ok := toFloat(v)
 		if !ok || math.IsNaN(f) || math.IsInf(f, 0) {

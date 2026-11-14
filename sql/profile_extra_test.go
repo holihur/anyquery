@@ -10,6 +10,13 @@ func TestProfileExtraSyntaxRoundTrip(t *testing.T) {
 		"SELECT nth_value(x, 2) FROM LAST OVER (ORDER BY id) FROM t",
 		`SELECT JSON_QUERY('{"a":"x"}', '$.a' KEEP QUOTES) AS k`,
 		`SELECT JSON_QUERY('{"a":"x"}', '$.a' OMIT QUOTES) AS o`,
+		`SELECT JSON_ARRAYAGG(DISTINCT region ORDER BY region) AS a FROM mongo.orders`,
+		`SELECT JSON_ARRAYAGG(ALL region ORDER BY region) AS a FROM mongo.orders`,
+		`SELECT JSON_OBJECTAGG(DISTINCT KEY status VALUE total) AS o FROM mongo.orders`,
+		`SELECT JSON_OBJECTAGG(ALL status VALUE total) FILTER (WHERE total > 60) AS o FROM mongo.orders`,
+		`SELECT CAST('1 day' AS INTERVAL) AS a, CAST('1 day' AS INTERVAL DAY) AS b`,
+		`SELECT CAST(x AS INTERVAL HOUR TO MINUTE) AS c, CAST(x AS INTERVAL YEAR TO MONTH) AS d`,
+		`SELECT CAST(x AS INTERVAL SECOND) AS e, CAST(x AS INTERVAL HOUR TO SECOND) AS f`,
 		`SELECT JSON_EXISTS('{"a":1}', 'strict $.b' UNKNOWN ON ERROR) AS u`,
 		`SELECT JSON_EXISTS('{"a":1}', 'strict $.b' ON ERROR UNKNOWN) AS u`,
 		`SELECT JSON_QUERY('{"a":1}', 'strict $.b' ON ERROR EMPTY ARRAY) AS ea`,
@@ -52,7 +59,9 @@ func TestProfileExtraSyntaxErrors(t *testing.T) {
 }
 
 func TestProfileExtraDirectBranches(t *testing.T) {
-	if s := (&AtLocalExpr{Expr: &Literal{Kind: LitInt, Value: 1}}).String(); s == "" {
+	local := &AtLocalExpr{Expr: &Literal{Kind: LitInt, Value: 1}}
+	local.exprNode()
+	if s := local.String(); s == "" {
 		t.Fatal("empty AT LOCAL formatter")
 	}
 	for _, src := range []string{
@@ -66,5 +75,15 @@ func TestProfileExtraDirectBranches(t *testing.T) {
 	}
 	if _, err := parserAt("JSON_TABLE(x, '$.a' COLUMNS (x INT) NULL ON)").parseJSONTable(); err == nil {
 		t.Fatal("expected incomplete NULL ON ERROR")
+	}
+	for _, src := range []string{
+		"JSON_ARRAYAGG(x) FILTER",
+		"JSON_ARRAYAGG(x) FILTER (",
+		"JSON_ARRAYAGG(x) FILTER (WHERE",
+		"JSON_ARRAYAGG(x) FILTER (WHERE x",
+	} {
+		if _, err := Parse("SELECT " + src); err == nil {
+			t.Errorf("expected FILTER error for %q", src)
+		}
 	}
 }

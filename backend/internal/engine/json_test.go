@@ -293,3 +293,16 @@ func TestJSONTableNullOnErrorUnknownAndQuotes(t *testing.T) {
 		t.Fatalf("standard empty = %+v", empty.Rows)
 	}
 }
+
+func TestJSONAggregateDistinctAndFilter(t *testing.T) {
+	distinct := execParams(t, `SELECT JSON_ARRAYAGG(DISTINCT region ORDER BY region) AS a FROM mongo.orders`, nil)
+	arr, ok := distinct.Rows[0]["a"].([]any)
+	if !ok || len(arr) != 2 {
+		t.Fatalf("distinct = %+v", distinct.Rows[0])
+	}
+	filtered := execParams(t, `SELECT JSON_OBJECTAGG(KEY status VALUE total) FILTER (WHERE total > 60) AS o FROM mongo.orders`, nil)
+	obj, ok := filtered.Rows[0]["o"].(map[string]any)
+	if !ok || obj["paid"] != float64(100) {
+		t.Fatalf("filtered = %+v", filtered.Rows[0])
+	}
+}

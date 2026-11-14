@@ -890,7 +890,7 @@ func (c *CaseExpr) String() string {
 }
 
 func (c *CastExpr) String() string {
-	if c.PreserveZone && strings.Contains(strings.ToLower(c.Type), "time zone") {
+	if c.PreserveZone {
 		return strings.ToUpper(c.Type) + " " + c.Expr.String()
 	}
 	name := "CAST"
@@ -936,7 +936,11 @@ func formatJSONFunc(f *FuncCall) string {
 		if len(f.Args) != 1 {
 			return ""
 		}
-		out = "json_arrayagg(" + f.Args[0].String()
+		out = "json_arrayagg("
+		if f.Distinct {
+			out += "DISTINCT "
+		}
+		out += f.Args[0].String()
 		if len(f.JSONOrder) > 0 {
 			out += " ORDER BY " + formatOrder(f.JSONOrder)
 		}
@@ -944,7 +948,11 @@ func formatJSONFunc(f *FuncCall) string {
 		if len(f.JSONPairs) != 1 {
 			return ""
 		}
-		out = "json_objectagg(" + f.JSONPairs[0].Key.String() + ": " + f.JSONPairs[0].Value.String()
+		out = "json_objectagg("
+		if f.Distinct {
+			out += "DISTINCT "
+		}
+		out += f.JSONPairs[0].Key.String() + ": " + f.JSONPairs[0].Value.String()
 		if len(f.JSONOrder) > 0 {
 			out += " ORDER BY " + formatOrder(f.JSONOrder)
 		}

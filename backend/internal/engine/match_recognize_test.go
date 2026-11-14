@@ -221,3 +221,20 @@ func TestMatchRecognizeEmptyMatches(t *testing.T) {
 		t.Fatalf("omit rows = %+v", omit.Rows)
 	}
 }
+
+func TestMatchRecognizeLazyQuantifierBacktracks(t *testing.T) {
+	res := execParams(t, `SELECT id, cls FROM (VALUES (1,'a'),(2,'a'),(3,'b')) t(id,tag)
+		MATCH_RECOGNIZE (ORDER BY id MEASURES id AS id, classifier() AS cls
+		ALL ROWS PER MATCH PATTERN (A+? B)
+		DEFINE A AS tag='a', B AS tag='b') mr ORDER BY id`, nil)
+	if res.RowCount != 3 || res.Rows[0]["id"] != int64(1) || res.Rows[2]["cls"] != "b" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	res = execParams(t, `SELECT id FROM (VALUES (1,'a'),(2,'b')) t(id,tag)
+		MATCH_RECOGNIZE (ORDER BY id MEASURES id AS id
+		ALL ROWS PER MATCH PATTERN (A*? B)
+		DEFINE A AS tag='a', B AS tag='b') mr ORDER BY id`, nil)
+	if res.RowCount != 2 {
+		t.Fatalf("star lazy rows = %+v", res.Rows)
+	}
+}

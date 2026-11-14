@@ -363,12 +363,8 @@ func matchQuantified(p *sql.MatchPattern, min, max, pos int, rows []mrRow, rel *
 		return nil, err
 	}
 	if p.Lazy {
-		for i := 0; i < len(results); i++ {
-			if len(results[i]) > 0 {
-				return results[i], nil
-			}
-		}
-		_ = max
+		// Keep every repetition count in shortest-first order so a following
+		// pattern element can retry with a longer lazy match when necessary.
 		var out []mrState
 		for _, r := range results {
 			out = append(out, r...)

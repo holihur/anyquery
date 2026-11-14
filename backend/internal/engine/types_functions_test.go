@@ -2,6 +2,9 @@ package engine
 
 import (
 	"testing"
+	"time"
+
+	anysql "github.com/anyquery/anyquery/sql"
 )
 
 func TestIntervalLiteralsAndArithmetic(t *testing.T) {
@@ -252,5 +255,45 @@ func TestJSONOnErrorAndZoneTypes(t *testing.T) {
 		TIMESTAMP '2024-01-01 12:00:00 UTC' AT LOCAL AS local`, nil)
 	if zones.Rows[0]["ts"] != "2024-01-01T12:00:00+05:30" || zones.Rows[0]["tm"] != "12:00:00+05:30" {
 		t.Fatalf("zones = %+v", zones.Rows[0])
+	}
+}
+
+func TestTimeZoneResolutionAndIntervalCast(t *testing.T) {
+	oldLocal := time.Local
+	time.Local = time.FixedZone("test", 8*3600)
+	defer func() { time.Local = oldLocal }()
+	res := execParams(t, `SELECT
+		TIMESTAMP '2024-01-01 12:00:00' AT LOCAL AS local,
+		TIMESTAMP '2024-01-01 12:00:00' AT TIME ZONE 'Europe/Paris' AS paris,
+		CAST('1 day' AS INTERVAL) AS iv,
+		CAST('1 day' AS INTERVAL DAY) AS ivd,
+		CAST(INTERVAL '90' MINUTE AS INTERVAL HOUR TO MINUTE) AS ivq`, nil)
+	row := res.Rows[0]
+	if row["local"] != "2024-01-01T12:00:00+08:00" || row["paris"] != "2024-01-01 12:00:00" {
+		t.Fatalf("zone row = %+v", row)
+	}
+	if row["iv"] != "1 days" || row["ivd"] != "1 days" || row["ivq"] != "01:30:00" {
+		t.Fatalf("interval row = %+v", row)
+	}
+	if _, err := New(DefaultOptions()).Execute(t.Context(), `SELECT TIME WITH TIME ZONE '12:00:00+05:30' AT LOCAL`, testCatalog()); err == nil {
+		t.Fatal("expected AT LOCAL TIME error")
+	}
+}
+
+func TestTypedZoneLiteralFormatterRoundTrip(t *testing.T) {
+	query := `SELECT TIMESTAMPTZ '2024-01-01 12:00:00+05:30' AS x,
+		EXTRACT(TIMEZONE_HOUR FROM TIMESTAMPTZ '2024-01-01 12:00:00+05:30') AS th,
+		TIMESTAMP '2024-01-01 12:00:00+05:30' AS y`
+	stmt, err := anysql.Parse(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	formatted := anysql.FormatStatement(stmt)
+	orig := execParams(t, query, nil)
+	reparsed := execParams(t, formatted, nil)
+	for _, key := range []string{"x", "th", "y"} {
+		if orig.Rows[0][key] != reparsed.Rows[0][key] {
+			t.Fatalf("%s: original %v formatted %v (%s)", key, orig.Rows[0][key], reparsed.Rows[0][key], formatted)
+		}
 	}
 }
