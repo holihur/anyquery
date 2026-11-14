@@ -966,6 +966,14 @@ func (p *Parser) parseMatchSequence() (*MatchPattern, error) {
 
 func (p *Parser) parseMatchTerm() (*MatchPattern, error) {
 	var term *MatchPattern
+	if p.cur.IsKeyword("PERMUTE") {
+		p.advance()
+		vars, err := p.parseIdentList()
+		if err != nil {
+			return nil, err
+		}
+		return &MatchPattern{Kind: "permute", Vars: vars}, nil
+	}
 	if p.cur.IsPunct("(") {
 		p.advance()
 		inner, err := p.parseMatchPattern()
@@ -1200,6 +1208,16 @@ func (p *Parser) parseJSONTableColumns() ([]JSONTableColumn, error) {
 					return nil, err
 				}
 				col.Ordinality = true
+			} else if p.cur.IsKeyword("EXISTS") {
+				p.advance()
+				col.Exists = true
+				if p.cur.IsKeyword("PATH") {
+					p.advance()
+				}
+				col.Path, err = p.parseExpr(0)
+				if err != nil {
+					return nil, err
+				}
 			} else {
 				typ, err := p.parseTypeName()
 				if err != nil {
@@ -1492,6 +1510,9 @@ func (p *Parser) parseQualifiedName() ([]string, error) {
 		}
 		parts = append(parts, id)
 		if !p.cur.IsPunct(".") {
+			break
+		}
+		if p.peek.IsPunct("*") {
 			break
 		}
 		p.advance()
@@ -2270,6 +2291,11 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
+		if p.cur.IsPunct(".") && p.peek.IsPunct("*") {
+			p.advance()
+			p.advance()
+			return &StarExpr{Table: strings.Join(parts, ".")}, nil
+		}
 		return &ColumnRef{Parts: parts}, nil
 	}
 
@@ -2618,6 +2644,20 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 
 func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 	for {
+		if p.cur.IsKeyword("EMPTY") && p.peek.IsKeyword("ARRAY") || p.cur.IsKeyword("EMPTY") && p.peek.IsKeyword("OBJECT") {
+			kind := strings.ToLower(p.peek.Value)
+			p.advance()
+			p.advance()
+			if err := p.expectKeyword("ON"); err != nil {
+				return err
+			}
+			if !p.cur.IsKeyword("EMPTY") {
+				return p.errf("expected EMPTY after ON")
+			}
+			p.advance()
+			fn.JSONOnEmpty = "empty_" + kind
+			continue
+		}
 		if p.cur.IsKeyword("DEFAULT") {
 			p.advance()
 			def, err := p.parseExpr(0)
@@ -2679,6 +2719,18 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 		case p.cur.IsKeyword("WITH") || p.cur.IsKeyword("WITHOUT"):
 			with := p.cur.IsKeyword("WITH")
 			p.advance()
+			if p.cur.IsKeyword("ARRAY") {
+				p.advance()
+				if err := p.expectKeyword("WRAPPER"); err != nil {
+					return err
+				}
+				if with {
+					fn.JSONWrapper = "WITH ARRAY"
+				} else {
+					fn.JSONWrapper = "WITHOUT ARRAY"
+				}
+				continue
+			}
 			if p.cur.IsKeyword("CONDITIONAL") || p.cur.IsKeyword("UNCONDITIONAL") {
 				fn.JSONWrapper = "WITH " + strings.ToUpper(p.cur.Value)
 				p.advance()

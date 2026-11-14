@@ -43,6 +43,10 @@ func (ec *execCtx) relationForMatchRecognize(m *sql.MatchRecognize) (*relation, 
 	for _, d := range m.Define {
 		defs[strings.ToLower(d.Name)] = d.Expr
 	}
+	subsets := map[string][]string{}
+	for _, sub := range m.Subsets {
+		subsets[strings.ToLower(sub.Name)] = sub.Vars
+	}
 	type partition struct {
 		rows []mrRow
 		keys [][]any
@@ -127,14 +131,14 @@ func (ec *execCtx) relationForMatchRecognize(m *sql.MatchRecognize) (*relation, 
 			if m.RowsMode == "all" {
 				for i := start; i < end; i++ {
 					row := mrOutputRow(input, p.rows[i].row)
-					if err := ec.addMRMeasures(row, m.Measures, p.rows, start, end, i, state.bindings, matchNo, input); err != nil {
+					if err := ec.addMRMeasures(row, m.Measures, p.rows, start, end, i, state.bindings, matchNo, input, subsets); err != nil {
 						return nil, err
 					}
 					ds.rows = append(ds.rows, row)
 				}
 			} else {
 				row := mrOutputRow(input, p.rows[start].row)
-				if err := ec.addMRMeasures(row, m.Measures, p.rows, start, end, start, state.bindings, matchNo, input); err != nil {
+				if err := ec.addMRMeasures(row, m.Measures, p.rows, start, end, start, state.bindings, matchNo, input, subsets); err != nil {
 					return nil, err
 				}
 				ds.rows = append(ds.rows, row)
@@ -255,6 +259,17 @@ func matchBase(p *sql.MatchPattern, pos int, rows []mrRow, rel *relation, defs m
 			return nil, errf("match_recognize_error", "empty MATCH_RECOGNIZE group")
 		}
 		return matchPattern(p.Children[0], pos, rows, rel, defs, ec)
+	case "permute":
+		var out []mrState
+		for _, v := range p.Vars {
+			term := &sql.MatchPattern{Kind: "var", Var: v}
+			sub, err := matchBase(term, pos, rows, rel, defs, ec)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, sub...)
+		}
+		return out, nil
 	case "alt":
 		var out []mrState
 		for _, child := range p.Children {
@@ -323,13 +338,13 @@ func matchQuantified(p *sql.MatchPattern, min, max, pos int, rows []mrRow, rel *
 	return out, nil
 }
 
-func (ec *execCtx) addMRMeasures(row map[string]any, measures []sql.MatchMeasure, rows []mrRow, start, end, current int, bindings map[string][]int, matchNo int, rel *relation) error {
+func (ec *execCtx) addMRMeasures(row map[string]any, measures []sql.MatchMeasure, rows []mrRow, start, end, current int, bindings map[string][]int, matchNo int, rel *relation, subsets map[string][]string) error {
 	for _, measure := range measures {
 		at := current
 		if measure.Mode == "final" && end > start {
 			at = end - 1
 		}
-		v, err := ec.evalMRMeasure(measure.Expr, rows, start, end, at, bindings, matchNo, rel)
+		v, err := ec.evalMRMeasure(measure.Expr, rows, start, end, at, bindings, matchNo, rel, measure.Mode, subsets)
 		if err != nil {
 			return err
 		}
@@ -338,7 +353,7 @@ func (ec *execCtx) addMRMeasures(row map[string]any, measures []sql.MatchMeasure
 	return nil
 }
 
-func (ec *execCtx) evalMRMeasure(e sql.Expr, rows []mrRow, start, end, current int, bindings map[string][]int, matchNo int, rel *relation) (any, error) {
+func (ec *execCtx) evalMRMeasure(e sql.Expr, rows []mrRow, start, end, current int, bindings map[string][]int, matchNo int, rel *relation, mode string, subsets map[string][]string) (any, error) {
 	if f, ok := e.(*sql.FuncCall); ok {
 		name := strings.ToLower(f.Name)
 		switch name {
@@ -358,6 +373,15 @@ func (ec *execCtx) evalMRMeasure(e sql.Expr, rows []mrRow, start, end, current i
 				return varName, nil
 			}
 			return nil, nil
+		case "prev":
+			if len(f.Args) != 1 {
+				return nil, errf("match_recognize_error", "PREV expects one argument")
+			}
+			if current <= start {
+				return nil, nil
+			}
+			ctx := &evalCtx{rel: rel, row: rows[current-1].row, outer: ec.outerEval, exec: ec}
+			return evalExpr(ctx, f.Args[0])
 		case "first", "last":
 			if len(f.Args) != 1 {
 				return nil, errf("match_recognize_error", "%s expects one argument", strings.ToUpper(name))
@@ -382,6 +406,35 @@ func (ec *execCtx) evalMRMeasure(e sql.Expr, rows []mrRow, start, end, current i
 			}
 			ctx := &evalCtx{rel: rel, row: rows[at].row, outer: ec.outerEval, exec: ec}
 			return evalExpr(ctx, arg)
+		}
+		if sql.IsAggregate(name) {
+			groupRows := rows[start:end]
+			if mode == "running" && current >= start {
+				groupRows = rows[start : current+1]
+			}
+			if len(f.Args) == 1 {
+				if star, ok := f.Args[0].(*sql.StarExpr); ok && star.Table != "" {
+					vars := subsets[strings.ToLower(star.Table)]
+					if vars != nil {
+						seen := map[int]bool{}
+						var selected []mrRow
+						for _, v := range vars {
+							for _, idx := range bindings[strings.ToLower(v)] {
+								if idx >= start && idx < end && !seen[idx] {
+									seen[idx] = true
+									selected = append(selected, rows[idx])
+								}
+							}
+						}
+						groupRows = selected
+					}
+				}
+			}
+			group := make([]map[string]any, len(groupRows))
+			for i, r := range groupRows {
+				group[i] = r.row
+			}
+			return evalAggregate(&evalCtx{rel: rel, group: group, outer: ec.outerEval, exec: ec}, f)
 		}
 	}
 	at := current

@@ -112,3 +112,33 @@ func TestMatchRecognizeUnmatchedRowsAndFinalMeasure(t *testing.T) {
 		t.Fatalf("unmatched measure = %+v", res.Rows[0])
 	}
 }
+
+func TestMatchRecognizeRunningFinalPrevSubset(t *testing.T) {
+	res := execParams(t, `SELECT id, r, c, p, n FROM mongo.orders MATCH_RECOGNIZE (
+		PARTITION BY region ORDER BY id
+		MEASURES RUNNING sum(total) AS r, FINAL count(*) AS c, PREV(total) AS p, count(AB.*) AS n
+		SUBSET AB = (A, B)
+		ALL ROWS PER MATCH
+		PATTERN (A B*)
+		DEFINE A AS status = 'paid', B AS total > 0
+	) AS mr ORDER BY id`, nil)
+	if res.RowCount != 3 {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	if res.Rows[0]["r"] != float64(100) || res.Rows[1]["r"] != float64(150) || res.Rows[1]["p"] != float64(100) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	if res.Rows[0]["c"] != int64(2) {
+		t.Fatalf("final count = %+v", res.Rows[0])
+	}
+}
+
+func TestMatchRecognizePermutePattern(t *testing.T) {
+	res := execParams(t, `SELECT id FROM mongo.orders MATCH_RECOGNIZE (
+		ORDER BY id PATTERN (PERMUTE(A, B))
+		DEFINE A AS status = 'paid', B AS total > 0
+	) AS mr`, nil)
+	if res.RowCount == 0 {
+		t.Fatal("expected permute matches")
+	}
+}

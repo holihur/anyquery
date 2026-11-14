@@ -552,3 +552,22 @@ func TestRemainingSyntaxBranches(t *testing.T) {
 		}
 	}
 }
+
+func TestAdvancedJSONAndMatchRoundTrip(t *testing.T) {
+	cases := []string{
+		"SELECT JSON_QUERY(doc, '$.a[*]' WITH ARRAY WRAPPER) FROM t",
+		"SELECT JSON_QUERY(doc, '$.a[*]' WITHOUT ARRAY WRAPPER) FROM t",
+		"SELECT JSON_VALUE(doc, '$.a' EMPTY ARRAY ON EMPTY) FROM t",
+		"SELECT * FROM JSON_TABLE(doc, '$.a' COLUMNS (has EXISTS PATH '$.x')) AS jt",
+		"SELECT * FROM t MATCH_RECOGNIZE (MEASURES RUNNING sum(x) AS r, FINAL count(*) AS c, PREV(x) AS p, count(AB.*) AS n SUBSET AB = (A, B) PATTERN (PERMUTE(A, B)) DEFINE A AS x = 1, B AS x = 2) AS m",
+	}
+	for _, q := range cases {
+		stmt, err := Parse(q)
+		if err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+		if _, err := Parse(FormatStatement(stmt)); err != nil {
+			t.Fatalf("%q roundtrip: %v", q, err)
+		}
+	}
+}

@@ -110,3 +110,25 @@ func TestCoverageTailBranches(t *testing.T) {
 		}
 	}
 }
+
+func TestCoverageNewBranches2(t *testing.T) {
+	fn := &FuncCall{Name: "json_value", Args: []Expr{&ColumnRef{Parts: []string{"x"}}}, JSONPath: &Literal{Kind: LitString, Value: "$"}, JSONOnError: "empty_object"}
+	if out := formatJSONFunc(fn); out == "" {
+		t.Fatal("empty JSON error formatter")
+	}
+	_ = formatJSONTableColumns([]JSONTableColumn{{Name: "x", Type: "INT", OnError: "default", DefaultError: &Literal{Kind: LitInt, Value: 1}}})
+	for _, src := range []string{"PERMUTE", "PERMUTE A"} {
+		if _, err := parserAt(src).parseMatchTerm(); err == nil {
+			t.Errorf("expected PERMUTE error for %q", src)
+		}
+	}
+	if _, err := parserAt("JSON_TABLE(x, '$.a' COLUMNS (x EXISTS PATH))").parseJSONTable(); err == nil {
+		t.Error("expected EXISTS PATH error")
+	}
+	for _, src := range []string{"EMPTY ARRAY ON", "EMPTY ARRAY ON ERROR", "WITHOUT ARRAY"} {
+		fn := &FuncCall{}
+		if err := parserAt(src).parseJSONOptions(fn); err == nil {
+			t.Errorf("expected JSON option error for %q", src)
+		}
+	}
+}

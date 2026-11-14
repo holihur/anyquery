@@ -563,7 +563,7 @@ func evalCompare(ctx *evalCtx, c *sql.CompareExpr) (any, error) {
 		return nil, err
 	}
 	op := strings.ToUpper(c.Op)
-	if op == "LIKE" || op == "ILIKE" || op == "NOT LIKE" || op == "NOT ILIKE" || op == "SIMILAR TO" || op == "NOT SIMILAR TO" {
+	if op == "LIKE" || op == "ILIKE" || op == "NOT LIKE" || op == "NOT ILIKE" {
 		if left == nil || right == nil {
 			return nil, nil
 		}
@@ -580,6 +580,20 @@ func evalCompare(ctx *evalCtx, c *sql.CompareExpr) (any, error) {
 			return nil, err
 		}
 		matched := pattern.MatchString(fmt.Sprint(left))
+		if c.Negated {
+			matched = !matched
+		}
+		return matched, nil
+	}
+	if op == "SIMILAR TO" || op == "NOT SIMILAR TO" {
+		if left == nil || right == nil {
+			return nil, nil
+		}
+		re, err := similarPattern(fmt.Sprint(right))
+		if err != nil {
+			return nil, err
+		}
+		matched := re.MatchString(fmt.Sprint(left))
 		if c.Negated {
 			matched = !matched
 		}
@@ -1985,6 +1999,40 @@ func toTime(v any) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+func typeParams(t string) ([]int, bool) {
+	open := strings.IndexByte(t, '(')
+	close := strings.LastIndexByte(t, ')')
+	if open < 0 || close <= open+1 {
+		return nil, false
+	}
+	parts := strings.Split(t[open+1:close], ",")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(p))
+		if err != nil {
+			return nil, false
+		}
+		out = append(out, n)
+	}
+	return out, len(out) > 0
+}
+
+func typeScale(t string) (int, bool) {
+	p, ok := typeParams(t)
+	if !ok || len(p) < 2 {
+		return 0, false
+	}
+	return p[1], true
+}
+
+func typeLength(t string) (int, bool) {
+	p, ok := typeParams(t)
+	if !ok || len(p) == 0 {
+		return 0, false
+	}
+	return p[0], true
+}
+
 func castValue(v any, typ string) (any, error) {
 	t := strings.ToLower(strings.TrimSpace(typ))
 	if v == nil {
@@ -2004,6 +2052,12 @@ func castValue(v any, typ string) (any, error) {
 		f, ok := toFloat(v)
 		if !ok {
 			return nil, errf("cast_error", "cannot cast %v to number", v)
+		}
+		if strings.HasPrefix(t, "decimal") || strings.HasPrefix(t, "numeric") {
+			if scale, ok := typeScale(t); ok {
+				pow := math.Pow10(scale)
+				f = math.Round(f*pow) / pow
+			}
 		}
 		return f, nil
 	case strings.HasPrefix(t, "bool"):
@@ -2036,10 +2090,38 @@ func castValue(v any, typ string) (any, error) {
 		}
 		return tm.UTC().Format("15:04:05"), nil
 	case strings.HasPrefix(t, "text"), strings.HasPrefix(t, "varchar"), strings.HasPrefix(t, "char"), strings.HasPrefix(t, "string"):
-		return fmt.Sprint(v), nil
+		out := fmt.Sprint(v)
+		if n, ok := typeLength(t); ok {
+			r := []rune(out)
+			if len(r) > n {
+				out = string(r[:n])
+			}
+		}
+		return out, nil
 	default:
 		return fmt.Sprint(v), nil
 	}
+}
+
+func similarPattern(pattern string) (*regexp.Regexp, error) {
+	var sb strings.Builder
+	sb.WriteString("^")
+	runes := []rune(pattern)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		switch r {
+		case '%':
+			sb.WriteString(".*")
+		case '_':
+			sb.WriteString(".")
+		case '|', '*', '+', '?', '(', ')', '[', ']', '{', '}':
+			sb.WriteRune(r)
+		default:
+			sb.WriteString(regexp.QuoteMeta(string(r)))
+		}
+	}
+	sb.WriteString("$")
+	return regexp.Compile(sb.String())
 }
 
 func likePattern(pattern string, insensitive bool) (*regexp.Regexp, error) {
@@ -2054,13 +2136,23 @@ func likePatternEsc(pattern string, insensitive bool, escape string) (*regexp.Re
 		sb.WriteString("(?s)")
 	}
 	sb.WriteString("^")
-	esc := []rune(escape)
-	for i, r := range pattern {
-		if len(esc) > 0 && r == esc[0] {
-			i++
-			if i < len(pattern) {
-				sb.WriteString(regexp.QuoteMeta(string(pattern[i])))
+	runes := []rune(pattern)
+	esc := rune(0)
+	if escape != "" {
+		esc = []rune(escape)[0]
+	}
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if esc != 0 && r == esc {
+			if i+1 < len(runes) {
+				next := runes[i+1]
+				if next == '%' || next == '_' || next == esc {
+					sb.WriteString(regexp.QuoteMeta(string(next)))
+					i++
+					continue
+				}
 			}
+			sb.WriteString(regexp.QuoteMeta(string(r)))
 			continue
 		}
 		switch r {

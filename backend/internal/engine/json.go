@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/anyquery/anyquery/sql"
@@ -51,12 +52,23 @@ func evalJSONLookup(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	if pathValue == nil {
 		return jsonLookupEmpty(ctx, f)
 	}
-	matches, query, err := evalJSONPath(value, fmt.Sprint(pathValue))
+	pathText := fmt.Sprint(pathValue)
+	basePath, filter := splitJSONPathFilter(pathText)
+	matches, query, err := evalJSONPath(value, basePath)
 	if err != nil {
 		if query.strict || f.JSONOnError == "error" {
 			return nil, err
 		}
 		return jsonLookupEmpty(ctx, f)
+	}
+	if filter != "" {
+		matches, err = filterJSONMatches(ctx, f, matches, filter)
+		if err != nil {
+			if f.JSONOnError == "error" {
+				return nil, err
+			}
+			return jsonLookupEmpty(ctx, f)
+		}
 	}
 	if len(matches) == 0 {
 		return jsonLookupEmpty(ctx, f)
@@ -85,11 +97,18 @@ func evalJSONLookup(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 		}
 		return v, nil
 	default: // json_query
-		v := matches[0]
-		if strings.HasPrefix(strings.ToUpper(f.JSONWrapper), "WITH") {
-			if _, ok := v.([]any); !ok {
-				v = []any{v}
+		wrap := strings.HasPrefix(strings.ToUpper(f.JSONWrapper), "WITH")
+		if len(matches) > 1 && !wrap {
+			if f.JSONOnError == "error" {
+				return nil, errf("json_error", "JSON_QUERY matched multiple values without a wrapper")
 			}
+			return nil, nil
+		}
+		var v any
+		if wrap {
+			v = matches
+		} else {
+			v = matches[0]
 		}
 		text, err := jsonValueText(v)
 		if err != nil {
@@ -105,6 +124,12 @@ func jsonLookupEmpty(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	}
 	if f.JSONOnEmpty == "default" && f.JSONDefaultEmpty != nil {
 		return evalExpr(ctx, f.JSONDefaultEmpty)
+	}
+	if f.JSONOnEmpty == "empty_array" {
+		return []any{}, nil
+	}
+	if f.JSONOnEmpty == "empty_object" {
+		return map[string]any{}, nil
 	}
 	if f.JSONOnError == "error" {
 		return nil, errf("json_error", "%s found no JSON value", strings.ToUpper(f.Name))
@@ -316,7 +341,11 @@ func (ec *execCtx) relationForJSONTable(t *sql.JSONTable) (*relation, error) {
 	if pathValue == nil {
 		return nil, errf("json_error", "JSON_TABLE path is NULL")
 	}
-	roots, _, err := evalJSONPath(value, fmt.Sprint(pathValue))
+	basePath, filter := splitJSONPathFilter(fmt.Sprint(pathValue))
+	roots, _, err := evalJSONPath(value, basePath)
+	if err == nil && filter != "" {
+		roots, err = filterJSONMatches(&evalCtx{outer: ec.outerEval, exec: ec}, &sql.FuncCall{}, roots, filter)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -393,6 +422,22 @@ func expandJSONTableRows(rows []jsonTableRow, cols []sql.JSONTableColumn) ([]map
 				rows[i].values[strings.ToLower(col.Name)] = int64(rows[i].ordinal)
 				continue
 			}
+			if col.Exists {
+				if col.Path == nil {
+					rows[i].values[strings.ToLower(col.Name)] = false
+					continue
+				}
+				pathValue, err := evalExpr(&evalCtx{}, col.Path)
+				if err != nil {
+					return nil, err
+				}
+				matches, _, err := evalJSONPath(rows[i].node, fmt.Sprint(pathValue))
+				if err != nil {
+					return nil, err
+				}
+				rows[i].values[strings.ToLower(col.Name)] = len(matches) > 0
+				continue
+			}
 			if col.Path == nil {
 				rows[i].values[strings.ToLower(col.Name)] = nil
 				continue
@@ -441,6 +486,101 @@ func expandJSONTableRows(rows []jsonTableRow, cols []sql.JSONTableColumn) ([]map
 		out = append(out, r.values)
 	}
 	return out, nil
+}
+
+func splitJSONPathFilter(raw string) (string, string) {
+	if i := strings.Index(raw, "?"); i >= 0 {
+		base := strings.TrimSpace(raw[:i])
+		filter := strings.TrimSpace(raw[i+1:])
+		filter = strings.TrimSpace(strings.TrimPrefix(filter, "("))
+		filter = strings.TrimSpace(strings.TrimSuffix(filter, ")"))
+		return base, filter
+	}
+	return raw, ""
+}
+
+func filterJSONMatches(ctx *evalCtx, f *sql.FuncCall, matches []any, filter string) ([]any, error) {
+	op, rhs, ok := splitJSONFilter(filter)
+	if !ok {
+		return nil, errf("json_path", "unsupported JSON path filter %q", filter)
+	}
+	vars := map[string]any{}
+	for _, pair := range f.JSONPassing {
+		key := pair.Key.String()
+		if lit, ok := pair.Key.(*sql.Literal); ok {
+			key = fmt.Sprint(lit.Value)
+		}
+		v, err := evalExpr(ctx, pair.Value)
+		if err != nil {
+			return nil, err
+		}
+		vars[key] = v
+	}
+	rhs = strings.TrimSpace(rhs)
+	var right any
+	switch {
+	case strings.HasPrefix(rhs, "$"):
+		name := strings.TrimPrefix(rhs, "$")
+		v, ok := vars[name]
+		if !ok {
+			return nil, errf("json_path", "unknown PASSING variable $%s", name)
+		}
+		right = v
+	case strings.HasPrefix(rhs, "'") && strings.HasSuffix(rhs, "'"):
+		right = strings.TrimSuffix(strings.TrimPrefix(rhs, "'"), "'")
+	case rhs == "true":
+		right = true
+	case rhs == "false":
+		right = false
+	case rhs == "null":
+		right = nil
+	default:
+		fv, err := strconv.ParseFloat(rhs, 64)
+		if err != nil {
+			return nil, errf("json_path", "invalid JSON filter literal %q", rhs)
+		}
+		right = fv
+	}
+	out := make([]any, 0, len(matches))
+	for _, v := range matches {
+		cmp := compareValues(v, right)
+		switch op {
+		case "==":
+			if valuesEqual(v, right) {
+				out = append(out, v)
+			}
+		case "!=":
+			if !valuesEqual(v, right) {
+				out = append(out, v)
+			}
+		case ">":
+			if cmp > 0 {
+				out = append(out, v)
+			}
+		case ">=":
+			if cmp >= 0 {
+				out = append(out, v)
+			}
+		case "<":
+			if cmp < 0 {
+				out = append(out, v)
+			}
+		case "<=":
+			if cmp <= 0 {
+				out = append(out, v)
+			}
+		}
+	}
+	return out, nil
+}
+
+func splitJSONFilter(filter string) (string, string, bool) {
+	for _, op := range []string{"==", "!=", ">=", "<=", ">", "<"} {
+		if i := strings.Index(filter, op); i >= 0 {
+			return op, strings.TrimSpace(filter[i+len(op):]), true
+		}
+	}
+	return "", "", false
 }
 
 func jsonColumnEmpty(col sql.JSONTableColumn) (any, error) {

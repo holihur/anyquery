@@ -222,6 +222,7 @@ type MatchPattern struct {
 	Var        string
 	Quantifier string // "", *, +, ?, {n}
 	Lazy       bool
+	Vars       []string
 	Children   []*MatchPattern
 }
 
@@ -247,6 +248,7 @@ type JSONTableColumn struct {
 	Ordinality   bool
 	NestedPath   Expr
 	Nested       []JSONTableColumn
+	Exists       bool
 	OnEmpty      string
 	OnError      string
 	DefaultEmpty Expr
@@ -932,15 +934,23 @@ func formatJSONFunc(f *FuncCall) string {
 		out += " ABSENT ON NULL"
 	}
 	if f.JSONOnEmpty != "" {
-		out += " ON EMPTY " + strings.ToUpper(f.JSONOnEmpty)
-		if f.JSONOnEmpty == "default" && f.JSONDefaultEmpty != nil {
-			out += " " + f.JSONDefaultEmpty.String()
+		if strings.HasPrefix(f.JSONOnEmpty, "empty_") {
+			out += " EMPTY " + strings.ToUpper(strings.TrimPrefix(f.JSONOnEmpty, "empty_")) + " ON EMPTY"
+		} else {
+			out += " ON EMPTY " + strings.ToUpper(f.JSONOnEmpty)
+			if f.JSONOnEmpty == "default" && f.JSONDefaultEmpty != nil {
+				out += " " + f.JSONDefaultEmpty.String()
+			}
 		}
 	}
 	if f.JSONOnError != "" {
-		out += " ON ERROR " + strings.ToUpper(f.JSONOnError)
-		if f.JSONOnError == "default" && f.JSONDefaultError != nil {
-			out += " " + f.JSONDefaultError.String()
+		if strings.HasPrefix(f.JSONOnError, "empty_") {
+			out += " EMPTY " + strings.ToUpper(strings.TrimPrefix(f.JSONOnError, "empty_")) + " ON ERROR"
+		} else {
+			out += " ON ERROR " + strings.ToUpper(f.JSONOnError)
+			if f.JSONOnError == "default" && f.JSONDefaultError != nil {
+				out += " " + f.JSONDefaultError.String()
+			}
 		}
 	}
 	return out + ")"
@@ -1326,6 +1336,11 @@ func formatJSONTableColumns(cols []JSONTableColumn) string {
 		p := FormatIdent(c.Name)
 		if c.Ordinality {
 			p += " FOR ORDINALITY"
+		} else if c.Exists {
+			p += " EXISTS"
+			if c.Path != nil {
+				p += " PATH " + c.Path.String()
+			}
 		} else {
 			p += " " + c.Type
 			if c.Path != nil {
@@ -1333,9 +1348,15 @@ func formatJSONTableColumns(cols []JSONTableColumn) string {
 			}
 			if c.OnEmpty != "" {
 				p += " ON EMPTY " + strings.ToUpper(c.OnEmpty)
+				if c.OnEmpty == "default" && c.DefaultEmpty != nil {
+					p += " " + c.DefaultEmpty.String()
+				}
 			}
 			if c.OnError != "" {
 				p += " ON ERROR " + strings.ToUpper(c.OnError)
+				if c.OnError == "default" && c.DefaultError != nil {
+					p += " " + c.DefaultError.String()
+				}
 			}
 		}
 		parts = append(parts, p)
@@ -1436,6 +1457,12 @@ func formatMatchPattern(p *MatchPattern) string {
 			}
 		}
 		return s
+	case "permute":
+		parts := make([]string, len(p.Vars))
+		for i, v := range p.Vars {
+			parts[i] = FormatIdent(v)
+		}
+		return "PERMUTE (" + strings.Join(parts, ", ") + ")"
 	case "group":
 		parts := make([]string, len(p.Children))
 		for i, c := range p.Children {

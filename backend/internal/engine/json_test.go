@@ -3,6 +3,8 @@ package engine
 import (
 	"fmt"
 	"testing"
+
+	anysql "github.com/anyquery/anyquery/sql"
 )
 
 func TestJSONScalarFunctions(t *testing.T) {
@@ -131,5 +133,54 @@ func TestJSONTableColumnOptions(t *testing.T) {
 		)) AS jt ORDER BY id`, nil)
 	if res.RowCount != 2 || res.Rows[0]["name"] != "missing" || res.Rows[1]["name"] != "x" {
 		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestJSONTableFormatterPreservesDefaults(t *testing.T) {
+	query := `SELECT id FROM JSON_TABLE('{"a":[{}]}', '$.a[*]' COLUMNS (id INT PATH '$.id' DEFAULT 7 ON EMPTY)) AS jt`
+	res, err := New(DefaultOptions()).Execute(t.Context(), query, testCatalog())
+	if err != nil || res.Rows[0]["id"] != int64(7) {
+		t.Fatalf("original: %v %+v", err, res)
+	}
+	stmt, err := anysql.Parse(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	formatted := anysql.FormatStatement(stmt)
+	res, err = New(DefaultOptions()).Execute(t.Context(), formatted, testCatalog())
+	if err != nil || res.Rows[0]["id"] != int64(7) {
+		t.Fatalf("formatted %q: %v %+v", formatted, err, res)
+	}
+}
+
+func TestJSONQueryWrappersAndReturning(t *testing.T) {
+	res := execParams(t, `SELECT
+		JSON_QUERY('{"a":[1,2]}', '$.a[*]' WITH WRAPPER) AS wrapped,
+		JSON_VALUE('{"a":1.96}', '$.a' RETURNING DECIMAL(10,1)) AS rounded,
+		JSON_VALUE('{"a":"abcdef"}', '$.a' RETURNING CHAR(3)) AS shortened`, nil)
+	row := res.Rows[0]
+	if row["wrapped"] != `[1,2]` || row["rounded"] != 2.0 || row["shortened"] != "abc" {
+		t.Fatalf("row = %+v", row)
+	}
+}
+
+func TestJSONTableExistsPath(t *testing.T) {
+	res := execParams(t, `SELECT id, has FROM JSON_TABLE(
+		'{"items":[{"id":1,"x":1},{"id":2}]}', '$.items[*]' COLUMNS (
+			id INT PATH '$.id', has EXISTS PATH '$.x'
+		)) AS jt ORDER BY id`, nil)
+	if res.Rows[0]["has"] != true || res.Rows[1]["has"] != false {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestJSONPathPredicatesAndPassing(t *testing.T) {
+	res := execParams(t, `SELECT
+		JSON_EXISTS('{"a":1}', '$.a ? (@ == $x)' PASSING 1 AS x) AS passing,
+		JSON_EXISTS('{"a":[1,2]}', '$.a[*] ? (@ > 1)') AS filtered,
+		JSON_QUERY('{"a":[1,2]}', '$.a[*] ? (@ > 1)' WITH WRAPPER) AS wrapped`, nil)
+	row := res.Rows[0]
+	if row["passing"] != true || row["filtered"] != true || row["wrapped"] != `[2]` {
+		t.Fatalf("row = %+v", row)
 	}
 }

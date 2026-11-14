@@ -111,3 +111,16 @@ func TestLikeEscapeAndSimilarTo(t *testing.T) {
 		t.Fatalf("row = %+v", row)
 	}
 }
+
+func TestLikeEscapeExactAndSQLRegex(t *testing.T) {
+	res := execParams(t, `SELECT
+		'a_b' LIKE 'a!_b' ESCAPE '!' AS escaped,
+		'a!b' LIKE 'a!b' ESCAPE '!' AS literal,
+		'abc' SIMILAR TO 'a(b|c)c' AS group,
+		'abbc' SIMILAR TO 'a(b)+c' AS plus,
+		'abc' SIMILAR TO '[a-z]+' AS class`, nil)
+	row := res.Rows[0]
+	if row["escaped"] != true || row["literal"] != true || row["group"] != true || row["plus"] != true || row["class"] != true {
+		t.Fatalf("row = %+v", row)
+	}
+}
