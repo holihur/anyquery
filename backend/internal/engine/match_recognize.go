@@ -76,8 +76,8 @@ func (ec *execCtx) relationForMatchRecognize(m *sql.MatchRecognize) (*relation, 
 		cols = append(cols, ResultColumn{Name: measure.Alias, Type: "string"})
 	}
 	ds := &dataset{columns: dedupeResultColumns(cols)}
-	matchNo := 0
 	for _, key := range order {
+		matchNo := 0
 		p := parts[key]
 		if len(m.OrderBy) > 0 {
 			keys := make([][]any, len(p.rows))

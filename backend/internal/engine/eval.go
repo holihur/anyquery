@@ -469,18 +469,23 @@ func evalBinary(ctx *evalCtx, b *sql.BinaryExpr) (any, error) {
 	if op == "||" {
 		return toString(+0, left) + toString(0, right), nil
 	}
-	if op == "+" {
-		if s, ok := left.(string); ok {
+	if op == "+" || op == "-" {
+		if str, ok := left.(string); ok {
 			if iv, ok := right.(intervalValue); ok {
-				if out, ok := addTimeOnlyInterval(s, iv); ok {
+				if op == "-" {
+					iv = iv.neg()
+				}
+				if out, ok := addTimeOnlyInterval(str, iv); ok {
 					return out, nil
 				}
 			}
 		}
-		if s, ok := right.(string); ok {
-			if iv, ok := left.(intervalValue); ok {
-				if out, ok := addTimeOnlyInterval(s, iv); ok {
-					return out, nil
+		if op == "+" {
+			if str, ok := right.(string); ok {
+				if iv, ok := left.(intervalValue); ok {
+					if out, ok := addTimeOnlyInterval(str, iv); ok {
+						return out, nil
+					}
 				}
 			}
 		}
@@ -1653,6 +1658,9 @@ func evalAggregate(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	case "count":
 		return int64(len(values)), nil
 	case "sum", "avg":
+		if len(values) == 0 {
+			return nil, nil
+		}
 		var sum float64
 		allInt := true
 		for _, v := range values {

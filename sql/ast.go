@@ -30,6 +30,7 @@ type SelectStmt struct {
 	OffsetExpr    Expr // set instead of Offset when the offset is an expression
 	FetchWithTies bool
 	FetchPercent  bool
+	Fetch         bool
 	SetOps        []SetOperation
 	Windows       []NamedWindow
 	Pipes         []PipeStage
@@ -546,7 +547,7 @@ func (*ExistsExpr) exprNode() { _ = 0 }
 
 type RowExpr struct{ Values []Expr }
 
-func (*RowExpr) exprNode() {}
+func (*RowExpr) exprNode() { _ = 0 }
 
 func (r *RowExpr) String() string {
 	parts := make([]string, len(r.Values))
@@ -1094,7 +1095,7 @@ func FormatSelect(s *SelectStmt) string {
 		sb.WriteString(" ORDER BY ")
 		sb.WriteString(formatOrder(s.OrderBy))
 	}
-	if (s.FetchWithTies || s.FetchPercent) && (s.Limit != nil || s.LimitExpr != nil) {
+	if (s.Fetch || s.FetchWithTies || s.FetchPercent) && (s.Limit != nil || s.LimitExpr != nil) {
 		if s.Offset != nil || s.OffsetExpr != nil {
 			sb.WriteString(" OFFSET " + formatRowCount(s.Offset, s.OffsetExpr))
 		}

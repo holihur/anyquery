@@ -43,7 +43,7 @@ func TestWindowExclude(t *testing.T) {
 	current := execParams(t, `SELECT id, sum(total) OVER (
 		ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW
 	) AS s FROM mongo.orders ORDER BY id`, nil)
-	want := []any{int64(0), float64(100), float64(150), float64(350)}
+	want := []any{nil, float64(100), float64(150), float64(350)}
 	for i, row := range current.Rows {
 		if row["s"] != want[i] {
 			t.Fatalf("current row %d = %+v, want %v", i, row, want[i])
@@ -52,9 +52,10 @@ func TestWindowExclude(t *testing.T) {
 	group := execParams(t, `SELECT id, sum(total) OVER (
 		ORDER BY region ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE GROUP
 	) AS s FROM mongo.orders ORDER BY id`, nil)
+	groupWant := []any{float64(225), float64(225), nil, nil}
 	for i, row := range group.Rows {
-		if row["s"] == nil {
-			t.Fatalf("group row %d = %+v", i, row)
+		if row["s"] != groupWant[i] {
+			t.Fatalf("group row %d = %+v, want %v", i, row, groupWant[i])
 		}
 	}
 }
@@ -121,5 +122,24 @@ func TestRangeIntervalFrame(t *testing.T) {
 	) AS t(id, ts, x) ORDER BY id`, nil)
 	if res.Rows[0]["s"] != int64(10) || res.Rows[1]["s"] != int64(30) || res.Rows[2]["s"] != int64(30) {
 		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestRangeIntervalDescending(t *testing.T) {
+	res := execParams(t, `SELECT id, sum(x) OVER (
+		ORDER BY ts DESC RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW
+	) AS s FROM (VALUES
+		(1, TIMESTAMP '2024-01-01 00:00:00', 10),
+		(2, TIMESTAMP '2024-01-01 12:00:00', 20),
+		(3, TIMESTAMP '2024-01-03 00:00:00', 30)
+	) AS t(id, ts, x) ORDER BY id`, nil)
+	want := []any{int64(30), int64(20), int64(30)}
+	for i, row := range res.Rows {
+		if row["s"] != want[i] {
+			t.Fatalf("row %d = %+v, want %v", i, row, want[i])
+		}
+	}
+	if _, err := New(DefaultOptions()).Execute(t.Context(), `SELECT sum(x) OVER (ORDER BY a, b RANGE BETWEEN 1 PRECEDING AND CURRENT ROW) FROM (VALUES (1,2,3)) AS t(a,b,x)`, testCatalog()); err == nil {
+		t.Fatal("expected RANGE offset order error")
 	}
 }

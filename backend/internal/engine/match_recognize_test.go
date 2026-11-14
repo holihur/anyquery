@@ -183,3 +183,13 @@ func TestMatchRecognizeSkipToLastAndRunningOneRow(t *testing.T) {
 		t.Fatalf("running = %+v", running.Rows)
 	}
 }
+
+func TestMatchNumberRestartsPerPartition(t *testing.T) {
+	res := execParams(t, `SELECT region, m FROM mongo.orders MATCH_RECOGNIZE (
+		PARTITION BY region ORDER BY id MEASURES match_number() AS m
+		ONE ROW PER MATCH PATTERN (A+) DEFINE A AS status='paid'
+	) AS mr ORDER BY region`, nil)
+	if res.Rows[0]["m"] != int64(1) || res.Rows[1]["m"] != int64(1) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}

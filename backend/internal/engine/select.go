@@ -131,6 +131,11 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 	if winErr != nil {
 		return nil, winErr
 	}
+	for _, call := range windowCalls {
+		if err := validateWindowFrame(call.Window); err != nil {
+			return nil, err
+		}
+	}
 	var windowValues []map[string]any
 	if len(windowCalls) > 0 && len(s.GroupingSets) > 0 {
 		return nil, &Error{Code: "invalid_window", Message: "window functions are not supported with GROUPING SETS", Hint: "use a CTE for grouped results, then apply the window"}

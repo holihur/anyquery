@@ -310,6 +310,7 @@ func (p *Parser) parseSelectTail(s *SelectStmt) error {
 		s.Offset, s.OffsetExpr = n, expr
 	}
 	if p.cur.IsKeyword("FETCH") {
+		s.Fetch = true
 		p.advance()
 		if p.cur.IsKeyword("FIRST") || p.cur.IsKeyword("NEXT") {
 			p.advance()
@@ -2672,6 +2673,9 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 		}
 	case "JSON_OBJECT":
 		for {
+			if p.cur.IsKeyword("KEY") {
+				p.advance()
+			}
 			key, err := p.parseExpr(0)
 			if err != nil {
 				return nil, err

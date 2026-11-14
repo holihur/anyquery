@@ -167,3 +167,21 @@ func TestDateTimeExtensions(t *testing.T) {
 		t.Fatalf("row = %+v", row)
 	}
 }
+
+func TestSumEmptyIsNull(t *testing.T) {
+	res := execParams(t, "SELECT sum(total) AS s FROM mongo.orders WHERE id > 100", nil)
+	if res.Rows[0]["s"] != nil {
+		t.Fatalf("empty sum = %+v", res.Rows[0])
+	}
+	res = execParams(t, "SELECT sum(x) AS s FROM (VALUES (NULL)) AS t(x)", nil)
+	if res.Rows[0]["s"] != nil {
+		t.Fatalf("null sum = %+v", res.Rows[0])
+	}
+}
+
+func TestTimeSubtractInterval(t *testing.T) {
+	res := execParams(t, "SELECT TIME '00:30:00' - INTERVAL '1' HOUR AS t", nil)
+	if res.Rows[0]["t"] != "23:30:00" {
+		t.Fatalf("time = %+v", res.Rows[0])
+	}
+}

@@ -389,6 +389,9 @@ func (ec *execCtx) evalWindowAggregate(src *windowSource, f *sql.FuncCall, idxs 
 	case "count":
 		return int64(len(values)), nil
 	case "sum", "avg":
+		if len(values) == 0 {
+			return nil, nil
+		}
 		var sum float64
 		allInt := true
 		for _, v := range values {
@@ -499,6 +502,17 @@ func sameOrderKeys(a, b []any) bool {
 // positions. RANGE frames use peer groups for UNBOUNDED/CURRENT bounds and
 // value offsets for a single numeric ORDER BY key; other RANGE offsets fall
 // back to row positions.
+func validateWindowFrame(w *sql.WindowSpec) error {
+	if w == nil || w.FrameKind != "RANGE" {
+		return nil
+	}
+	needsOrder := w.FrameStart == "preceding" || w.FrameStart == "following" || w.FrameEnd == "preceding" || w.FrameEnd == "following" || w.FrameStartExpr != nil || w.FrameEndExpr != nil
+	if needsOrder && len(w.OrderBy) != 1 {
+		return errf("invalid_window", "RANGE with offset bounds requires exactly one ORDER BY expression")
+	}
+	return nil
+}
+
 func windowFrame(w *sql.WindowSpec, pos, n int, orderKeys [][]any) (int, int) {
 	if n == 0 {
 		return 0, -1
@@ -640,7 +654,7 @@ func rangeFrameBound(kind string, offset int, frameExpr sql.Expr, pos, n int, or
 		if intervalExpr, ok := frameExpr.(*sql.IntervalExpr); ok {
 			iv, err := parseInterval(intervalExpr.Value, intervalExpr.Qualifier)
 			if err == nil {
-				return intervalRangeFrame(kind, iv, pos, n, orderKeys, start)
+				return intervalRangeFrame(kind, iv, pos, n, orderKeys, start, len(order) > 0 && order[0].Desc)
 			}
 		}
 	}
@@ -709,7 +723,7 @@ func rangeFrameBound(kind string, offset int, frameExpr sql.Expr, pos, n int, or
 	return n - 1
 }
 
-func intervalRangeFrame(kind string, iv intervalValue, pos, n int, orderKeys [][]any, start bool) int {
+func intervalRangeFrame(kind string, iv intervalValue, pos, n int, orderKeys [][]any, start, desc bool) int {
 	if pos < 0 || pos >= n || len(orderKeys) == 0 || len(orderKeys[pos]) == 0 {
 		if start {
 			return 0
@@ -721,6 +735,9 @@ func intervalRangeFrame(kind string, iv intervalValue, pos, n int, orderKeys [][
 	if kind == "preceding" {
 		sign = -1
 	}
+	if desc {
+		sign = -sign
+	}
 	if t, ok := toTime(base); ok {
 		target := addInterval(t, iv)
 		if sign < 0 {
@@ -731,7 +748,11 @@ func intervalRangeFrame(kind string, iv intervalValue, pos, n int, orderKeys [][
 				if len(orderKeys[i]) == 0 {
 					continue
 				}
-				if vt, ok := toTime(orderKeys[i][0]); ok && !vt.Before(target) {
+				vt, ok := toTime(orderKeys[i][0])
+				if !ok {
+					continue
+				}
+				if (!desc && !vt.Before(target)) || (desc && !vt.After(target)) {
 					return i
 				}
 			}
@@ -741,7 +762,11 @@ func intervalRangeFrame(kind string, iv intervalValue, pos, n int, orderKeys [][
 			if len(orderKeys[i]) == 0 {
 				continue
 			}
-			if vt, ok := toTime(orderKeys[i][0]); ok && !vt.After(target) {
+			vt, ok := toTime(orderKeys[i][0])
+			if !ok {
+				continue
+			}
+			if (!desc && !vt.After(target)) || (desc && !vt.Before(target)) {
 				return i
 			}
 		}
@@ -764,7 +789,11 @@ func intervalRangeFrame(kind string, iv intervalValue, pos, n int, orderKeys [][
 			if len(orderKeys[i]) == 0 {
 				continue
 			}
-			if v, ok := toFloat(orderKeys[i][0]); ok && v >= target {
+			v, ok := toFloat(orderKeys[i][0])
+			if !ok {
+				continue
+			}
+			if (!desc && v >= target) || (desc && v <= target) {
 				return i
 			}
 		}
@@ -774,7 +803,11 @@ func intervalRangeFrame(kind string, iv intervalValue, pos, n int, orderKeys [][
 		if len(orderKeys[i]) == 0 {
 			continue
 		}
-		if v, ok := toFloat(orderKeys[i][0]); ok && v <= target {
+		v, ok := toFloat(orderKeys[i][0])
+		if !ok {
+			continue
+		}
+		if (!desc && v <= target) || (desc && v >= target) {
 			return i
 		}
 	}

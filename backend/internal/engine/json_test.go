@@ -252,3 +252,13 @@ func TestJSONPathLastArithmeticAndRegexFlag(t *testing.T) {
 		t.Fatalf("row = %+v", row)
 	}
 }
+
+func TestJSONQuotedMemberAndKeyKeyword(t *testing.T) {
+	res := execParams(t, `SELECT
+		JSON_VALUE('{"a b":1}', '$."a b"') AS quoted,
+		JSON_EXISTS('{"a":1}', '$."a"') AS exists,
+		JSON_OBJECT(KEY 'a' VALUE 1) AS obj`, nil)
+	if res.Rows[0]["quoted"] != float64(1) || res.Rows[0]["exists"] != true {
+		t.Fatalf("row = %+v", res.Rows[0])
+	}
+}

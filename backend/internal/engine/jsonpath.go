@@ -55,6 +55,9 @@ func parseJSONPath(raw string) (jsonPathQuery, error) {
 				i++
 			}
 			name := strings.TrimSpace(path[start:i])
+			if len(name) >= 2 && (name[0] == '"' && name[len(name)-1] == '"' || name[0] == '\'' && name[len(name)-1] == '\'') {
+				name = name[1 : len(name)-1]
+			}
 			if name == "" {
 				return q, errf("json_path", "empty JSON path member")
 			}

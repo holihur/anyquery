@@ -689,3 +689,24 @@ func TestExcludeAndSkipFormatterRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestFetchOffsetParameterRoundTrip(t *testing.T) {
+	q := "SELECT id FROM t ORDER BY id OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
+	st, err := Parse(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := FormatStatement(st)
+	if _, err := Parse(out); err != nil {
+		t.Fatalf("formatted %q: %v", out, err)
+	}
+	if !strings.Contains(out, "FETCH FIRST") {
+		t.Fatalf("lost FETCH: %s", out)
+	}
+}
+
+func TestJSONObjectKeyKeyword(t *testing.T) {
+	if _, err := Parse("SELECT JSON_OBJECT(KEY 'a' VALUE 1)"); err != nil {
+		t.Fatal(err)
+	}
+}
