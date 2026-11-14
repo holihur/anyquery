@@ -571,3 +571,18 @@ func TestAdvancedJSONAndMatchRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestCTEValuesFromTableAndLocalTime(t *testing.T) {
+	for _, q := range []string{
+		"WITH x(a, b) AS (VALUES (1, 'a')) SELECT * FROM x",
+		"WITH RECURSIVE x(n) AS (VALUES (1) UNION ALL SELECT n + 1 FROM x WHERE n < 3) SELECT * FROM x",
+		"SELECT * FROM (TABLE mongo.orders) AS t",
+		"SELECT LOCALTIME, LOCALTIMESTAMP",
+		"SELECT JSON_EXISTS('{\"a\":1}', '$.b' TRUE ON ERROR)",
+		"SELECT JSON_EXISTS('{\"a\":1}', '$.b' FALSE ON ERROR)",
+	} {
+		if _, err := Parse(q); err != nil {
+			t.Errorf("%q: %v", q, err)
+		}
+	}
+}

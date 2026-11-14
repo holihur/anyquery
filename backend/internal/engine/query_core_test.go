@@ -191,3 +191,26 @@ func TestUnionJoin(t *testing.T) {
 		t.Fatalf("union join rows = %d %+v", res.RowCount, res.Rows)
 	}
 }
+
+func TestCTEColumnAliases(t *testing.T) {
+	res := execParams(t, `WITH x(a, b) AS (SELECT id, region FROM mongo.orders)
+		SELECT a, b FROM x ORDER BY a`, nil)
+	if res.RowCount != 4 || res.Rows[0]["a"] != int64(1) || res.Rows[0]["b"] != "EU" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestCTEValuesAndFromTable(t *testing.T) {
+	res := execParams(t, "WITH x(a, b) AS (VALUES (1, 'a'), (2, 'b')) SELECT a, b FROM x ORDER BY a", nil)
+	if res.RowCount != 2 || res.Rows[0]["a"] != int64(1) || res.Rows[1]["b"] != "b" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	res = execParams(t, "WITH RECURSIVE x(n) AS (VALUES (1) UNION ALL SELECT n + 1 FROM x WHERE n < 3) SELECT count(*) AS n FROM x", nil)
+	if res.Rows[0]["n"] != int64(3) {
+		t.Fatalf("recursive values = %+v", res.Rows)
+	}
+	res = execParams(t, "SELECT t.id FROM (TABLE mongo.orders) AS t ORDER BY t.id LIMIT 2", nil)
+	if res.RowCount != 2 || res.Rows[0]["id"] != int64(1) {
+		t.Fatalf("table derived = %+v", res.Rows)
+	}
+}

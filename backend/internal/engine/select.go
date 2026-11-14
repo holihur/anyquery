@@ -41,8 +41,10 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 			if len(cte.Columns) != len(ds.columns) {
 				return nil, errf("cte_error", "CTE %q declares %d columns but returns %d", cte.Name, len(cte.Columns), len(ds.columns))
 			}
-			for i := range ds.columns {
-				ds.columns[i].Name = cte.Columns[i]
+			var err error
+			ds, err = renameDatasetColumns(ds, cte.Columns)
+			if err != nil {
+				return nil, err
 			}
 		}
 		key := strings.ToLower(cte.Name)

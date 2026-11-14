@@ -1312,11 +1312,11 @@ func dateAdd(unit string, amount int, v any) (any, error) {
 	}
 	switch strings.ToLower(unit) {
 	case "year":
-		t = t.AddDate(amount, 0, 0)
+		t = addMonthsClamped(t, amount*12)
 	case "quarter":
-		t = t.AddDate(0, amount*3, 0)
+		t = addMonthsClamped(t, amount*3)
 	case "month":
-		t = t.AddDate(0, amount, 0)
+		t = addMonthsClamped(t, amount)
 	case "week":
 		t = t.AddDate(0, 0, amount*7)
 	case "day":

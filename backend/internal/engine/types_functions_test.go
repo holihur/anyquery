@@ -124,3 +124,19 @@ func TestLikeEscapeExactAndSQLRegex(t *testing.T) {
 		t.Fatalf("row = %+v", row)
 	}
 }
+
+func TestIntervalMonthEndClamping(t *testing.T) {
+	res := execParams(t, `SELECT
+		DATE '2024-01-31' + INTERVAL '1' MONTH AS jan,
+		DATE '2024-02-29' + INTERVAL '1' YEAR AS leap`, nil)
+	if res.Rows[0]["jan"] != "2024-02-29T00:00:00Z" || res.Rows[0]["leap"] != "2025-02-28T00:00:00Z" {
+		t.Fatalf("row = %+v", res.Rows[0])
+	}
+}
+
+func TestLocalDateTime(t *testing.T) {
+	res := execParams(t, "SELECT LOCALTIME AS t, LOCALTIMESTAMP AS ts", nil)
+	if res.Rows[0]["t"] == nil || res.Rows[0]["ts"] == nil {
+		t.Fatalf("row = %+v", res.Rows[0])
+	}
+}

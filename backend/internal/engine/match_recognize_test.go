@@ -142,3 +142,16 @@ func TestMatchRecognizePermutePattern(t *testing.T) {
 		t.Fatal("expected permute matches")
 	}
 }
+
+func TestMatchRecognizeQualifiedPrev(t *testing.T) {
+	res := execParams(t, `SELECT id, p FROM mongo.orders MATCH_RECOGNIZE (
+		PARTITION BY region ORDER BY id
+		MEASURES PREV(A.total) AS p
+		ALL ROWS PER MATCH
+		PATTERN (A B*)
+		DEFINE A AS status = 'paid', B AS total > 0
+	) AS mr ORDER BY id`, nil)
+	if res.Rows[1]["p"] != float64(100) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}

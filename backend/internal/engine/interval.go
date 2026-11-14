@@ -79,8 +79,28 @@ func (iv intervalValue) compare(o intervalValue) int {
 }
 
 func addInterval(t time.Time, iv intervalValue) time.Time {
-	t = t.AddDate(0, iv.months, iv.days)
+	t = addMonthsClamped(t, iv.months)
+	t = t.AddDate(0, 0, iv.days)
 	return t.Add(time.Duration(iv.nanos))
+}
+
+func addMonthsClamped(t time.Time, months int) time.Time {
+	if months == 0 {
+		return t
+	}
+	total := int(t.Month()) - 1 + months
+	year := t.Year() + total/12
+	month := time.Month(total%12 + 1)
+	if total%12 < 0 {
+		year--
+		month = 12
+	}
+	day := t.Day()
+	last := time.Date(year, month+1, 0, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location()).Day()
+	if day > last {
+		day = last
+	}
+	return time.Date(year, month, day, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
 }
 
 func intervalBetween(start, end time.Time) intervalValue {

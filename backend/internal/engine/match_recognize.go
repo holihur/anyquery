@@ -261,13 +261,29 @@ func matchBase(p *sql.MatchPattern, pos int, rows []mrRow, rel *relation, defs m
 		return matchPattern(p.Children[0], pos, rows, rel, defs, ec)
 	case "permute":
 		var out []mrState
-		for _, v := range p.Vars {
-			term := &sql.MatchPattern{Kind: "var", Var: v}
-			sub, err := matchBase(term, pos, rows, rel, defs, ec)
-			if err != nil {
-				return nil, err
+		var walk func(order []string, at int, bindings map[string][]int) error
+		walk = func(order []string, at int, bindings map[string][]int) error {
+			if len(order) == 0 {
+				out = append(out, mrState{pos: at, bindings: bindings})
+				return nil
 			}
-			out = append(out, sub...)
+			for i, v := range order {
+				term := &sql.MatchPattern{Kind: "var", Var: v}
+				sub, err := matchBase(term, at, rows, rel, defs, ec)
+				if err != nil {
+					return err
+				}
+				next := append(append([]string{}, order[:i]...), order[i+1:]...)
+				for _, st := range sub {
+					if err := walk(next, st.pos, mergeBindings(bindings, st.bindings)); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}
+		if err := walk(append([]string{}, p.Vars...), pos, map[string][]int{}); err != nil {
+			return nil, err
 		}
 		return out, nil
 	case "alt":
@@ -377,11 +393,19 @@ func (ec *execCtx) evalMRMeasure(e sql.Expr, rows []mrRow, start, end, current i
 			if len(f.Args) != 1 {
 				return nil, errf("match_recognize_error", "PREV expects one argument")
 			}
-			if current <= start {
+			arg := f.Args[0]
+			at := current - 1
+			if ref, ok := arg.(*sql.ColumnRef); ok && len(ref.Parts) > 1 {
+				if idxs := bindings[strings.ToLower(ref.Parts[0])]; len(idxs) > 0 {
+					at = idxs[len(idxs)-1]
+					arg = &sql.ColumnRef{Parts: ref.Parts[1:]}
+				}
+			}
+			if at < start || at >= end {
 				return nil, nil
 			}
-			ctx := &evalCtx{rel: rel, row: rows[current-1].row, outer: ec.outerEval, exec: ec}
-			return evalExpr(ctx, f.Args[0])
+			ctx := &evalCtx{rel: rel, row: rows[at].row, outer: ec.outerEval, exec: ec}
+			return evalExpr(ctx, arg)
 		case "first", "last":
 			if len(f.Args) != 1 {
 				return nil, errf("match_recognize_error", "%s expects one argument", strings.ToUpper(name))

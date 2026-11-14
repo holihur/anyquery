@@ -184,3 +184,23 @@ func TestJSONPathPredicatesAndPassing(t *testing.T) {
 		t.Fatalf("row = %+v", row)
 	}
 }
+
+func TestJSONExistsFalseAndWrapperEdges(t *testing.T) {
+	res := execParams(t, `SELECT
+		JSON_EXISTS('{"a":1}', '$.b') AS missing,
+		JSON_EXISTS('{"a":1}', '$.a ? (@ == $x)' PASSING 2 AS x) AS passing_false,
+		JSON_QUERY('{"a":1}', '$.a' WITHOUT ARRAY WRAPPER) AS scalar_text,
+		JSON_QUERY('{"a":[1,2]}', '$.a' WITH CONDITIONAL WRAPPER) AS conditional,
+		JSON_QUERY('{"a":[1,2]}', '$.a' WITH ARRAY WRAPPER) AS array_wrapper`, nil)
+	row := res.Rows[0]
+	if row["missing"] != false || row["passing_false"] != false || row["scalar_text"] != "1" || row["conditional"] != `[1,2]` || row["array_wrapper"] != `[[1,2]]` {
+		t.Fatalf("row = %+v", row)
+	}
+	if _, err := New(DefaultOptions()).Execute(t.Context(), `SELECT JSON_QUERY('{"a":1}', '$.a')`, testCatalog()); err == nil {
+		t.Fatal("expected scalar JSON_QUERY error")
+	}
+	falseErr := execParams(t, `SELECT JSON_EXISTS('{"a":1}', 'strict $.b' FALSE ON ERROR) AS x`, nil)
+	if falseErr.Rows[0]["x"] != false {
+		t.Fatalf("false on error = %+v", falseErr.Rows[0])
+	}
+}

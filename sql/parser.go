@@ -551,9 +551,32 @@ func (p *Parser) parseCTEs() ([]*CTE, error) {
 		if err := p.expectPunct("("); err != nil {
 			return nil, err
 		}
-		sub, err := p.parseSelect()
-		if err != nil {
-			return nil, err
+		var sub *SelectStmt
+		if p.cur.IsKeyword("VALUES") {
+			p.advance()
+			rows, err := p.parseValuesRows()
+			if err != nil {
+				return nil, err
+			}
+			sub = &SelectStmt{
+				From:        []TableExpr{&ValuesTable{Rows: rows, Alias: name, Columns: c.Columns}},
+				Projections: []SelectItem{{Star: true}},
+			}
+			if p.cur.IsKeyword("UNION") || p.cur.IsKeyword("INTERSECT") || p.cur.IsKeyword("EXCEPT") {
+				sub, err = p.parseSetOperations(sub, 1)
+				if err != nil {
+					return nil, err
+				}
+				if err := p.parseSelectTail(sub); err != nil {
+					return nil, err
+				}
+			}
+		} else {
+			var err error
+			sub, err = p.parseSelect()
+			if err != nil {
+				return nil, err
+			}
 		}
 		if err := p.expectPunct(")"); err != nil {
 			return nil, err
@@ -1042,6 +1065,27 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 		p.advance()
 		if p.cur.IsKeyword("VALUES") {
 			return p.parseValuesTable()
+		}
+		if p.cur.IsKeyword("TABLE") {
+			p.advance()
+			parts, err := p.parseQualifiedName()
+			if err != nil {
+				return nil, err
+			}
+			ref := &TableRef{}
+			if len(parts) == 1 {
+				ref.Table = parts[0]
+			} else {
+				ref.Source, ref.Table = parts[0], strings.Join(parts[1:], ".")
+			}
+			if err := p.expectPunct(")"); err != nil {
+				return nil, err
+			}
+			alias, cols, err := p.parseTableAlias(true)
+			if err != nil {
+				return nil, err
+			}
+			return &DerivedTable{Query: &SelectStmt{From: []TableExpr{ref}, Projections: []SelectItem{{Star: true}}}, Alias: alias, Columns: cols}, nil
 		}
 		if !p.cur.IsKeyword("SELECT") && !p.cur.IsKeyword("WITH") && !p.cur.IsKeyword("FROM") {
 			return nil, p.errf("expected subquery or VALUES after '(' in FROM")
@@ -2188,16 +2232,23 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		}
 		return &ExistsExpr{Query: sub}, nil
 
-	case t.IsKeyword("CURRENT_TIMESTAMP"), t.IsKeyword("CURRENT_DATE"), t.IsKeyword("CURRENT_TIME"), t.IsKeyword("NOW"):
+	case t.IsKeyword("CURRENT_TIMESTAMP"), t.IsKeyword("CURRENT_DATE"), t.IsKeyword("CURRENT_TIME"), t.IsKeyword("NOW"), t.IsKeyword("LOCALTIMESTAMP"), t.IsKeyword("LOCALTIME"):
+		name := strings.ToLower(t.Value)
+		if name == "localtimestamp" {
+			name = "current_timestamp"
+		}
+		if name == "localtime" {
+			name = "current_time"
+		}
 		p.advance()
 		if p.cur.IsPunct("(") {
 			args, err := p.parseCallArgs()
 			if err != nil {
 				return nil, err
 			}
-			return &FuncCall{Name: strings.ToLower(t.Value), Args: args}, nil
+			return &FuncCall{Name: name, Args: args}, nil
 		}
-		return &FuncCall{Name: strings.ToLower(t.Value)}, nil
+		return &FuncCall{Name: name}, nil
 
 	case t.IsPunct("("):
 		p.advance()
@@ -2682,7 +2733,7 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 		}
 		// SQL:2016 puts the behavior after ON, but accept the compact
 		// "<behavior> ON EMPTY|ERROR" spelling used by several clients too.
-		if (p.cur.IsKeyword("ERROR") || p.cur.IsKeyword("NULL")) && p.peek.IsKeyword("ON") {
+		if (p.cur.IsKeyword("ERROR") || p.cur.IsKeyword("NULL") || p.cur.IsKeyword("TRUE") || p.cur.IsKeyword("FALSE")) && p.peek.IsKeyword("ON") {
 			behavior := strings.ToLower(p.cur.Value)
 			p.advance()
 			p.advance()
@@ -2780,6 +2831,12 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 				p.advance()
 			case p.cur.IsKeyword("NULL"):
 				*field = "null"
+				p.advance()
+			case p.cur.IsKeyword("TRUE"):
+				*field = "true"
+				p.advance()
+			case p.cur.IsKeyword("FALSE"):
+				*field = "false"
 				p.advance()
 			case p.cur.IsKeyword("DEFAULT"):
 				*field = "default"

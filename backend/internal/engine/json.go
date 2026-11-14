@@ -56,21 +56,21 @@ func evalJSONLookup(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	basePath, filter := splitJSONPathFilter(pathText)
 	matches, query, err := evalJSONPath(value, basePath)
 	if err != nil {
-		if query.strict || f.JSONOnError == "error" {
+		if query.strict && !strings.EqualFold(f.Name, "json_exists") {
 			return nil, err
 		}
-		return jsonLookupEmpty(ctx, f)
+		return jsonExistsOrEmpty(ctx, f, err)
 	}
 	if filter != "" {
 		matches, err = filterJSONMatches(ctx, f, matches, filter)
 		if err != nil {
-			if f.JSONOnError == "error" {
-				return nil, err
-			}
-			return jsonLookupEmpty(ctx, f)
+			return jsonExistsOrEmpty(ctx, f, err)
 		}
 	}
 	if len(matches) == 0 {
+		if strings.EqualFold(f.Name, "json_exists") {
+			return jsonExistsDefault(f), nil
+		}
 		return jsonLookupEmpty(ctx, f)
 	}
 	switch strings.ToLower(f.Name) {
@@ -97,18 +97,28 @@ func evalJSONLookup(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 		}
 		return v, nil
 	default: // json_query
-		wrap := strings.HasPrefix(strings.ToUpper(f.JSONWrapper), "WITH")
-		if len(matches) > 1 && !wrap {
-			if f.JSONOnError == "error" {
+		upper := strings.ToUpper(f.JSONWrapper)
+		wrap := strings.HasPrefix(upper, "WITH") && !strings.HasPrefix(upper, "WITHOUT")
+		conditional := strings.Contains(upper, "CONDITIONAL")
+		v := matches[0]
+		if wrap && (!conditional || !isJSONArray(v)) {
+			if len(matches) > 1 || isJSONArray(v) {
+				v = matches
+			} else {
+				v = []any{v}
+			}
+		}
+		if !wrap {
+			if len(matches) > 1 {
 				return nil, errf("json_error", "JSON_QUERY matched multiple values without a wrapper")
 			}
-			return nil, nil
-		}
-		var v any
-		if wrap {
-			v = matches
-		} else {
-			v = matches[0]
+			if strings.HasPrefix(upper, "WITHOUT") {
+				// WITHOUT wrapper returns the scalar/object text directly.
+			} else if _, ok := v.(map[string]any); !ok {
+				if !isJSONArray(v) {
+					return nil, errf("json_error", "JSON_QUERY requires an object or array result without a wrapper")
+				}
+			}
 		}
 		text, err := jsonValueText(v)
 		if err != nil {
@@ -116,6 +126,36 @@ func evalJSONLookup(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 		}
 		return text, nil
 	}
+}
+
+func isJSONArray(v any) bool { _, ok := v.([]any); return ok }
+
+func jsonExistsDefault(f *sql.FuncCall) any {
+	switch f.JSONOnError {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	return false
+}
+
+func jsonExistsOrEmpty(ctx *evalCtx, f *sql.FuncCall, err error) (any, error) {
+	if strings.EqualFold(f.Name, "json_exists") {
+		switch f.JSONOnError {
+		case "error":
+			return nil, err
+		case "true":
+			return true, nil
+		case "false":
+			return false, nil
+		}
+		return false, nil
+	}
+	if f.JSONOnError == "error" {
+		return nil, err
+	}
+	return jsonLookupEmpty(ctx, f)
 }
 
 func jsonLookupEmpty(ctx *evalCtx, f *sql.FuncCall) (any, error) {
