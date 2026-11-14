@@ -17,8 +17,12 @@ func TestJSONScalarFunctions(t *testing.T) {
 	if row["v"] != float64(1) || row["q"] != `{"b":2}` || row["e"] != true || row["n"] != nil {
 		t.Fatalf("row = %+v", row)
 	}
-	if _, err := New(DefaultOptions()).Execute(t.Context(), `SELECT JSON_VALUE('{"a":1}', 'strict $.b')`, testCatalog()); err == nil {
-		t.Fatal("expected strict JSON path error")
+	def := execParams(t, `SELECT JSON_VALUE('{"a":1}', 'strict $.b') AS v`, nil)
+	if def.Rows[0]["v"] != nil {
+		t.Fatalf("default error behavior = %+v", def.Rows[0])
+	}
+	if _, err := New(DefaultOptions()).Execute(t.Context(), `SELECT JSON_VALUE('{"a":1}', 'strict $.b' ERROR ON ERROR)`, testCatalog()); err == nil {
+		t.Fatal("expected explicit strict JSON path error")
 	}
 	lax := execParams(t, `SELECT JSON_VALUE('{"a":1}', 'lax $.b') AS v`, nil)
 	if lax.Rows[0]["v"] != nil {
@@ -279,5 +283,13 @@ func TestJSONTableNullOnErrorUnknownAndQuotes(t *testing.T) {
 	composite := execParams(t, `SELECT JSON_QUERY('{"a":{"b":2}}', '$.a' OMIT QUOTES) AS o, JSON_QUERY('{"a":[1,2]}', '$.a' OMIT QUOTES) AS arr`, nil)
 	if composite.Rows[0]["o"] != `{"b":2}` || composite.Rows[0]["arr"] != `[1,2]` {
 		t.Fatalf("composite = %+v", composite.Rows[0])
+	}
+	std := execParams(t, `SELECT * FROM JSON_TABLE('{"a":1}', 'strict $.b' COLUMNS (x INT PATH '$') NULL ON ERROR) AS jt`, nil)
+	if std.RowCount != 1 || std.Rows[0]["x"] != nil {
+		t.Fatalf("standard null = %+v", std.Rows)
+	}
+	empty := execParams(t, `SELECT * FROM JSON_TABLE('{"a":1}', 'strict $.b' COLUMNS (x INT PATH '$') EMPTY ON ERROR) AS jt`, nil)
+	if empty.RowCount != 0 {
+		t.Fatalf("standard empty = %+v", empty.Rows)
 	}
 }

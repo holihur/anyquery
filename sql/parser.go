@@ -1234,7 +1234,14 @@ func (p *Parser) parseJSONTable() (TableExpr, error) {
 			return nil, err
 		}
 	}
-	if p.cur.IsKeyword("ON") {
+	if (p.cur.IsKeyword("ERROR") || p.cur.IsKeyword("EMPTY") || p.cur.IsKeyword("NULL")) && p.peek.IsKeyword("ON") {
+		onError = strings.ToLower(p.cur.Value)
+		p.advance()
+		p.advance()
+		if err := p.expectKeyword("ERROR"); err != nil {
+			return nil, err
+		}
+	} else if p.cur.IsKeyword("ON") {
 		p.advance()
 		if err := p.expectKeyword("ERROR"); err != nil {
 			return nil, err
@@ -1925,7 +1932,11 @@ func (p *Parser) parseExpr(minPrec int) (Expr, error) {
 		}
 		left = &CastExpr{Expr: left, Type: typ}
 	}
-	if p.cur.IsKeyword("AT") && p.peek.IsKeyword("TIME") {
+	if p.cur.IsKeyword("AT") && p.peek.IsKeyword("LOCAL") {
+		p.advance()
+		p.advance()
+		left = &AtLocalExpr{Expr: left}
+	} else if p.cur.IsKeyword("AT") && p.peek.IsKeyword("TIME") {
 		p.advance()
 		p.advance() // TIME
 		if err := p.expectKeyword("ZONE"); err != nil {
@@ -2251,6 +2262,23 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		p.advance()
 		return &Parameter{Index: n, Style: "$"}, nil
 
+	case (t.IsKeyword("TIME") || t.IsKeyword("TIMESTAMP")) && (p.peek.IsKeyword("WITH") || p.peek.IsKeyword("WITHOUT")):
+		typ := strings.ToLower(t.Value)
+		p.advance()
+		with := strings.ToLower(p.cur.Value)
+		p.advance()
+		if err := p.expectKeyword("TIME"); err != nil {
+			return nil, err
+		}
+		if err := p.expectKeyword("ZONE"); err != nil {
+			return nil, err
+		}
+		if p.cur.Kind != TokString {
+			return nil, p.errf("expected string after time zone type")
+		}
+		lit := &Literal{Kind: LitString, Value: p.cur.Value}
+		p.advance()
+		return &CastExpr{Expr: lit, Type: typ + " " + with + " time zone", PreserveZone: with == "with"}, nil
 	case (t.IsKeyword("DATE") || t.IsKeyword("TIME") || t.IsKeyword("TIMESTAMP") || t.IsKeyword("TIMESTAMPTZ") || t.IsKeyword("DATETIME")) && p.peek.Kind == TokString:
 		typ := strings.ToLower(t.Value)
 		p.advance()
@@ -2803,11 +2831,15 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 			if err := p.expectKeyword("ON"); err != nil {
 				return err
 			}
-			if !p.cur.IsKeyword("EMPTY") {
-				return p.errf("expected EMPTY after ON")
+			switch {
+			case p.cur.IsKeyword("EMPTY"):
+				fn.JSONOnEmpty = "empty_" + kind
+			case p.cur.IsKeyword("ERROR"):
+				fn.JSONOnError = "empty_" + kind
+			default:
+				return p.errf("expected EMPTY or ERROR after ON")
 			}
 			p.advance()
-			fn.JSONOnEmpty = "empty_" + kind
 			continue
 		}
 		if p.cur.IsKeyword("DEFAULT") {
@@ -2951,6 +2983,11 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 			case p.cur.IsKeyword("UNKNOWN"):
 				*field = "unknown"
 				p.advance()
+			case p.cur.IsKeyword("EMPTY") && (p.peek.IsKeyword("ARRAY") || p.peek.IsKeyword("OBJECT")):
+				kind := strings.ToLower(p.peek.Value)
+				p.advance()
+				p.advance()
+				*field = "empty_" + kind
 			case p.cur.IsKeyword("DEFAULT"):
 				*field = "default"
 				p.advance()

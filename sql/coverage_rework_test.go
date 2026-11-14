@@ -125,7 +125,7 @@ func TestCoverageNewBranches2(t *testing.T) {
 	if _, err := parserAt("JSON_TABLE(x, '$.a' COLUMNS (x EXISTS PATH))").parseJSONTable(); err == nil {
 		t.Error("expected EXISTS PATH error")
 	}
-	for _, src := range []string{"EMPTY ARRAY ON", "EMPTY ARRAY ON ERROR", "WITHOUT ARRAY"} {
+	for _, src := range []string{"EMPTY ARRAY ON", "EMPTY ARRAY ON FOO", "WITHOUT ARRAY"} {
 		fn := &FuncCall{}
 		if err := parserAt(src).parseJSONOptions(fn); err == nil {
 			t.Errorf("expected JSON option error for %q", src)

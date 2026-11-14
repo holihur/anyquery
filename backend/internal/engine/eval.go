@@ -303,6 +303,16 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 			row[i] = ds.rows[0][strings.ToLower(c.Name)]
 		}
 		return row, nil
+	case *sql.AtLocalExpr:
+		v, err := evalExpr(ctx, x.Expr)
+		if err != nil {
+			return nil, err
+		}
+		t, ok := toTime(v)
+		if !ok {
+			return nil, errf("type_error", "AT LOCAL expects a timestamp")
+		}
+		return t.In(time.Local).Format("2006-01-02 15:04:05.999999999"), nil
 	case *sql.AtTimeZoneExpr:
 		v, err := evalExpr(ctx, x.Expr)
 		if err != nil {
@@ -2171,7 +2181,9 @@ func parseTimeString(s string) (time.Time, bool) {
 	layouts := []string{
 		time.RFC3339Nano, time.RFC3339,
 		"2006-01-02 15:04:05.999999999Z07:00", "2006-01-02 15:04:05Z07:00",
+		"2006-01-02 15:04:05.999999999 MST", "2006-01-02 15:04:05 MST",
 		"2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02",
+		"15:04:05.999999999Z07:00", "15:04:05Z07:00",
 		"15:04:05.999999999", "15:04:05",
 	}
 	for _, l := range layouts {
@@ -2280,6 +2292,9 @@ func castPreservingZone(v any, typ string) (any, error) {
 	// A timestamp literal with an explicit numeric offset keeps that offset so
 	// TIMEZONE_HOUR/MINUTE and display semantics remain observable.
 	if strings.Contains(s, "+") || strings.Count(s, "-") > 2 {
+		if strings.HasPrefix(strings.ToLower(typ), "time ") {
+			return tm.Format("15:04:05Z07:00"), nil
+		}
 		return tm.Format(time.RFC3339Nano), nil
 	}
 	return castValue(v, typ)

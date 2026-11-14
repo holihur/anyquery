@@ -12,6 +12,13 @@ func TestProfileExtraSyntaxRoundTrip(t *testing.T) {
 		`SELECT JSON_QUERY('{"a":"x"}', '$.a' OMIT QUOTES) AS o`,
 		`SELECT JSON_EXISTS('{"a":1}', 'strict $.b' UNKNOWN ON ERROR) AS u`,
 		`SELECT JSON_EXISTS('{"a":1}', 'strict $.b' ON ERROR UNKNOWN) AS u`,
+		`SELECT JSON_QUERY('{"a":1}', 'strict $.b' ON ERROR EMPTY ARRAY) AS ea`,
+		`SELECT JSON_QUERY('{"a":1}', 'strict $.b' EMPTY OBJECT ON ERROR) AS eo`,
+		`SELECT * FROM JSON_TABLE('{"a":1}', 'strict $.b' COLUMNS (x INT PATH '$') NULL ON ERROR) AS jt`,
+		"SELECT TIMESTAMP WITH TIME ZONE '2024-01-01 12:00:00+05:30' AS ts",
+		"SELECT TIME WITH TIME ZONE '12:00:00+05:30' AS tm",
+		"SELECT TIMESTAMP '2024-01-01 12:00:00 UTC' AT LOCAL AS local",
+		"SELECT JSON_QUERY('{\"a\":1}', 'strict $.b' ON ERROR EMPTY OBJECT) AS eo",
 		"SELECT * FROM mongo.orders MATCH_RECOGNIZE (ORDER BY id MEASURES id AS id ONE ROW PER MATCH SHOW EMPTY MATCHES PATTERN (A*) DEFINE A AS total > 0) AS mr",
 		"SELECT * FROM mongo.orders MATCH_RECOGNIZE (ORDER BY id MEASURES id AS id ONE ROW PER MATCH OMIT EMPTY MATCHES PATTERN (A*) DEFINE A AS total > 0) AS mr",
 	}
@@ -41,5 +48,23 @@ func TestProfileExtraSyntaxErrors(t *testing.T) {
 		} else {
 			checkParserError(t, err)
 		}
+	}
+}
+
+func TestProfileExtraDirectBranches(t *testing.T) {
+	if s := (&AtLocalExpr{Expr: &Literal{Kind: LitInt, Value: 1}}).String(); s == "" {
+		t.Fatal("empty AT LOCAL formatter")
+	}
+	for _, src := range []string{
+		"TIMESTAMP WITH 'x'",
+		"TIMESTAMP WITH TIME 'x'",
+		"TIMESTAMP WITH TIME ZONE",
+	} {
+		if _, err := Parse("SELECT " + src); err == nil {
+			t.Errorf("expected time-zone type error for %q", src)
+		}
+	}
+	if _, err := parserAt("JSON_TABLE(x, '$.a' COLUMNS (x INT) NULL ON)").parseJSONTable(); err == nil {
+		t.Fatal("expected incomplete NULL ON ERROR")
 	}
 }

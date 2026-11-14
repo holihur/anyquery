@@ -58,11 +58,18 @@ func (iv intervalValue) scale(f float64) (intervalValue, error) {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return intervalValue{}, errf("type_error", "interval scale must be finite")
 	}
-	return intervalValue{
-		months: int(math.Round(float64(iv.months) * f)),
-		days:   int(math.Round(float64(iv.days) * f)),
-		nanos:  int64(math.Round(float64(iv.nanos) * f)),
-	}, nil
+	const dayNanos = int64(24 * time.Hour)
+	totalMonths := float64(iv.months) * f
+	months := int(math.Trunc(totalMonths))
+	fracMonths := totalMonths - float64(months)
+	totalDays := float64(iv.days)*f + fracMonths*30
+	days := int(math.Trunc(totalDays))
+	fracDays := totalDays - float64(days)
+	nanos := int64(math.Round(float64(iv.nanos)*f + fracDays*float64(dayNanos)))
+	// Carry fractional days into the time component and whole days back out.
+	days += int(nanos / dayNanos)
+	nanos %= dayNanos
+	return intervalValue{months: months, days: days, nanos: nanos}, nil
 }
 
 func (iv intervalValue) compare(o intervalValue) int {

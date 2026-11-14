@@ -224,3 +224,33 @@ func TestOrderedSetRanks(t *testing.T) {
 		t.Fatalf("row = %+v", row)
 	}
 }
+
+func TestIntervalFractionalScaling(t *testing.T) {
+	res := execParams(t, `SELECT
+		INTERVAL '1' DAY * 0.5 AS a,
+		INTERVAL '1' DAY / 2 AS b,
+		INTERVAL '3' DAY / 2 AS c`, nil)
+	row := res.Rows[0]
+	if row["a"] != "12:00:00" || row["b"] != "12:00:00" || row["c"] != "1 days 12:00:00" {
+		t.Fatalf("row = %+v", row)
+	}
+}
+
+func TestJSONOnErrorAndZoneTypes(t *testing.T) {
+	res := execParams(t, `SELECT
+		JSON_VALUE('{"a":1}', 'strict $.b' DEFAULT 'x' ON ERROR) AS dv,
+		JSON_QUERY('{"a":1}', 'strict $.b' NULL ON ERROR) AS nq,
+		JSON_QUERY('{"a":1}', 'strict $.b' EMPTY ARRAY ON ERROR) AS ea,
+		JSON_QUERY('{"a":1}', 'strict $.b' EMPTY OBJECT ON ERROR) AS eo`, nil)
+	row := res.Rows[0]
+	if row["dv"] != "x" || row["nq"] != nil || len(row["ea"].([]any)) != 0 || len(row["eo"].(map[string]any)) != 0 {
+		t.Fatalf("json = %+v", row)
+	}
+	zones := execParams(t, `SELECT
+		TIMESTAMP WITH TIME ZONE '2024-01-01 12:00:00+05:30' AS ts,
+		TIME WITH TIME ZONE '12:00:00+05:30' AS tm,
+		TIMESTAMP '2024-01-01 12:00:00 UTC' AT LOCAL AS local`, nil)
+	if zones.Rows[0]["ts"] != "2024-01-01T12:00:00+05:30" || zones.Rows[0]["tm"] != "12:00:00+05:30" {
+		t.Fatalf("zones = %+v", zones.Rows[0])
+	}
+}

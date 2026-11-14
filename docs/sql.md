@@ -215,11 +215,11 @@ GROUP BY region;
 - comparisons: `= != <> < <= > >=`, `LIKE`, `ILIKE`, `REGEXP`
 - `IN (...)`, `ANY`/`SOME`/`ALL`, `BETWEEN`, `IS [NOT] NULL/TRUE/FALSE`, `IS [NOT] DISTINCT FROM`
 - `CASE`, `CAST`, `TRY_CAST`, `::`, `EXISTS`, scalar subqueries
-- SQL/JSON predicates and functions: `IS [NOT] JSON`, `JSON_VALUE`, `JSON_QUERY`, `JSON_EXISTS`, `JSON_OBJECT`, `JSON_ARRAY`, `JSON_ARRAYAGG`, `JSON_OBJECTAGG`, `JSON_TABLE`
-- typed literals: `DATE '2024-01-01'`, `TIMESTAMP '2024-01-01 12:00:00'`, `TIMESTAMPTZ '...'`
+- SQL/JSON predicates and functions: `IS [NOT] JSON`, `JSON_VALUE`, `JSON_QUERY`, `JSON_EXISTS`, `JSON_OBJECT`, `JSON_ARRAY`, `JSON_ARRAYAGG`, `JSON_OBJECTAGG`, `JSON_TABLE`, including standard `ON EMPTY`/`ON ERROR` behaviors (`NULL`, `ERROR`, `DEFAULT`, `EMPTY ARRAY`, `EMPTY OBJECT`, `UNKNOWN`) and `KEEP`/`OMIT QUOTES`
+- typed literals: `DATE '2024-01-01'`, `TIME '12:00:00'`, `TIMESTAMP '2024-01-01 12:00:00'`, `TIMESTAMPTZ '...'`, `TIME WITH TIME ZONE '12:00:00+05:30'`, `TIMESTAMP WITH TIME ZONE '...'`
 - `INTERVAL '1 day'`, `INTERVAL '1' DAY`, `INTERVAL '1-2' YEAR TO MONTH`, `INTERVAL '1 02:03:04' DAY TO SECOND`
-- timestamp/interval arithmetic (`ts + interval`, `ts - timestamp`, `interval * number`)
-- `AT TIME ZONE` plus `TIMEZONE(zone, timestamp)`
+- timestamp/interval arithmetic (`ts + interval`, `ts - timestamp`, `interval * number`, fractional interval scaling with day/time carry)
+- `AT TIME ZONE`, `AT LOCAL`, plus `TIMEZONE(zone, timestamp)`
 - bind parameters: `?`, `$1`
 - `CURRENT_DATE`, `CURRENT_TIMESTAMP`, `NOW()`
 

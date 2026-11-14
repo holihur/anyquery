@@ -58,7 +58,7 @@ func evalJSONLookup(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	matches, query, err := evalJSONPath(value, basePath)
 	if err != nil {
 		if query.strict && !strings.EqualFold(f.Name, "json_exists") {
-			return nil, err
+			return jsonLookupError(ctx, f, err)
 		}
 		return jsonExistsOrEmpty(ctx, f, err)
 	}
@@ -173,6 +173,25 @@ func jsonExistsOrEmpty(ctx *evalCtx, f *sql.FuncCall, err error) (any, error) {
 		return nil, err
 	}
 	return jsonLookupEmpty(ctx, f)
+}
+
+func jsonLookupError(ctx *evalCtx, f *sql.FuncCall, cause error) (any, error) {
+	switch f.JSONOnError {
+	case "error":
+		return nil, cause
+	case "default":
+		if f.JSONDefaultError != nil {
+			return evalExpr(ctx, f.JSONDefaultError)
+		}
+		return nil, nil
+	case "empty_array":
+		return []any{}, nil
+	case "empty_object":
+		return map[string]any{}, nil
+	case "null", "unknown":
+		return nil, nil
+	}
+	return nil, nil
 }
 
 func jsonLookupEmpty(ctx *evalCtx, f *sql.FuncCall) (any, error) {

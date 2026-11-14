@@ -578,6 +578,12 @@ func (a *AtTimeZoneExpr) String() string {
 	return "(" + a.Expr.String() + " AT TIME ZONE " + a.Zone.String() + ")"
 }
 
+// AtLocalExpr is <expr> AT LOCAL.
+type AtLocalExpr struct{ Expr Expr }
+
+func (*AtLocalExpr) exprNode()        { _ = 0 }
+func (a *AtLocalExpr) String() string { return "(" + a.Expr.String() + " AT LOCAL)" }
+
 // ---- formatting ------------------------------------------------------------
 
 func quoteIdent(s string) string {
@@ -884,6 +890,9 @@ func (c *CaseExpr) String() string {
 }
 
 func (c *CastExpr) String() string {
+	if c.PreserveZone && strings.Contains(strings.ToLower(c.Type), "time zone") {
+		return strings.ToUpper(c.Type) + " " + c.Expr.String()
+	}
 	name := "CAST"
 	if c.Safe {
 		name = "TRY_CAST"
@@ -1242,7 +1251,7 @@ func FormatTableExpr(t TableExpr) string {
 			}
 		}
 		if x.OnError != "" {
-			s += " ON ERROR " + strings.ToUpper(x.OnError)
+			s += " " + strings.ToUpper(x.OnError) + " ON ERROR"
 		}
 		s += ")"
 		if x.Alias != "" {
