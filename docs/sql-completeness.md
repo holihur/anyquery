@@ -75,7 +75,7 @@ CI runs a short smoke for every target and fails on a discovered reproducer.
 These do not reduce the Profile 1.0 row status, but matter for large or
 non-standard workloads:
 
-- execution is materialized and in-memory; hash joins spill their build side to temp files above `JoinSpillRows`, but full source streaming and disk-backed relations are not implemented
+- connectors can stream source rows incrementally via the optional `StreamingConnector` interface; relational operators remain materialized, hash joins spill their build side above `JoinSpillRows`, and disk-backed relations are not implemented
 - cost-based greedy reordering applies to non-`SELECT *` inner joins over base
   table references; other joins keep written order and choose the smaller
   inner-join build side

@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"strconv"
@@ -989,4 +990,66 @@ func (c *Conn) fetchPrefix(limit int) string {
 		return "TOP " + strconv.Itoa(limit) + " "
 	}
 	return ""
+}
+
+type sqlRowStream struct {
+	rows  *sql.Rows
+	names []string
+	types []string
+}
+
+func (s *sqlRowStream) Next() (map[string]any, error) {
+	if !s.rows.Next() {
+		if err := s.rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, io.EOF
+	}
+	vals := make([]any, len(s.names))
+	ptrs := make([]any, len(vals))
+	for i := range vals {
+		ptrs[i] = &vals[i]
+	}
+	if err := s.rows.Scan(ptrs...); err != nil {
+		return nil, err
+	}
+	row := make(map[string]any, len(s.names))
+	for i, name := range s.names {
+		row[name] = normalizeScan(vals[i], s.types[i])
+	}
+	return row, nil
+}
+
+func (s *sqlRowStream) Close() error { return s.rows.Close() }
+
+// FetchStream exposes database/sql rows incrementally.
+func (c *Conn) FetchStream(ctx context.Context, req connector.FetchRequest) (connector.RowStream, error) {
+	if req.Limit <= 0 {
+		req.Limit = 1000
+	}
+	q, args := c.buildFetchQuery(req)
+	rows, err := c.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query %s: %w", req.Table, err)
+	}
+	names, err := rows.Columns()
+	if err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	types := make([]string, len(names))
+	if cols, err := rows.ColumnTypes(); err == nil {
+		for i := range names {
+			if i < len(cols) {
+				types[i] = normalizeDBType(cols[i].DatabaseTypeName())
+			} else {
+				types[i] = "string"
+			}
+		}
+	} else {
+		for i := range types {
+			types[i] = "string"
+		}
+	}
+	return &sqlRowStream{rows: rows, names: names, types: types}, nil
 }

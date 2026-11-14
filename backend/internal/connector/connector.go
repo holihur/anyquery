@@ -159,6 +159,21 @@ type StatementDescriber interface {
 	DescribeFetch(req FetchRequest) (statement string, args []any, err error)
 }
 
+// RowStream is a forward-only source cursor. Next returns io.EOF when the
+// stream is exhausted. Close must be safe to call after EOF.
+type RowStream interface {
+	Next() (map[string]any, error)
+	Close() error
+}
+
+// StreamingConnector is an optional extension for connectors that can expose
+// rows incrementally instead of materializing a FetchResult. The engine still
+// materializes relational operators, but avoids buffering the complete source
+// result inside the connector.
+type StreamingConnector interface {
+	FetchStream(ctx context.Context, req FetchRequest) (RowStream, error)
+}
+
 // Connector is one live connection to a data source.
 type Connector interface {
 	// Ping verifies connectivity.

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -322,4 +323,54 @@ func inferType(v any) string {
 	default:
 		return "string"
 	}
+}
+
+type mongoRowStream struct {
+	ctx context.Context
+	cur *mongo.Cursor
+}
+
+func (s *mongoRowStream) Next() (map[string]any, error) {
+	if !s.cur.Next(s.ctx) {
+		if err := s.cur.Err(); err != nil {
+			return nil, err
+		}
+		return nil, io.EOF
+	}
+	var doc bson.M
+	if err := s.cur.Decode(&doc); err != nil {
+		return nil, err
+	}
+	norm, _ := normalizeDocument(doc).(map[string]any)
+	if norm == nil {
+		norm = map[string]any{}
+	}
+	return norm, nil
+}
+
+func (s *mongoRowStream) Close() error {
+	return s.cur.Close(s.ctx)
+}
+
+// FetchStream exposes the MongoDB cursor without buffering every document.
+func (c *Conn) FetchStream(ctx context.Context, req connector.FetchRequest) (connector.RowStream, error) {
+	if req.Limit <= 0 {
+		req.Limit = 1000
+	}
+	if req.Limit > 100001 {
+		req.Limit = 100001
+	}
+	opts := options.Find().SetLimit(int64(req.Limit))
+	if len(req.Columns) > 0 {
+		projection := bson.M{}
+		for _, col := range req.Columns {
+			projection[col] = 1
+		}
+		opts.SetProjection(projection)
+	}
+	cur, err := c.db.Collection(req.Table).Find(ctx, mongoFilter(req.Predicates), opts)
+	if err != nil {
+		return nil, fmt.Errorf("find %s: %w", req.Table, err)
+	}
+	return &mongoRowStream{ctx: ctx, cur: cur}, nil
 }

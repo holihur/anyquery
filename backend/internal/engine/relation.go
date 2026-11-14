@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -414,13 +415,40 @@ func (ec *execCtx) relationForTableRef(ref *sql.TableRef) (*relation, error) {
 		}
 	}
 	start := time.Now()
-	fr, err := c.Fetch(ec.ctx, req)
-	if err != nil {
-		return nil, &Error{Code: "source_query_error", Message: fmt.Sprintf("read %s.%s: %v", ref.Source, tm.Name, err)}
+	var rows []map[string]any
+	truncated := false
+	if streaming, ok := c.(connector.StreamingConnector); ok {
+		stream, err := streaming.FetchStream(ec.ctx, req)
+		if err != nil {
+			return nil, &Error{Code: "source_query_error", Message: fmt.Sprintf("read %s.%s: %v", ref.Source, tm.Name, err)}
+		}
+		for {
+			row, err := stream.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				_ = stream.Close()
+				return nil, &Error{Code: "source_query_error", Message: fmt.Sprintf("read %s.%s: %v", ref.Source, tm.Name, err)}
+			}
+			rows = append(rows, row)
+			if len(rows) > ec.engine.Opts.MaxSourceRows {
+				rows = rows[:ec.engine.Opts.MaxSourceRows]
+				truncated = true
+				break
+			}
+		}
+		if err := stream.Close(); err != nil {
+			return nil, &Error{Code: "source_query_error", Message: fmt.Sprintf("close %s.%s: %v", ref.Source, tm.Name, err)}
+		}
+	} else {
+		fr, err := c.Fetch(ec.ctx, req)
+		if err != nil {
+			return nil, &Error{Code: "source_query_error", Message: fmt.Sprintf("read %s.%s: %v", ref.Source, tm.Name, err)}
+		}
+		rows, truncated = fr.Rows, fr.Truncated
 	}
 	elapsed := time.Since(start).Milliseconds()
-	rows := fr.Rows
-	truncated := fr.Truncated
 	if ref.Sample != nil {
 		rows = sampleRows(rows, ref.Sample)
 	}

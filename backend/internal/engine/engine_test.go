@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 
@@ -24,6 +25,31 @@ func (f *fakeConn) DescribeFetch(req connector.FetchRequest) (string, []any, err
 	return "EXEC " + req.Table, nil, nil
 }
 func (f *fakeConn) Introspect(context.Context) ([]connector.Table, error) { return nil, nil }
+
+type fakeRowStream struct {
+	rows []map[string]any
+	at   int
+}
+
+func (s *fakeRowStream) Next() (map[string]any, error) {
+	if s.at >= len(s.rows) {
+		return nil, io.EOF
+	}
+	row := s.rows[s.at]
+	s.at++
+	return row, nil
+}
+
+func (s *fakeRowStream) Close() error { return nil }
+
+func (f *fakeConn) FetchStream(ctx context.Context, req connector.FetchRequest) (connector.RowStream, error) {
+	fr, err := f.Fetch(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &fakeRowStream{rows: fr.Rows}, nil
+}
+
 func (f *fakeConn) Fetch(_ context.Context, req connector.FetchRequest) (*connector.FetchResult, error) {
 	f.lastReq = &req
 	f.reqs = append(f.reqs, req)
