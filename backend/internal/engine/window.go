@@ -189,7 +189,10 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 				if err != nil {
 					return err
 				}
-				if b, ok := toInt(v); ok && b > 0 {
+				if b, ok := toInt(v); ok {
+					if b <= 0 {
+						return errf("invalid_window", "NTILE argument must be positive")
+					}
 					buckets = b
 				}
 			}
@@ -292,6 +295,9 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 						return err
 					}
 					if x, ok := toInt(v); ok {
+						if x <= 0 {
+							return errf("invalid_window", "NTH_VALUE position must be positive")
+						}
 						k = x
 					}
 				}

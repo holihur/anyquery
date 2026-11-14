@@ -1304,6 +1304,13 @@ func (p *Parser) parseJSONTableColumns() ([]JSONTableColumn, error) {
 					return nil, err
 				}
 				col.Type = typ
+				if p.cur.IsKeyword("FORMAT") {
+					p.advance()
+					if err := p.expectKeyword("JSON"); err != nil {
+						return nil, err
+					}
+					col.FormatJSON = true
+				}
 				if p.cur.IsKeyword("EXISTS") {
 					p.advance()
 					col.Exists = true
@@ -2765,25 +2772,33 @@ func (p *Parser) parseJSONFunction() (Expr, error) {
 			return nil, err
 		}
 	case "JSON_ARRAY":
-		for !p.cur.IsPunct(")") {
-			v, err := p.parseExpr(0)
+		if p.cur.IsKeyword("SELECT") || p.cur.IsKeyword("WITH") {
+			q, err := p.parseSelect()
 			if err != nil {
 				return nil, err
 			}
-			fn.Args = append(fn.Args, v)
-			format := false
-			if p.cur.IsKeyword("FORMAT") {
-				p.advance()
-				if err := p.expectKeyword("JSON"); err != nil {
+			fn.Args = []Expr{&SubqueryExpr{Query: q}}
+		} else {
+			for !p.cur.IsPunct(")") {
+				v, err := p.parseExpr(0)
+				if err != nil {
 					return nil, err
 				}
-				format = true
+				fn.Args = append(fn.Args, v)
+				format := false
+				if p.cur.IsKeyword("FORMAT") {
+					p.advance()
+					if err := p.expectKeyword("JSON"); err != nil {
+						return nil, err
+					}
+					format = true
+				}
+				fn.JSONFormats = append(fn.JSONFormats, format)
+				if !p.cur.IsPunct(",") {
+					break
+				}
+				p.advance()
 			}
-			fn.JSONFormats = append(fn.JSONFormats, format)
-			if !p.cur.IsPunct(",") {
-				break
-			}
-			p.advance()
 		}
 		if err := p.parseJSONOptions(fn); err != nil {
 			return nil, err

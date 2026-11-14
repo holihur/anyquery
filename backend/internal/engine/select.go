@@ -195,7 +195,7 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 			groupSets = [][]sql.Expr{groupBy}
 			allGroupExprs = groupBy
 		}
-		if err := validateGroupedProjections(s.Projections, allGroupExprs); err != nil {
+		if err := validateGroupedQuery(s.Projections, s.Having, s.OrderBy, allGroupExprs); err != nil {
 			return nil, err
 		}
 		for _, groupBy := range groupSets {
@@ -622,9 +622,10 @@ func combineSetRows(op string, all bool, left, right []evalRow, columns []Result
 	}
 }
 
-func validateGroupedProjections(items []sql.SelectItem, groupExprs []sql.Expr) error {
+func validateGroupedQuery(items []sql.SelectItem, having sql.Expr, orderBy []sql.OrderItem, groupExprs []sql.Expr) error {
 	allowedExact := map[string]bool{}
 	allowedRefs := map[string]bool{}
+	aliases := map[string]bool{}
 	for _, e := range groupExprs {
 		allowedExact[e.String()] = true
 		if ref, ok := e.(*sql.ColumnRef); ok {
@@ -632,25 +633,63 @@ func validateGroupedProjections(items []sql.SelectItem, groupExprs []sql.Expr) e
 		}
 	}
 	for _, item := range items {
-		if item.Star || item.Expr == nil || sql.ContainsAggregate(item.Expr) || sql.ContainsWindow(item.Expr) {
+		if item.Alias != "" {
+			aliases[strings.ToLower(item.Alias)] = true
+		}
+		if item.Star || item.Expr == nil {
 			continue
 		}
-		if allowedExact[item.Expr.String()] {
-			continue
+		if err := validateGroupedExpr(item.Expr, allowedExact, allowedRefs, aliases); err != nil {
+			return err
 		}
-		var missing string
-		sql.WalkExpr(item.Expr, func(e sql.Expr) bool {
-			if ref, ok := e.(*sql.ColumnRef); ok {
-				if !allowedRefs[strings.ToLower(ref.String())] {
-					missing = ref.String()
-					return false
-				}
+	}
+	if having != nil {
+		if err := validateGroupedExpr(having, allowedExact, allowedRefs, aliases); err != nil {
+			return err
+		}
+	}
+	for _, o := range orderBy {
+		if err := validateGroupedExpr(o.Expr, allowedExact, allowedRefs, aliases); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateGroupedExpr(e sql.Expr, allowedExact, allowedRefs, aliases map[string]bool) error {
+	if e == nil || allowedExact[e.String()] {
+		return nil
+	}
+	ignored := map[string]bool{}
+	// Columns inside aggregate calls are input rows, not post-group values.
+	sql.WalkExpr(e, func(x sql.Expr) bool {
+		f, ok := x.(*sql.FuncCall)
+		if !ok || f.Window != nil || !sql.IsAggregate(f.Name) {
+			return true
+		}
+		sql.WalkExpr(f, func(y sql.Expr) bool {
+			if ref, ok := y.(*sql.ColumnRef); ok {
+				ignored[strings.ToLower(ref.String())] = true
 			}
 			return true
 		})
-		if missing != "" {
-			return errf("invalid_group", "column %q must appear in GROUP BY or be used in an aggregate", missing)
+		return true
+	})
+	var missing string
+	sql.WalkExpr(e, func(x sql.Expr) bool {
+		ref, ok := x.(*sql.ColumnRef)
+		if !ok {
+			return true
 		}
+		name := strings.ToLower(ref.String())
+		if allowedRefs[name] || aliases[name] || ignored[name] {
+			return true
+		}
+		missing = ref.String()
+		return false
+	})
+	if missing != "" {
+		return errf("invalid_group", "column %q must appear in GROUP BY or be used in an aggregate", missing)
 	}
 	return nil
 }

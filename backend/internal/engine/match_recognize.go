@@ -530,33 +530,62 @@ func (ec *execCtx) evalMRMeasure(e sql.Expr, rows []mrRow, start, end, current i
 			return evalExpr(ctx, arg)
 		}
 		if sql.IsAggregate(name) {
-			groupRows := rows[start:end]
+			endAt := end
 			if mode == "running" && current >= start {
-				groupRows = rows[start : current+1]
+				endAt = current + 1
+			}
+			indices := make([]int, 0, endAt-start)
+			for i := start; i < endAt && i < len(rows); i++ {
+				indices = append(indices, i)
 			}
 			if len(f.Args) == 1 {
 				if star, ok := f.Args[0].(*sql.StarExpr); ok && star.Table != "" {
 					vars := subsets[strings.ToLower(star.Table)]
+					if vars == nil {
+						if idxs, ok := bindings[strings.ToLower(star.Table)]; ok {
+							vars = []string{strings.ToLower(star.Table)}
+							_ = idxs
+						}
+					}
 					if vars != nil {
 						seen := map[int]bool{}
-						var selected []mrRow
+						var selected []int
 						for _, v := range vars {
 							for _, idx := range bindings[strings.ToLower(v)] {
-								if idx >= start && idx < end && !seen[idx] {
+								if idx >= start && idx < endAt && !seen[idx] {
 									seen[idx] = true
-									selected = append(selected, rows[idx])
+									selected = append(selected, idx)
 								}
 							}
 						}
-						groupRows = selected
+						indices = selected
 					}
 				}
 			}
-			group := make([]map[string]any, len(groupRows))
-			for i, r := range groupRows {
-				group[i] = r.row
+			group := make([]map[string]any, 0, len(indices))
+			for _, idx := range indices {
+				m := map[string]any{}
+				for _, field := range rel.fields {
+					m[strings.ToLower(field.Name)] = rows[idx].row[field.Key]
+				}
+				for varName := range bindings {
+					for _, field := range rel.fields {
+						m[varName+"."+strings.ToLower(field.Name)] = nil
+					}
+				}
+				for varName, idxs := range bindings {
+					for _, at := range idxs {
+						if at != idx {
+							continue
+						}
+						for _, field := range rel.fields {
+							m[varName+"."+strings.ToLower(field.Name)] = rows[idx].row[field.Key]
+						}
+					}
+				}
+				group = append(group, m)
 			}
-			return evalAggregate(&evalCtx{rel: rel, group: group, outer: ec.outerEval, exec: ec}, f)
+			return evalAggregate(&evalCtx{group: group, outer: ec.outerEval, exec: ec}, f)
 		}
 	}
 	at := current

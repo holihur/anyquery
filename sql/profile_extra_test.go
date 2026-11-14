@@ -17,6 +17,8 @@ func TestProfileExtraSyntaxRoundTrip(t *testing.T) {
 		`SELECT CAST('1 day' AS INTERVAL) AS a, CAST('1 day' AS INTERVAL DAY) AS b`,
 		`SELECT CAST(x AS INTERVAL HOUR TO MINUTE) AS c, CAST(x AS INTERVAL YEAR TO MONTH) AS d`,
 		`SELECT CAST(x AS INTERVAL SECOND) AS e, CAST(x AS INTERVAL HOUR TO SECOND) AS f`,
+		`SELECT * FROM JSON_TABLE('{"a":{"b":1}}', '$' COLUMNS (x VARCHAR(100) FORMAT JSON PATH '$.a')) jt`,
+		`SELECT JSON_ARRAY(SELECT id FROM mongo.orders WHERE id=1) AS a`,
 		`SELECT JSON_OBJECT('a' VALUE 1 FORMAT JSON) AS o, JSON_ARRAY(1 FORMAT JSON) AS a`,
 		`SELECT * FROM JSON_TABLE('{"a":{"b":1}}', '$' COLUMNS (has INT EXISTS PATH '$.a.b')) jt`,
 		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A B)+? DEFINE A AS x = 1, B AS y = 2) AS m",
@@ -85,10 +87,15 @@ func TestProfileExtraDirectBranches(t *testing.T) {
 	if _, err := parserAt("(A").parseMatchPattern(); err == nil {
 		t.Fatal("expected missing pattern close error")
 	}
+	if _, err := parserAt("=").parseMatchTerm(); err == nil {
+		t.Fatal("expected pattern term identifier error")
+	}
 	for _, q := range []string{
 		`SELECT * FROM JSON_TABLE('{}', '$' COLUMNS (has INT EXISTS PATH)) jt`,
 		`SELECT JSON_OBJECT('a' VALUE 1 FORMAT)`,
 		`SELECT JSON_ARRAY(1 FORMAT)`,
+		`SELECT * FROM JSON_TABLE('{}', '$' COLUMNS (x INT FORMAT)) jt`,
+		`SELECT JSON_ARRAY(SELECT`,
 	} {
 		if _, err := Parse(q); err == nil {
 			t.Errorf("expected format/path error for %q", q)

@@ -92,7 +92,7 @@ func TestJSONTable(t *testing.T) {
 			NESTED PATH '$.tags[*]' COLUMNS (tag VARCHAR(10) PATH '$')
 		)
 	) AS jt ORDER BY id, tag`, nil)
-	if res.RowCount != 2 || res.Rows[0]["id"] != int64(1) || res.Rows[0]["tag"] != "a" || res.Rows[1]["tag"] != "b" {
+	if res.RowCount != 3 || res.Rows[0]["id"] != int64(1) || res.Rows[0]["tag"] != "a" || res.Rows[1]["tag"] != "b" || res.Rows[2]["id"] != int64(2) || res.Rows[2]["tag"] != nil {
 		t.Fatalf("rows = %+v", res.Rows)
 	}
 	ord := execParams(t, `SELECT id, ord FROM JSON_TABLE(
@@ -322,5 +322,28 @@ func TestJSONWrapperFormatAndTypedExists(t *testing.T) {
 	}
 	if arr := formatted.Rows[0]["a"].([]any); len(arr) != 1 || fmt.Sprint(arr[0]) != "1" {
 		t.Fatalf("array format = %+v", formatted.Rows[0])
+	}
+}
+
+func TestJSONTableNestedOuterFormatAndArraySubquery(t *testing.T) {
+	res := execParams(t, `SELECT id, tag FROM JSON_TABLE('{"items":[{"id":1,"tags":["a"]},{"id":2,"tags":[]}]}',
+		'$.items[*]' COLUMNS (id INT PATH '$.id',
+		NESTED PATH '$.tags[*]' COLUMNS (tag VARCHAR(10) PATH '$'))) jt ORDER BY id`, nil)
+	if res.RowCount != 2 || res.Rows[1]["id"] != int64(2) || res.Rows[1]["tag"] != nil {
+		t.Fatalf("nested outer = %+v", res.Rows)
+	}
+	inner := execParams(t, `SELECT id, tag FROM JSON_TABLE('{"items":[{"id":1,"tags":["a"]},{"id":2,"tags":[]}]}',
+		'$.items[*]' COLUMNS (id INT PATH '$.id',
+		NESTED PATH '$.tags[*]' COLUMNS (tag VARCHAR(10) PATH '$')) PLAN (INNER)) jt`, nil)
+	if inner.RowCount != 1 || inner.Rows[0]["id"] != int64(1) {
+		t.Fatalf("nested inner = %+v", inner.Rows)
+	}
+	formatted := execParams(t, `SELECT * FROM JSON_TABLE('{"a":{"b":1}}', '$' COLUMNS (x VARCHAR(100) FORMAT JSON PATH '$.a')) jt`, nil)
+	if fmt.Sprint(formatted.Rows[0]["x"]) != "map[b:1]" {
+		t.Fatalf("format column = %+v", formatted.Rows[0])
+	}
+	arr := execParams(t, `SELECT JSON_ARRAY(SELECT id FROM mongo.orders WHERE id=1) AS a`, nil)
+	if len(arr.Rows[0]["a"].([]any)) != 1 || arr.Rows[0]["a"].([]any)[0] != int64(1) {
+		t.Fatalf("array subquery = %+v", arr.Rows[0])
 	}
 }

@@ -252,6 +252,7 @@ type JSONTableColumn struct {
 	NestedPath   Expr
 	Nested       []JSONTableColumn
 	Exists       bool
+	FormatJSON   bool
 	OnEmpty      string
 	OnError      string
 	DefaultEmpty Expr
@@ -1416,6 +1417,9 @@ func formatJSONTableColumns(cols []JSONTableColumn) string {
 			}
 		} else {
 			p += " " + c.Type
+			if c.FormatJSON {
+				p += " FORMAT JSON"
+			}
 			if c.Path != nil {
 				p += " PATH " + c.Path.String()
 			}

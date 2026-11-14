@@ -271,3 +271,14 @@ func TestMatchRecognizeQuantifiedAlternationSequence(t *testing.T) {
 		t.Fatalf("rows = %+v", res.Rows)
 	}
 }
+
+func TestMatchRecognizeAggregateOverPatternColumns(t *testing.T) {
+	res := execParams(t, `SELECT s, c, m FROM (VALUES (1,'a',10),(2,'a',20),(3,'b',30)) t(id,tag,x)
+		MATCH_RECOGNIZE (ORDER BY id
+		MEASURES SUM(B.x) AS s, COUNT(B.x) AS c, MIN(B.x) AS m
+		ONE ROW PER MATCH PATTERN (A B+)
+		DEFINE A AS tag='a', B AS tag='b') mr`, nil)
+	if fmt.Sprint(res.Rows[0]["s"]) != "30" || res.Rows[0]["c"] != int64(1) || fmt.Sprint(res.Rows[0]["m"]) != "30" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}

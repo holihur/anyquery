@@ -707,3 +707,19 @@ func TestAggregateRequiresGroupedColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGroupedHavingOrderAndWindowValidation(t *testing.T) {
+	qs := []string{
+		`SELECT region, count(*) AS n FROM mongo.orders GROUP BY region HAVING total > 100`,
+		`SELECT region, count(*) AS n FROM mongo.orders GROUP BY region ORDER BY total DESC`,
+		`SELECT region, sum(total) OVER () AS s FROM mongo.orders GROUP BY region`,
+	}
+	for _, q := range qs {
+		if _, err := New(DefaultOptions()).Execute(t.Context(), q, testCatalog()); err == nil {
+			t.Errorf("expected grouped validation error for %s", q)
+		}
+	}
+	if _, err := New(DefaultOptions()).Execute(t.Context(), `SELECT region, count(*) AS n FROM mongo.orders GROUP BY region HAVING count(*) > 0 ORDER BY region`, testCatalog()); err != nil {
+		t.Fatal(err)
+	}
+}

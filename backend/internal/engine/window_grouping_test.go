@@ -176,3 +176,14 @@ func TestInvalidWindowFramesAndOffsets(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowPositiveArgumentValidation(t *testing.T) {
+	for _, q := range []string{
+		`SELECT ntile(0) OVER (ORDER BY id) FROM (VALUES (1),(2)) t(id)`,
+		`SELECT nth_value(x, 0) OVER (ORDER BY id) FROM (VALUES (1,10)) t(id,x)`,
+	} {
+		if _, err := New(DefaultOptions()).Execute(t.Context(), q, testCatalog()); err == nil {
+			t.Errorf("expected positive argument error for %s", q)
+		}
+	}
+}

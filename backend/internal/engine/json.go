@@ -256,6 +256,24 @@ func evalJSONObject(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 func evalJSONArray(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	out := make([]any, 0, len(f.Args))
 	for i, arg := range f.Args {
+		if sub, ok := arg.(*sql.SubqueryExpr); ok {
+			ds, err := evalSubquery(ctx, sub.Query)
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range ds.rows {
+				if len(ds.columns) == 1 {
+					out = append(out, row[strings.ToLower(ds.columns[0].Name)])
+					continue
+				}
+				rv := make(rowValue, len(ds.columns))
+				for j, c := range ds.columns {
+					rv[j] = row[strings.ToLower(c.Name)]
+				}
+				out = append(out, rv)
+			}
+			continue
+		}
 		v, err := evalExpr(ctx, arg)
 		if err != nil {
 			return nil, err
@@ -462,8 +480,15 @@ func (ec *execCtx) relationForJSONTable(t *sql.JSONTable) (*relation, error) {
 		return nil, err
 	}
 	ds := &dataset{columns: jsonTableColumns(t.Columns)}
+	outer := true
+	if t.Plan != nil {
+		plan := strings.ToLower(t.Plan.String())
+		if strings.Contains(plan, "inner") {
+			outer = false
+		}
+	}
 	for i, root := range roots {
-		rows, err := expandJSONTableRoot(root, t.Columns, i+1, t.Passing)
+		rows, err := expandJSONTableRoot(root, t.Columns, i+1, t.Passing, outer)
 		if err != nil {
 			return nil, err
 		}
@@ -499,8 +524,8 @@ func jsonTableColumns(cols []sql.JSONTableColumn) []ResultColumn {
 	return dedupeResultColumns(out)
 }
 
-func expandJSONTableRoot(root any, cols []sql.JSONTableColumn, ordinal int, passing []sql.JSONPair) ([]map[string]any, error) {
-	return expandJSONTableRows([]jsonTableRow{{values: map[string]any{}, node: root, ordinal: ordinal}}, cols, passing)
+func expandJSONTableRoot(root any, cols []sql.JSONTableColumn, ordinal int, passing []sql.JSONPair, outer bool) ([]map[string]any, error) {
+	return expandJSONTableRows([]jsonTableRow{{values: map[string]any{}, node: root, ordinal: ordinal}}, cols, passing, outer)
 }
 
 type jsonTableRow struct {
@@ -509,7 +534,7 @@ type jsonTableRow struct {
 	ordinal int
 }
 
-func expandJSONTableRows(rows []jsonTableRow, cols []sql.JSONTableColumn, passing []sql.JSONPair) ([]map[string]any, error) {
+func expandJSONTableRows(rows []jsonTableRow, cols []sql.JSONTableColumn, passing []sql.JSONPair, outer bool) ([]map[string]any, error) {
 	for _, col := range cols {
 		if col.NestedPath != nil {
 			var expanded []jsonTableRow
@@ -529,9 +554,17 @@ func expandJSONTableRows(rows []jsonTableRow, cols []sql.JSONTableColumn, passin
 						return nil, err
 					}
 				}
+				if len(matches) == 0 {
+					if outer {
+						values := copyJSONValues(base.values)
+						nullJSONTableColumns(col.Nested, values)
+						expanded = append(expanded, jsonTableRow{values: values, node: base.node, ordinal: base.ordinal})
+					}
+					continue
+				}
 				for i, match := range matches {
 					next := jsonTableRow{values: copyJSONValues(base.values), node: match, ordinal: i + 1}
-					sub, err := expandJSONTableRows([]jsonTableRow{next}, col.Nested, passing)
+					sub, err := expandJSONTableRows([]jsonTableRow{next}, col.Nested, passing, outer)
 					if err != nil {
 						return nil, err
 					}
@@ -599,6 +632,9 @@ func expandJSONTableRows(rows []jsonTableRow, cols []sql.JSONTableColumn, passin
 				continue
 			}
 			v := matches[0]
+			if col.FormatJSON {
+				v = formatJSONValue(v)
+			}
 			if col.Type != "" {
 				cast, castErr := castValue(v, col.Type)
 				if castErr != nil {
@@ -626,6 +662,16 @@ func expandJSONTableRows(rows []jsonTableRow, cols []sql.JSONTableColumn, passin
 		out = append(out, r.values)
 	}
 	return out, nil
+}
+
+func nullJSONTableColumns(cols []sql.JSONTableColumn, out map[string]any) {
+	for _, c := range cols {
+		if c.NestedPath != nil {
+			nullJSONTableColumns(c.Nested, out)
+			continue
+		}
+		out[strings.ToLower(c.Name)] = nil
+	}
 }
 
 func splitJSONPathFilter(raw string) (string, string) {
