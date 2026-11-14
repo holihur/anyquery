@@ -22,6 +22,7 @@ func TestProfileExtraSyntaxRoundTrip(t *testing.T) {
 		`SELECT JSON_OBJECT('a' VALUE 1 FORMAT JSON) AS o, JSON_ARRAY(1 FORMAT JSON) AS a`,
 		`SELECT * FROM JSON_TABLE('{"a":{"b":1}}', '$' COLUMNS (has INT EXISTS PATH '$.a.b')) jt`,
 		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A B)+? DEFINE A AS x = 1, B AS y = 2) AS m",
+		"SELECT sum(x) OVER (ORDER BY id ROWS BETWEEN ? PRECEDING AND CURRENT ROW) FROM t",
 		`SELECT JSON_EXISTS('{"a":1}', 'strict $.b' UNKNOWN ON ERROR) AS u`,
 		`SELECT JSON_EXISTS('{"a":1}', 'strict $.b' ON ERROR UNKNOWN) AS u`,
 		`SELECT JSON_QUERY('{"a":1}', 'strict $.b' ON ERROR EMPTY ARRAY) AS ea`,

@@ -46,7 +46,7 @@ engine, formatter and positive/boundary/error tests, not just syntax support.
 - DDL, transactions, savepoints and isolation levels
 - SQL/PSM, SQL/CLI, SQL/MED, SQL/OLB, SQL/JRT, SQL/XML, SQL/POLY
 - security, authorization, catalog evolution and stored routines
-- user-defined scalar/table functions beyond the built-in registry
+- user-defined types and stored routines; registered Go scalar/table functions are supported
 - vendor-only syntax such as `DISTINCT ON`, `QUALIFY`, `TOP`, `PIVOT`,
   `UNPIVOT`
 - write-side temporal history maintenance and full array/map type systems
@@ -78,8 +78,8 @@ non-standard workloads:
 - execution is materialized and in-memory; no streaming/hash-join disk spill
 - no cost-based join reordering; joins follow written order and choose the
   smaller inner-join build side
-- window frame offsets are integer literals, not bind parameters
-- UNNEST expands JSON/array values, not arbitrary user table functions
+- window frame offsets support integer literals and bind parameters; arbitrary offset expressions are rejected
+- UNNEST expands JSON/array values; additional table functions can be registered with `Engine.RegisterTableFunction`
 - temporal reads require a connector to advertise `Capabilities.SystemTime`
 - interval and date/time values are normalized strings, not a full SQL type
   system

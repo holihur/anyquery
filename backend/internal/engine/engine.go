@@ -64,15 +64,16 @@ func DefaultOptions() Options {
 type Engine struct {
 	Opts Options
 
-	functions *FunctionRegistry
-	funcOnce  sync.Once
+	functions      *FunctionRegistry
+	tableFunctions *tableFunctionRegistry
+	funcOnce       sync.Once
 }
 
 func New(opts Options) *Engine {
 	if opts.MaxSourceRows <= 0 {
 		opts = DefaultOptions()
 	}
-	return &Engine{Opts: opts, functions: defaultFunctionRegistry()}
+	return &Engine{Opts: opts, functions: defaultFunctionRegistry(), tableFunctions: defaultTableFunctionRegistry()}
 }
 
 // Functions returns the scalar function registry. The returned registry is
@@ -92,6 +93,14 @@ func (e *Engine) Functions() *FunctionRegistry {
 // arity ranges, nil implementations and duplicate names.
 func (e *Engine) RegisterFunction(name string, minArgs, maxArgs int, fn ScalarFunction) error {
 	return e.Functions().Register(FunctionSpec{Name: name, MinArgs: minArgs, MaxArgs: maxArgs, Fn: fn})
+}
+
+// RegisterTableFunction registers a table-valued function for this engine.
+func (e *Engine) RegisterTableFunction(spec TableFunctionSpec) error {
+	if e.tableFunctions == nil {
+		e.tableFunctions = defaultTableFunctionRegistry()
+	}
+	return e.tableFunctions.register(spec)
 }
 
 // ResultColumn is one output column.

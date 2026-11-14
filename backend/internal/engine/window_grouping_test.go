@@ -187,3 +187,11 @@ func TestWindowPositiveArgumentValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowFrameParameterOffsets(t *testing.T) {
+	res := execParams(t, `SELECT id, sum(x) OVER (ORDER BY id ROWS BETWEEN ? PRECEDING AND CURRENT ROW) AS s
+		FROM (VALUES (1,10),(2,20),(3,30)) t(id,x) ORDER BY id`, []any{1})
+	if res.Rows[0]["s"] != int64(10) || res.Rows[1]["s"] != int64(30) || res.Rows[2]["s"] != int64(50) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}

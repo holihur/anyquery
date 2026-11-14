@@ -373,8 +373,8 @@ Use filters early. The scan planner performs capability-gated projection, filter
 
 - No DML/DDL or transactions.
 - No `PIVOT`/`UNPIVOT`, `DISTINCT ON`, `QUALIFY`, or `TOP`.
-- `UNNEST` currently expands JSON arrays and internal array values; arbitrary user-defined table functions are not implemented.
-- Window frame offsets accept integer literals, not bind parameters.
+- `UNNEST` expands JSON arrays and internal array values; additional Go table functions can be registered with `Engine.RegisterTableFunction`.
+- Window frame offsets accept integer literals and bind parameters; arbitrary offset expressions are rejected.
 - `TABLESAMPLE SYSTEM`/`BERNOULLI` are implemented as deterministic-capable row sampling in the engine; source-level page sampling is connector-specific.
 - INTERVAL supports calendar month/day/time arithmetic; there is no full interval type system, array/map type, or typed JSON operator set.
 - Date/time values are represented as normalized strings; `AT TIME ZONE` and `TIMEZONE` return normalized timestamp strings.

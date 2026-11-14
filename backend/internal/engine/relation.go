@@ -101,12 +101,68 @@ func renameDatasetColumns(ds *dataset, names []string) (*dataset, error) {
 }
 
 func (ec *execCtx) relationForTableFunction(t *sql.TableFunction) (*relation, error) {
-	switch strings.ToLower(t.Name) {
-	case "unnest":
+	if strings.EqualFold(t.Name, "unnest") {
 		return ec.relationForUnnest(t)
-	default:
+	}
+	if ec.engine == nil || ec.engine.tableFunctions == nil {
 		return nil, errf("unknown_table_function", "unknown table function %s", strings.ToUpper(t.Name))
 	}
+	spec, ok := ec.engine.tableFunctions.lookup(t.Name)
+	if !ok {
+		return nil, errf("unknown_table_function", "unknown table function %s", strings.ToUpper(t.Name))
+	}
+	if len(t.Args) < spec.MinArgs || (spec.MaxArgs >= 0 && len(t.Args) > spec.MaxArgs) {
+		return nil, errf("invalid_arguments", "table function %s expects %d..%d arguments", strings.ToUpper(spec.Name), spec.MinArgs, spec.MaxArgs)
+	}
+	args := make([]any, len(t.Args))
+	for i, e := range t.Args {
+		v, err := evalExpr(&evalCtx{outer: ec.outerEval, exec: ec}, e)
+		if err != nil {
+			return nil, err
+		}
+		args[i] = v
+	}
+	rows, err := spec.Fn(ec.ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	cols := append([]string(nil), spec.Columns...)
+	if len(t.Columns) > 0 {
+		want := len(cols)
+		if t.Ordinality {
+			want++
+		}
+		if len(t.Columns) != want {
+			return nil, errf("invalid_arguments", "table function %s returns %d column(s)", strings.ToUpper(spec.Name), want)
+		}
+		cols = append([]string(nil), t.Columns...)
+	}
+	if t.Ordinality && len(t.Columns) == 0 {
+		cols = append(cols, "ordinality")
+	}
+	ds := &dataset{columns: make([]ResultColumn, len(cols))}
+	for i, c := range cols {
+		ds.columns[i] = ResultColumn{Name: c}
+	}
+	for i, values := range rows {
+		if len(values) != len(spec.Columns) {
+			return nil, errf("invalid_arguments", "table function %s row has %d value(s), expected %d", strings.ToUpper(spec.Name), len(values), len(spec.Columns))
+		}
+		row := make(map[string]any, len(cols))
+		for j, v := range values {
+			row[strings.ToLower(cols[j])] = v
+		}
+		if t.Ordinality {
+			row[strings.ToLower(cols[len(cols)-1])] = int64(i + 1)
+		}
+		ds.rows = append(ds.rows, row)
+	}
+	ds.columns = inferColumns(ds.rows, ds.columns)
+	alias := t.Alias
+	if alias == "" {
+		alias = spec.Name
+	}
+	return datasetToRelation(ds, alias, alias), nil
 }
 
 func (ec *execCtx) relationForUnnest(t *sql.TableFunction) (*relation, error) {

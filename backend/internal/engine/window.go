@@ -147,6 +147,16 @@ func (ec *execCtx) computeWindows(src *windowSource, calls []*sql.FuncCall) ([]m
 }
 
 func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs []int, orderKeys [][]any, out []map[string]any) error {
+	key := f.String()
+	if f.Window != nil {
+		w, err := ec.resolveWindowFrameOffsets(f.Window)
+		if err != nil {
+			return err
+		}
+		local := *f
+		local.Window = w
+		f = &local
+	}
 	if err := validateWindowFrameValues(f.Window, orderKeys); err != nil {
 		return err
 	}
@@ -351,7 +361,7 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 		if err != nil {
 			return err
 		}
-		out[ri][f.String()] = value
+		out[ri][key] = value
 	}
 	return nil
 }
@@ -543,10 +553,10 @@ func validateWindowFrame(w *sql.WindowSpec) error {
 	if w == nil {
 		return nil
 	}
-	if w.FrameKind == "ROWS" && (w.FrameStartExpr != nil || w.FrameEndExpr != nil) {
+	if w.FrameKind == "ROWS" && (isIntervalFrameExpr(w.FrameStartExpr) || isIntervalFrameExpr(w.FrameEndExpr)) {
 		return errf("invalid_window", "ROWS frame bounds must be integer row counts")
 	}
-	if w.FrameKind == "GROUPS" && (w.FrameStartExpr != nil || w.FrameEndExpr != nil) {
+	if w.FrameKind == "GROUPS" && (isIntervalFrameExpr(w.FrameStartExpr) || isIntervalFrameExpr(w.FrameEndExpr)) {
 		return errf("invalid_window", "GROUPS frame offsets must be integer group counts")
 	}
 	needsOrder := w.FrameStart == "preceding" || w.FrameStart == "following" || w.FrameEnd == "preceding" || w.FrameEnd == "following" || w.FrameStartExpr != nil || w.FrameEndExpr != nil
@@ -621,6 +631,44 @@ func validateWindowFrameValues(w *sql.WindowSpec, orderKeys [][]any) error {
 		}
 	}
 	return nil
+}
+
+func isIntervalFrameExpr(e sql.Expr) bool {
+	_, ok := e.(*sql.IntervalExpr)
+	return ok
+}
+
+func (ec *execCtx) resolveWindowFrameOffsets(w *sql.WindowSpec) (*sql.WindowSpec, error) {
+	if w == nil {
+		return nil, nil
+	}
+	copy := *w
+	set := func(expr *sql.Expr, offset *int) error {
+		if *expr == nil || isIntervalFrameExpr(*expr) {
+			return nil
+		}
+		v, err := evalExpr(&evalCtx{exec: ec, outer: ec.outerEval}, *expr)
+		if err != nil {
+			return err
+		}
+		n, ok := toInt(v)
+		if !ok || n < 0 {
+			return errf("invalid_window", "window frame offset must be a non-negative integer")
+		}
+		*offset = n
+		*expr = nil
+		return nil
+	}
+	if err := set(&copy.FrameStartExpr, &copy.FrameStartOffset); err != nil {
+		return nil, err
+	}
+	if err := set(&copy.FrameEndExpr, &copy.FrameEndOffset); err != nil {
+		return nil, err
+	}
+	if err := validateWindowFrame(&copy); err != nil {
+		return nil, err
+	}
+	return &copy, nil
 }
 
 func windowFrame(w *sql.WindowSpec, pos, n int, orderKeys [][]any) (int, int) {

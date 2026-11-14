@@ -3319,20 +3319,31 @@ func (p *Parser) parseFrameBound() (string, int, Expr, error) {
 		}
 		return "current_row", 0, nil, nil
 	}
-	if p.cur.Kind != TokNumber {
+	if p.cur.Kind != TokNumber && !p.cur.IsPunct("?") && !p.cur.IsPunct("$") {
 		return "", 0, nil, p.errf("expected a frame bound")
 	}
-	n, err := p.parseIntLiteral("frame bound")
-	if err != nil {
-		return "", 0, nil, err
+	var n int
+	var expr Expr
+	if p.cur.Kind == TokNumber {
+		var err error
+		n, err = p.parseIntLiteral("frame bound")
+		if err != nil {
+			return "", 0, nil, err
+		}
+	} else {
+		var err error
+		expr, err = p.parseExpr(precMul)
+		if err != nil {
+			return "", 0, nil, err
+		}
 	}
 	switch {
 	case p.cur.IsKeyword("PRECEDING"):
 		p.advance()
-		return "preceding", n, nil, nil
+		return "preceding", n, expr, nil
 	case p.cur.IsKeyword("FOLLOWING"):
 		p.advance()
-		return "following", n, nil, nil
+		return "following", n, expr, nil
 	}
 	return "", 0, nil, p.errf("expected PRECEDING or FOLLOWING after frame offset")
 }

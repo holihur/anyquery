@@ -258,3 +258,28 @@ func TestRowValueSubqueries(t *testing.T) {
 		t.Fatalf("row = subquery = %+v", res.Rows)
 	}
 }
+
+func TestRegisteredTableFunction(t *testing.T) {
+	eng := New(DefaultOptions())
+	err := eng.RegisterTableFunction(TableFunctionSpec{
+		Name: "series", MinArgs: 1, MaxArgs: 1, Columns: []string{"n"},
+		Fn: func(_ context.Context, args []any) ([][]any, error) {
+			n, _ := toInt(args[0])
+			var rows [][]any
+			for i := 1; i <= n; i++ {
+				rows = append(rows, []any{int64(i)})
+			}
+			return rows, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := eng.Execute(t.Context(), `SELECT n, ord FROM series(2) WITH ORDINALITY AS s(n, ord) ORDER BY n`, testCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RowCount != 2 || res.Rows[1]["n"] != int64(2) || res.Rows[1]["ord"] != int64(2) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
