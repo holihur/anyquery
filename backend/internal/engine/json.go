@@ -103,8 +103,10 @@ func evalJSONLookup(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 		conditional := strings.Contains(upper, "CONDITIONAL")
 		v := matches[0]
 		if f.JSONQuotes != "" {
-			if f.JSONQuotes == "omit" && v != nil {
-				return fmt.Sprint(v), nil
+			if f.JSONQuotes == "omit" {
+				if s, ok := v.(string); ok {
+					return s, nil
+				}
 			}
 			text, err := jsonValueText(v)
 			if err != nil {

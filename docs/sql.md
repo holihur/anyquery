@@ -297,7 +297,7 @@ Supported: `PARTITION BY`, `ORDER BY`, `MEASURES`, `ONE ROW PER MATCH`,
 `ALL ROWS PER MATCH`, `AFTER MATCH SKIP PAST LAST ROW|TO NEXT ROW`, pattern
 sequence/alternation, `* + ?` quantifiers with lazy `?`, and `DEFINE`. Measures
 support row expressions, `MATCH_NUMBER()`, `CLASSIFIER()`, `FIRST(...)` and
-`LAST(...)`; empty matches are rejected.
+`LAST(...)`; `SHOW EMPTY MATCHES` emits empty matches and `OMIT EMPTY MATCHES` suppresses them.
 
 ## Temporal tables
 

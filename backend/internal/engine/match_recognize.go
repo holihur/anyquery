@@ -126,6 +126,7 @@ func (ec *execCtx) relationForMatchRecognize(m *sql.MatchRecognize) (*relation, 
 					continue
 				}
 				if m.EmptyMatches == "show" && start < len(p.rows) {
+					matchNo++
 					row := mrOutputRow(input, p.rows[start].row)
 					if err := ec.addMRMeasures(row, m.Measures, p.rows, start, start, start, true, state.bindings, matchNo, input, subsets); err != nil {
 						return nil, err

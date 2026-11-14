@@ -1,6 +1,9 @@
 package engine
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestMatchRecognizeOneRow(t *testing.T) {
 	res := execParams(t, `SELECT id, m FROM mongo.orders MATCH_RECOGNIZE (
@@ -195,16 +198,26 @@ func TestMatchNumberRestartsPerPartition(t *testing.T) {
 }
 
 func TestMatchRecognizeEmptyMatches(t *testing.T) {
-	for _, mode := range []string{"SHOW", "OMIT"} {
-		q := `SELECT * FROM mongo.orders MATCH_RECOGNIZE (
-			ORDER BY id MEASURES id AS id ALL ROWS PER MATCH ` + mode + ` EMPTY MATCHES
-			PATTERN (A*) DEFINE A AS total > 0) AS mr`
-		res, err := New(DefaultOptions()).Execute(t.Context(), q, testCatalog())
-		if err != nil {
-			t.Fatalf("%s: %v", mode, err)
+	base := `SELECT * FROM mongo.orders MATCH_RECOGNIZE (
+		ORDER BY id MEASURES match_number() AS m, id AS id ALL ROWS PER MATCH %s EMPTY MATCHES
+		PATTERN (A*) DEFINE A AS total > 1000) AS mr ORDER BY id`
+	show, err := New(DefaultOptions()).Execute(t.Context(), fmt.Sprintf(base, "SHOW"), testCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if show.RowCount != 4 {
+		t.Fatalf("show rows = %+v", show.Rows)
+	}
+	for i, row := range show.Rows {
+		if row["m"] != int64(i+1) || row["id"] != int64(i+1) {
+			t.Fatalf("show rows = %+v", show.Rows)
 		}
-		if res.RowCount == 0 {
-			t.Fatalf("%s produced no rows", mode)
-		}
+	}
+	omit, err := New(DefaultOptions()).Execute(t.Context(), fmt.Sprintf(base, "OMIT"), testCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if omit.RowCount != 0 {
+		t.Fatalf("omit rows = %+v", omit.Rows)
 	}
 }

@@ -147,7 +147,18 @@ func TestRangeIntervalDescending(t *testing.T) {
 func TestNthValueFromLast(t *testing.T) {
 	res := execParams(t, `SELECT id, nth_value(x, 2) FROM LAST OVER (ORDER BY id) AS n
 		FROM (VALUES (1,10),(2,20),(3,30)) AS t(id,x) ORDER BY id`, nil)
-	if res.Rows[0]["n"] != nil || res.Rows[2]["n"] != int64(20) {
+	if res.Rows[0]["n"] != nil || res.Rows[1]["n"] != int64(10) || res.Rows[2]["n"] != int64(20) {
 		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestNTileDistribution(t *testing.T) {
+	res := execParams(t, `SELECT id, ntile(4) OVER (ORDER BY id) AS b
+		FROM (VALUES (1),(2),(3),(4),(5),(6)) AS t(id) ORDER BY id`, nil)
+	want := []int64{1, 1, 2, 2, 3, 4}
+	for i, w := range want {
+		if res.Rows[i]["b"] != w {
+			t.Fatalf("rows = %+v", res.Rows)
+		}
 	}
 }

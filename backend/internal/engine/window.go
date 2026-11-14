@@ -193,7 +193,13 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 			if buckets > n {
 				value = int64(pos + 1)
 			} else {
-				value = int64(pos*buckets/n + 1)
+				base, extra := n/buckets, n%buckets
+				large := (base + 1) * extra
+				if pos < large {
+					value = int64(pos/(base+1) + 1)
+				} else {
+					value = int64((pos-large)/base + extra + 1)
+				}
 			}
 		case "lag", "lead":
 			if len(f.Args) == 0 {
@@ -287,20 +293,39 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 					}
 				}
 				remaining := k
-				for j := start; j <= end && j < n; j++ {
-					if frameExcluded(f.Window, pos, j, orderKeys) {
-						continue
-					}
-					if f.IgnoreNulls {
-						v, _ := ec.windowEval(src, idxs[j], f.Args[0])
-						if v == nil {
+				if f.FromLast {
+					for j := end; j >= start && j >= 0; j-- {
+						if frameExcluded(f.Window, pos, j, orderKeys) {
 							continue
 						}
+						if f.IgnoreNulls {
+							v, _ := ec.windowEval(src, idxs[j], f.Args[0])
+							if v == nil {
+								continue
+							}
+						}
+						remaining--
+						if remaining == 0 {
+							target = j
+							break
+						}
 					}
-					remaining--
-					if remaining == 0 {
-						target = j
-						break
+				} else {
+					for j := start; j <= end && j < n; j++ {
+						if frameExcluded(f.Window, pos, j, orderKeys) {
+							continue
+						}
+						if f.IgnoreNulls {
+							v, _ := ec.windowEval(src, idxs[j], f.Args[0])
+							if v == nil {
+								continue
+							}
+						}
+						remaining--
+						if remaining == 0 {
+							target = j
+							break
+						}
 					}
 				}
 			}

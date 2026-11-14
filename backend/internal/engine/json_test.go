@@ -276,4 +276,8 @@ func TestJSONTableNullOnErrorUnknownAndQuotes(t *testing.T) {
 	if quotes.Rows[0]["k"] != `"x"` || quotes.Rows[0]["o"] != "x" {
 		t.Fatalf("quotes = %+v", quotes.Rows[0])
 	}
+	composite := execParams(t, `SELECT JSON_QUERY('{"a":{"b":2}}', '$.a' OMIT QUOTES) AS o, JSON_QUERY('{"a":[1,2]}', '$.a' OMIT QUOTES) AS arr`, nil)
+	if composite.Rows[0]["o"] != `{"b":2}` || composite.Rows[0]["arr"] != `[1,2]` {
+		t.Fatalf("composite = %+v", composite.Rows[0])
+	}
 }
