@@ -104,7 +104,9 @@ func TestASTStringBranches(t *testing.T) {
 		{Name: "json_arrayagg", Args: []Expr{col}, JSONOrder: []OrderItem{{Expr: col}}},
 		{Name: "json_objectagg", JSONPairs: []JSONPair{{Key: str, Value: lit}}, JSONOrder: []OrderItem{{Expr: col}}},
 	} {
-		_ = f.String()
+		if got := f.String(); got == "" {
+			t.Fatalf("empty function format for %s", f.Name)
+		}
 	}
 }
 
@@ -140,7 +142,9 @@ func TestASTSelectFormattingBranches(t *testing.T) {
 		t.Fatalf("format = %s", out)
 	}
 	for _, item := range []SelectItem{{Alias: "a"}, {Star: true}, {Expr: col}, {Expr: &FuncCall{Name: "LOWER"}}, {Expr: lit}} {
-		_ = Label(item)
+		if got := Label(item); got == "" {
+			t.Fatalf("empty label for %+v", item)
+		}
 	}
 }
 
@@ -160,12 +164,16 @@ func TestASTWalkAndPredicates(t *testing.T) {
 		if !WalkExpr(e, func(Expr) bool { return true }) {
 			t.Fatalf("walk failed for %T", e)
 		}
-		_ = ContainsWindow(e)
-		_ = ContainsAggregate(e)
 	}
-	_ = WalkExpr(nil, func(Expr) bool { return true })
-	_ = WalkExpr(col, func(Expr) bool { return false })
-	_ = WalkExpr(&BinaryExpr{Left: col, Right: lit}, func(e Expr) bool { _, ok := e.(*ColumnRef); return !ok })
+	if !WalkExpr(nil, func(Expr) bool { return true }) {
+		t.Fatal("nil walk did not complete")
+	}
+	if WalkExpr(col, func(Expr) bool { return false }) {
+		t.Fatal("stopped walk returned true")
+	}
+	if WalkExpr(&BinaryExpr{Left: col, Right: lit}, func(e Expr) bool { _, ok := e.(*ColumnRef); return !ok }) {
+		t.Fatal("binary walk did not stop")
+	}
 	if !ContainsWindow(&FuncCall{Name: "sum", Window: &WindowSpec{}}) || ContainsWindow(col) {
 		t.Fatal("ContainsWindow failed")
 	}
@@ -193,18 +201,21 @@ func TestASTFormatStatementBranches(t *testing.T) {
 			t.Fatalf("no format for %T", s)
 		}
 	}
-	_ = FormatShow(nil)
-	_ = FormatDescribe(nil)
-	_ = FormatExplain(nil)
-	_ = FormatExplain(&ExplainStmt{})
+	if FormatShow(nil) != "SHOW" || FormatDescribe(nil) != "DESCRIBE" || FormatExplain(nil) != "EXPLAIN" || FormatExplain(&ExplainStmt{}) != "EXPLAIN" {
+		t.Fatal("nil statement formatting")
+	}
 	if FormatStatement(nil) != "" {
 		t.Fatal("nil statement formatted")
 	}
 	if FormatTable(nil) != "TABLE" {
 		t.Fatal("nil table")
 	}
-	_ = FormatTableSample(nil)
-	_ = FormatTableRef(&TableRef{Source: "s", Table: "t", Temporal: &TemporalClause{Mode: "all"}})
+	if got := FormatTableSample(nil); got != "" {
+		t.Fatalf("nil table sample = %q", got)
+	}
+	if got := FormatTableRef(&TableRef{Source: "s", Table: "t", Temporal: &TemporalClause{Mode: "all"}}); got == "" {
+		t.Fatal("empty temporal table ref")
+	}
 	if FormatIdent("") != `""` || FormatIdent("1x") != `"1x"` || FormatIdent("ok") != "ok" {
 		t.Fatal("FormatIdent failed")
 	}

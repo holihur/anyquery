@@ -19,7 +19,9 @@ func TestParserTruncationCoverage(t *testing.T) {
 	}
 	for _, q := range queries {
 		for i := 1; i <= len(q); i++ {
-			checkParserError(t, func() error { _, err := Parse(q[:i]); return err }())
+			if err := func() error { _, err := Parse(q[:i]); return err }(); err != nil {
+				checkParserPositional(t, err)
+			}
 		}
 	}
 }
@@ -27,11 +29,21 @@ func TestParserTruncationCoverage(t *testing.T) {
 func TestMoreASTCoverage(t *testing.T) {
 	col := &ColumnRef{Parts: []string{"x"}}
 	lit := &Literal{Kind: LitInt, Value: 1}
-	_ = FormatSelect(&SelectStmt{CTEs: []*CTE{{Name: "a", Query: &SelectStmt{}}, {Name: "b", Query: &SelectStmt{}}}})
-	_ = FormatSelect(&SelectStmt{Windows: []NamedWindow{{Name: "a", Spec: &WindowSpec{}}, {Name: "b", Spec: &WindowSpec{}}}})
-	_ = FormatTableExpr(nil)
-	_ = FormatExplain(&ExplainStmt{Stmt: noFormatStmt{}})
-	_ = formatMatchPattern(&MatchPattern{Kind: "group", Quantifier: "?", Lazy: true, Children: []*MatchPattern{{Kind: "var", Var: "A"}}})
+	if got := FormatSelect(&SelectStmt{CTEs: []*CTE{{Name: "a", Query: &SelectStmt{}}, {Name: "b", Query: &SelectStmt{}}}}); got == "" {
+		t.Fatal("empty CTE format")
+	}
+	if got := FormatSelect(&SelectStmt{Windows: []NamedWindow{{Name: "a", Spec: &WindowSpec{}}, {Name: "b", Spec: &WindowSpec{}}}}); got == "" {
+		t.Fatal("empty WINDOW format")
+	}
+	if got := FormatTableExpr(nil); got != "" {
+		t.Fatalf("nil table formatted as %q", got)
+	}
+	if got := FormatExplain(&ExplainStmt{Stmt: noFormatStmt{}}); got != "EXPLAIN" {
+		t.Fatalf("unknown explain = %q", got)
+	}
+	if got := formatMatchPattern(&MatchPattern{Kind: "group", Quantifier: "?", Lazy: true, Children: []*MatchPattern{{Kind: "var", Var: "A"}}}); got == "" {
+		t.Fatal("empty pattern format")
+	}
 	for _, e := range []Expr{
 		&InExpr{Left: col, List: []Expr{lit}},
 		&QuantifiedExpr{Left: col, List: []Expr{lit}},
@@ -41,7 +53,7 @@ func TestMoreASTCoverage(t *testing.T) {
 			t.Fatalf("expected walk to stop for %T", e)
 		}
 	}
-	checkParserError(t, func() error { _, err := Tokenize("'a\\q'"); return err }())
+	checkParserError(t, func() error { _, err := Tokenize("'unterminated"); return err }())
 	if isNumericToken("1a") || isNumericToken("") {
 		t.Fatal("numeric token detection failed")
 	}

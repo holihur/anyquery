@@ -116,7 +116,9 @@ func TestCoverageNewBranches2(t *testing.T) {
 	if out := formatJSONFunc(fn); out == "" {
 		t.Fatal("empty JSON error formatter")
 	}
-	_ = formatJSONTableColumns([]JSONTableColumn{{Name: "x", Type: "INT", OnError: "default", DefaultError: &Literal{Kind: LitInt, Value: 1}}})
+	if got := formatJSONTableColumns([]JSONTableColumn{{Name: "x", Type: "INT", OnError: "default", DefaultError: &Literal{Kind: LitInt, Value: 1}}}); got == "" {
+		t.Fatal("empty JSON_TABLE columns")
+	}
 	for _, src := range []string{"PERMUTE", "PERMUTE A"} {
 		if _, err := parserAt(src).parseMatchTerm(); err == nil {
 			t.Errorf("expected PERMUTE error for %q", src)

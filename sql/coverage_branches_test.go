@@ -50,9 +50,15 @@ func TestMoreASTFormattingBranches(t *testing.T) {
 	if FormatPipe(nil) != "" {
 		t.Fatal("unexpected pipe format")
 	}
-	_ = formatMatchPattern(nil)
-	_ = formatMatchPattern(&MatchPattern{Kind: "var", Var: "A", Quantifier: "+", Lazy: true})
-	_ = formatMatchPattern(&MatchPattern{Kind: "seq", Quantifier: "*", Lazy: true, Children: []*MatchPattern{{Kind: "var", Var: "A"}}})
+	if got := formatMatchPattern(nil); got != "" {
+		t.Fatalf("nil pattern = %q", got)
+	}
+	if got := formatMatchPattern(&MatchPattern{Kind: "var", Var: "A", Quantifier: "+", Lazy: true}); got == "" {
+		t.Fatal("empty lazy pattern")
+	}
+	if got := formatMatchPattern(&MatchPattern{Kind: "seq", Quantifier: "*", Lazy: true, Children: []*MatchPattern{{Kind: "var", Var: "A"}}}); got == "" {
+		t.Fatal("empty lazy seq")
+	}
 }
 
 func TestWalkExprFalseBranches(t *testing.T) {
@@ -102,7 +108,9 @@ func TestWalkExprFalseBranches(t *testing.T) {
 
 func TestLexerStringAndScanBranches(t *testing.T) {
 	for _, k := range []TokenKind{TokEOF, TokIdent, TokNumber, TokString, TokPunct, TokenKind(99)} {
-		_ = k.String()
+		if k.String() == "" {
+			t.Fatalf("empty key format: %+v", k)
+		}
 	}
 	tokens, err := Tokenize(`'a\b' "a""b" [a]]b] 1e+2 .5 'a''b'`)
 	if err != nil {

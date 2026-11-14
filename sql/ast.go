@@ -1009,6 +1009,9 @@ func formatJSONFunc(f *FuncCall) string {
 			out += " " + strings.ToUpper(f.JSONOnError) + " ON ERROR"
 		}
 	}
+	if f.Filter != nil {
+		return out + ") FILTER (WHERE " + f.Filter.String() + ")"
+	}
 	return out + ")"
 }
 
