@@ -143,3 +143,11 @@ func TestRangeIntervalDescending(t *testing.T) {
 		t.Fatal("expected RANGE offset order error")
 	}
 }
+
+func TestNthValueFromLast(t *testing.T) {
+	res := execParams(t, `SELECT id, nth_value(x, 2) FROM LAST OVER (ORDER BY id) AS n
+		FROM (VALUES (1,10),(2,20),(3,30)) AS t(id,x) ORDER BY id`, nil)
+	if res.Rows[0]["n"] != nil || res.Rows[2]["n"] != int64(20) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}

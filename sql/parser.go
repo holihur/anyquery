@@ -844,6 +844,16 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 			if err := p.expectKeyword("MATCH"); err != nil {
 				return nil, err
 			}
+		case p.cur.IsKeyword("SHOW"), p.cur.IsKeyword("OMIT"):
+			mode := strings.ToLower(p.cur.Value)
+			p.advance()
+			if err := p.expectKeyword("EMPTY"); err != nil {
+				return nil, err
+			}
+			if err := p.expectKeyword("MATCHES"); err != nil {
+				return nil, err
+			}
+			m.EmptyMatches = mode
 		case p.cur.IsKeyword("AFTER"):
 			p.advance()
 			if err := p.expectKeyword("MATCH"); err != nil {
@@ -2075,6 +2085,11 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 
 	case p.cur.IsKeyword("BETWEEN"):
 		p.advance()
+		symmetric := false
+		if p.cur.IsKeyword("SYMMETRIC") || p.cur.IsKeyword("ASYMMETRIC") {
+			symmetric = p.cur.IsKeyword("SYMMETRIC")
+			p.advance()
+		}
 		low, err := p.parseExpr(precCompare + 1)
 		if err != nil {
 			return nil, err
@@ -2086,7 +2101,7 @@ func (p *Parser) parseComparison(left Expr) (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &BetweenExpr{Left: left, Low: low, High: high, Negated: negated}, nil
+		return &BetweenExpr{Left: left, Low: low, High: high, Symmetric: symmetric, Negated: negated}, nil
 
 	case p.cur.IsKeyword("IS"):
 		p.advance()
@@ -2241,7 +2256,7 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		p.advance()
 		lit := &Literal{Kind: LitString, Value: p.cur.Value}
 		p.advance()
-		return &CastExpr{Expr: lit, Type: typ}, nil
+		return &CastExpr{Expr: lit, Type: typ, PreserveZone: typ == "timestamp" || typ == "timestamptz"}, nil
 	case t.IsKeyword("INTERVAL"):
 		return p.parseInterval()
 	case t.IsKeyword("TRIM"):
@@ -2359,6 +2374,17 @@ func (p *Parser) parsePrimary() (Expr, error) {
 				return nil, err
 			}
 			fn := &FuncCall{Name: name, Args: args, Distinct: distinct}
+			if strings.EqualFold(name, "nth_value") && p.cur.IsKeyword("FROM") {
+				p.advance()
+				if p.cur.IsKeyword("LAST") {
+					fn.FromLast = true
+					p.advance()
+				} else if p.cur.IsKeyword("FIRST") {
+					p.advance()
+				} else {
+					return nil, p.errf("expected FIRST or LAST after FROM")
+				}
+			}
 			if p.cur.IsKeyword("IGNORE") || p.cur.IsKeyword("RESPECT") {
 				fn.IgnoreNulls = p.cur.IsKeyword("IGNORE")
 				p.advance()
@@ -2808,7 +2834,7 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 		}
 		// SQL:2016 puts the behavior after ON, but accept the compact
 		// "<behavior> ON EMPTY|ERROR" spelling used by several clients too.
-		if (p.cur.IsKeyword("ERROR") || p.cur.IsKeyword("NULL") || p.cur.IsKeyword("TRUE") || p.cur.IsKeyword("FALSE")) && p.peek.IsKeyword("ON") {
+		if (p.cur.IsKeyword("ERROR") || p.cur.IsKeyword("NULL") || p.cur.IsKeyword("TRUE") || p.cur.IsKeyword("FALSE") || p.cur.IsKeyword("UNKNOWN")) && p.peek.IsKeyword("ON") {
 			behavior := strings.ToLower(p.cur.Value)
 			p.advance()
 			p.advance()
@@ -2842,6 +2868,12 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 				return err
 			}
 			fn.JSONNullBehavior = "absent"
+		case p.cur.IsKeyword("KEEP"), p.cur.IsKeyword("OMIT"):
+			fn.JSONQuotes = strings.ToLower(p.cur.Value)
+			p.advance()
+			if err := p.expectKeyword("QUOTES"); err != nil {
+				return err
+			}
 		case p.cur.IsKeyword("WITH") || p.cur.IsKeyword("WITHOUT"):
 			with := p.cur.IsKeyword("WITH")
 			p.advance()
@@ -2915,6 +2947,9 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 				p.advance()
 			case p.cur.IsKeyword("FALSE"):
 				*field = "false"
+				p.advance()
+			case p.cur.IsKeyword("UNKNOWN"):
+				*field = "unknown"
 				p.advance()
 			case p.cur.IsKeyword("DEFAULT"):
 				*field = "default"

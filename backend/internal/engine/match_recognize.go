@@ -121,6 +121,19 @@ func (ec *execCtx) relationForMatchRecognize(m *sql.MatchRecognize) (*relation, 
 			}
 			state := states[0]
 			if state.pos <= start {
+				if m.EmptyMatches == "omit" {
+					start++
+					continue
+				}
+				if m.EmptyMatches == "show" && start < len(p.rows) {
+					row := mrOutputRow(input, p.rows[start].row)
+					if err := ec.addMRMeasures(row, m.Measures, p.rows, start, start, start, true, state.bindings, matchNo, input, subsets); err != nil {
+						return nil, err
+					}
+					ds.rows = append(ds.rows, row)
+					start++
+					continue
+				}
 				return nil, errf("match_recognize_error", "pattern matched an empty row sequence")
 			}
 			matchNo++

@@ -186,18 +186,19 @@ func (*ValuesTable) tableNode() { _ = 0 }
 
 // MatchRecognize is a SQL:2016 MATCH_RECOGNIZE row-pattern table expression.
 type MatchRecognize struct {
-	Input       TableExpr
-	PartitionBy []Expr
-	OrderBy     []OrderItem
-	Measures    []MatchMeasure
-	Subsets     []MatchSubset
-	Permute     []string
-	RowsMode    string // one, all
-	AfterSkip   string // past_last, next_row
-	Unmatched   bool
-	Pattern     *MatchPattern
-	Define      []MatchDefine
-	Alias       string
+	Input        TableExpr
+	PartitionBy  []Expr
+	OrderBy      []OrderItem
+	Measures     []MatchMeasure
+	Subsets      []MatchSubset
+	Permute      []string
+	RowsMode     string // one, all
+	EmptyMatches string // show or omit
+	AfterSkip    string // past_last, next_row
+	Unmatched    bool
+	Pattern      *MatchPattern
+	Define       []MatchDefine
+	Alias        string
 }
 
 func (*MatchRecognize) tableNode() { _ = 0 }
@@ -432,10 +433,11 @@ type QuantifiedExpr struct {
 func (*QuantifiedExpr) exprNode() { _ = 0 }
 
 type BetweenExpr struct {
-	Left    Expr
-	Low     Expr
-	High    Expr
-	Negated bool
+	Left      Expr
+	Low       Expr
+	High      Expr
+	Symmetric bool
+	Negated   bool
 }
 
 func (*BetweenExpr) exprNode() { _ = 0 }
@@ -458,6 +460,7 @@ type FuncCall struct {
 	Star        bool
 	Distinct    bool
 	IgnoreNulls bool
+	FromLast    bool
 	Filter      Expr
 	WithinGroup []OrderItem
 	Window      *WindowSpec
@@ -473,6 +476,7 @@ type FuncCall struct {
 	JSONDefaultError Expr
 	JSONDefaultEmpty Expr
 	JSONWrapper      string
+	JSONQuotes       string
 	JSONNullBehavior string // null or absent
 	JSONUnique       bool
 }
@@ -516,9 +520,10 @@ type WhenClause struct {
 func (*CaseExpr) exprNode() { _ = 0 }
 
 type CastExpr struct {
-	Expr Expr
-	Type string
-	Safe bool // TRY_CAST returns NULL instead of an error
+	Expr         Expr
+	Type         string
+	Safe         bool // TRY_CAST returns NULL instead of an error
+	PreserveZone bool // TIMESTAMP literal retains an explicit zone offset
 }
 
 func (*CastExpr) exprNode() { _ = 0 }
@@ -718,6 +723,11 @@ func (b *BetweenExpr) String() string {
 	if b.Negated {
 		op = " NOT BETWEEN "
 	}
+	if b.Symmetric {
+		op += "SYMMETRIC "
+	} else {
+		op += "ASYMMETRIC "
+	}
 	return "(" + b.Left.String() + op + b.Low.String() + " AND " + b.High.String() + ")"
 }
 
@@ -786,6 +796,11 @@ func (f *FuncCall) String() string {
 	}
 	if f.IgnoreNulls {
 		out += " IGNORE NULLS"
+	}
+	if f.FromLast {
+		out += " FROM LAST"
+	} else if strings.EqualFold(f.Name, "nth_value") {
+		out += " FROM FIRST"
 	}
 	if len(f.WithinGroup) > 0 {
 		out += " WITHIN GROUP (ORDER BY " + formatOrder(f.WithinGroup) + ")"
@@ -939,6 +954,9 @@ func formatJSONFunc(f *FuncCall) string {
 	}
 	if f.JSONWrapper != "" {
 		out += " " + f.JSONWrapper + " WRAPPER"
+	}
+	if f.JSONQuotes != "" {
+		out += " " + strings.ToUpper(f.JSONQuotes) + " QUOTES"
 	}
 	if f.JSONUnique {
 		out += " WITH UNIQUE KEYS"
@@ -1436,6 +1454,9 @@ func formatMatchRecognize(m *MatchRecognize) string {
 	} else {
 		add("ONE ROW PER MATCH")
 	}
+	if m.EmptyMatches != "" {
+		add(strings.ToUpper(m.EmptyMatches) + " EMPTY MATCHES")
+	}
 	if m.AfterSkip != "" && m.AfterSkip != "past_last" {
 		switch {
 		case m.AfterSkip == "next_row":
@@ -1755,7 +1776,7 @@ func IsWindow(f *FuncCall) bool { return f != nil && f.Window != nil }
 // IsAggregate reports whether name is an aggregate function.
 func IsAggregate(name string) bool {
 	switch strings.ToLower(name) {
-	case "count", "sum", "avg", "min", "max", "stddev", "stddev_pop", "stddev_samp", "variance", "var_pop", "var_samp", "group_concat", "string_agg", "array_agg", "bool_and", "bool_or", "percentile_cont", "percentile_disc", "mode", "json_arrayagg", "json_objectagg":
+	case "count", "sum", "avg", "min", "max", "stddev", "stddev_pop", "stddev_samp", "variance", "var_pop", "var_samp", "group_concat", "string_agg", "array_agg", "bool_and", "bool_or", "percentile_cont", "percentile_disc", "mode", "rank", "dense_rank", "percent_rank", "cume_dist", "json_arrayagg", "json_objectagg":
 		return true
 	}
 	return false

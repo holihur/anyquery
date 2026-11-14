@@ -102,6 +102,16 @@ func evalJSONLookup(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 		wrap := strings.HasPrefix(upper, "WITH") && !strings.HasPrefix(upper, "WITHOUT")
 		conditional := strings.Contains(upper, "CONDITIONAL")
 		v := matches[0]
+		if f.JSONQuotes != "" {
+			if f.JSONQuotes == "omit" && v != nil {
+				return fmt.Sprint(v), nil
+			}
+			text, err := jsonValueText(v)
+			if err != nil {
+				return nil, err
+			}
+			return text, nil
+		}
 		if wrap && (!conditional || !isJSONArray(v)) {
 			if len(matches) > 1 || isJSONArray(v) {
 				v = matches
@@ -137,6 +147,8 @@ func jsonExistsDefault(f *sql.FuncCall) any {
 		return true
 	case "false":
 		return false
+	case "unknown":
+		return nil
 	}
 	return false
 }
@@ -150,6 +162,8 @@ func jsonExistsOrEmpty(ctx *evalCtx, f *sql.FuncCall, err error) (any, error) {
 			return true, nil
 		case "false":
 			return false, nil
+		case "unknown":
+			return nil, nil
 		}
 		return false, nil
 	}
@@ -389,7 +403,15 @@ func (ec *execCtx) relationForJSONTable(t *sql.JSONTable) (*relation, error) {
 	}
 	if err != nil {
 		if t.OnError == "empty" || t.OnError == "null" {
-			return datasetToRelation(&dataset{columns: jsonTableColumns(t.Columns)}, aliasForJSONTable(t), aliasForJSONTable(t)), nil
+			ds := &dataset{columns: jsonTableColumns(t.Columns)}
+			if t.OnError == "null" {
+				row := map[string]any{}
+				for _, c := range ds.columns {
+					row[strings.ToLower(c.Name)] = nil
+				}
+				ds.rows = []map[string]any{row}
+			}
+			return datasetToRelation(ds, aliasForJSONTable(t), aliasForJSONTable(t)), nil
 		}
 		return nil, err
 	}

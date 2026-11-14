@@ -262,3 +262,18 @@ func TestJSONQuotedMemberAndKeyKeyword(t *testing.T) {
 		t.Fatalf("row = %+v", res.Rows[0])
 	}
 }
+
+func TestJSONTableNullOnErrorUnknownAndQuotes(t *testing.T) {
+	null := execParams(t, `SELECT * FROM JSON_TABLE('{"a":1}', 'strict $.b' COLUMNS (x INT PATH '$') ON ERROR NULL) AS jt`, nil)
+	if null.RowCount != 1 || null.Rows[0]["x"] != nil {
+		t.Fatalf("null row = %+v", null.Rows)
+	}
+	unknown := execParams(t, `SELECT JSON_EXISTS('{"a":1}', 'strict $.b' UNKNOWN ON ERROR) AS x`, nil)
+	if unknown.Rows[0]["x"] != nil {
+		t.Fatalf("unknown = %+v", unknown.Rows[0])
+	}
+	quotes := execParams(t, `SELECT JSON_QUERY('{"a":"x"}', '$.a' KEEP QUOTES) AS k, JSON_QUERY('{"a":"x"}', '$.a' OMIT QUOTES) AS o`, nil)
+	if quotes.Rows[0]["k"] != `"x"` || quotes.Rows[0]["o"] != "x" {
+		t.Fatalf("quotes = %+v", quotes.Rows[0])
+	}
+}

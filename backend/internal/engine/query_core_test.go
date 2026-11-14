@@ -245,3 +245,16 @@ func TestRowValuePredicates(t *testing.T) {
 		t.Fatalf("row IN = %+v", res.Rows)
 	}
 }
+
+func TestRowValueSubqueries(t *testing.T) {
+	res := execParams(t, `SELECT id FROM mongo.orders
+		WHERE (region,status) IN (SELECT region,status FROM mongo.orders WHERE id=1) ORDER BY id`, nil)
+	if res.RowCount != 2 || res.Rows[0]["id"] != int64(1) {
+		t.Fatalf("row IN subquery = %+v", res.Rows)
+	}
+	res = execParams(t, `SELECT id FROM mongo.orders
+		WHERE (region,status) = (SELECT region,status FROM mongo.orders WHERE id=1) ORDER BY id`, nil)
+	if res.RowCount != 2 || res.Rows[1]["id"] != int64(2) {
+		t.Fatalf("row = subquery = %+v", res.Rows)
+	}
+}

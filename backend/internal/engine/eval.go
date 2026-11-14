@@ -122,6 +122,9 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 			if v == nil {
 				return nil, nil
 			}
+			if iv, ok := v.(intervalValue); ok {
+				return iv.neg(), nil
+			}
 			f, ok := toFloat(v)
 			if !ok {
 				return nil, errf("type_error", "cannot negate %T", v)
@@ -189,6 +192,9 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 		}
 		if v == nil || lo == nil || hi == nil {
 			return nil, nil
+		}
+		if x.Symmetric && compareValues(lo, hi) > 0 {
+			lo, hi = hi, lo
 		}
 		within := compareValues(v, lo) >= 0 && compareValues(v, hi) <= 0
 		if x.Negated {
@@ -262,7 +268,12 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		out, err := castValue(v, x.Type)
+		var out any
+		if x.PreserveZone {
+			out, err = castPreservingZone(v, x.Type)
+		} else {
+			out, err = castValue(v, x.Type)
+		}
 		if err != nil && x.Safe {
 			return nil, nil
 		}
@@ -278,20 +289,20 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		switch len(ds.rows) {
-		case 0:
-			if len(ds.columns) != 1 {
-				return nil, errf("subquery_error", "scalar subquery must return exactly one column")
-			}
+		if len(ds.rows) == 0 {
 			return nil, nil
-		case 1:
-			if len(ds.columns) != 1 {
-				return nil, errf("subquery_error", "scalar subquery must return exactly one column")
-			}
-			return ds.rows[0][strings.ToLower(ds.columns[0].Name)], nil
-		default:
+		}
+		if len(ds.rows) > 1 {
 			return nil, errf("subquery_error", "scalar subquery returned more than one row")
 		}
+		if len(ds.columns) == 1 {
+			return ds.rows[0][strings.ToLower(ds.columns[0].Name)], nil
+		}
+		row := make(rowValue, len(ds.columns))
+		for i, c := range ds.columns {
+			row[i] = ds.rows[0][strings.ToLower(c.Name)]
+		}
+		return row, nil
 	case *sql.AtTimeZoneExpr:
 		v, err := evalExpr(ctx, x.Expr)
 		if err != nil {
@@ -322,19 +333,32 @@ func evalInSubquery(ctx *evalCtx, x *sql.InExpr, left any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(ds.columns) != 1 {
-		return nil, errf("subquery_error", "IN subquery must return exactly one column")
-	}
 	if left == nil {
 		if len(ds.rows) == 0 {
 			return x.Negated, nil
 		}
 		return nil, nil
 	}
-	col := strings.ToLower(ds.columns[0].Name)
+	rowLeft, isRow := left.(rowValue)
+	if isRow {
+		if len(ds.columns) != len(rowLeft) {
+			return nil, errf("subquery_error", "row IN subquery has %d columns, expected %d", len(ds.columns), len(rowLeft))
+		}
+	} else if len(ds.columns) != 1 {
+		return nil, errf("subquery_error", "IN subquery must return exactly one column")
+	}
 	matched, sawNull := false, false
 	for _, row := range ds.rows {
-		v := row[col]
+		var v any
+		if isRow {
+			values := make(rowValue, len(ds.columns))
+			for i, c := range ds.columns {
+				values[i] = row[strings.ToLower(c.Name)]
+			}
+			v = values
+		} else {
+			v = row[strings.ToLower(ds.columns[0].Name)]
+		}
 		if v == nil {
 			sawNull = true
 			continue
@@ -1000,9 +1024,21 @@ func evalBuiltinFunction(name string, args []any) (any, error) {
 		}
 		return parts[n-1], nil
 	case "now", "current_timestamp", "localtimestamp":
-		return time.Now().UTC().Format(time.RFC3339Nano), nil
+		now := time.Now().UTC()
+		if len(args) > 0 {
+			if p, ok := toInt(arg(0)); ok {
+				return formatTimestampPrecision(now, p), nil
+			}
+		}
+		return now.Format(time.RFC3339Nano), nil
 	case "current_time", "localtime":
-		return time.Now().UTC().Format("15:04:05"), nil
+		now := time.Now().UTC()
+		if len(args) > 0 {
+			if p, ok := toInt(arg(0)); ok {
+				return formatClockPrecision(now, p), nil
+			}
+		}
+		return now.Format("15:04:05"), nil
 	case "current_date":
 		return time.Now().UTC().Format("2006-01-02"), nil
 	case "date_trunc":
@@ -1382,6 +1418,12 @@ func extractPart(part string, v any) (any, error) {
 		return int64(t.Second()), nil
 	case "epoch":
 		return float64(t.UnixNano()) / 1e9, nil
+	case "timezone_hour":
+		_, offset := t.Zone()
+		return int64(offset / 3600), nil
+	case "timezone_minute":
+		_, offset := t.Zone()
+		return int64((offset % 3600) / 60), nil
 	default:
 		return nil, errf("invalid_arguments", "unsupported EXTRACT field %q", part)
 	}
@@ -1483,7 +1525,7 @@ func evalOrderedSetAggregate(ctx *evalCtx, f *sql.FuncCall, group []map[string]a
 	if len(f.WithinGroup) != 1 {
 		return nil, errf("invalid_aggregate", "%s requires WITHIN GROUP (ORDER BY expr)", strings.ToUpper(name))
 	}
-	if name != "percentile_cont" && name != "percentile_disc" && name != "mode" {
+	if name != "percentile_cont" && name != "percentile_disc" && name != "mode" && name != "rank" && name != "dense_rank" && name != "percent_rank" && name != "cume_dist" {
 		return nil, errf("invalid_aggregate", "%s does not support WITHIN GROUP", strings.ToUpper(name))
 	}
 	type pair struct {
@@ -1516,6 +1558,57 @@ func evalOrderedSetAggregate(ctx *evalCtx, f *sql.FuncCall, group []map[string]a
 	})
 	if len(pairs) == 0 {
 		return nil, nil
+	}
+	if name == "rank" || name == "dense_rank" || name == "percent_rank" || name == "cume_dist" {
+		if len(f.Args) != 1 {
+			return nil, errf("invalid_aggregate", "%s expects one argument", strings.ToUpper(name))
+		}
+		hyp, err := evalExpr(ctx, f.Args[0])
+		if err != nil {
+			return nil, err
+		}
+		less, lessEq, distinctLess := 0, 0, 0
+		var previous any
+		hasPrev := false
+		for _, pair := range pairs {
+			if lessSortKeys([]any{pair.key}, []any{hyp}, order) {
+				less++
+			} else if valuesEqual(pair.key, hyp) {
+				lessEq++
+			}
+			if !hasPrev || !valuesEqual(previous, pair.key) {
+				distinctLess++
+				previous = pair.key
+				hasPrev = true
+			}
+		}
+		rank := int64(less + 1)
+		dense := int64(0)
+		seen := map[string]bool{}
+		for _, pair := range pairs {
+			if !lessSortKeys([]any{pair.key}, []any{hyp}, order) {
+				continue
+			}
+			key := canonicalValues([]any{pair.key})
+			if !seen[key] {
+				seen[key] = true
+				dense++
+			}
+		}
+		dense++
+		switch name {
+		case "rank":
+			return rank, nil
+		case "dense_rank":
+			return dense, nil
+		case "percent_rank":
+			if len(pairs) == 1 {
+				return float64(0), nil
+			}
+			return float64(rank-1) / float64(len(pairs)-1), nil
+		case "cume_dist":
+			return float64(less+lessEq) / float64(len(pairs)), nil
+		}
 	}
 	if name == "mode" {
 		bestKey := ""
@@ -2133,6 +2226,65 @@ func typeLength(t string) (int, bool) {
 	return p[0], true
 }
 
+func typePrecision(t string) (int, bool) {
+	p, ok := typeParams(t)
+	if !ok || len(p) == 0 {
+		return 0, false
+	}
+	if p[0] < 0 || p[0] > 9 {
+		return 9, true
+	}
+	return p[0], true
+}
+
+func formatTimestampPrecision(t time.Time, p int) string {
+	if p < 0 {
+		p = 0
+	}
+	if p > 9 {
+		p = 9
+	}
+	if p == 0 {
+		return t.Format("2006-01-02T15:04:05Z07:00")
+	}
+	base := t.Format("2006-01-02T15:04:05")
+	frac := fmt.Sprintf("%09d", t.Nanosecond())
+	zone := t.Format("Z07:00")
+	return base + "." + frac[:p] + zone
+}
+
+func formatClockPrecision(t time.Time, p int) string {
+	if p < 0 {
+		p = 0
+	}
+	if p > 9 {
+		p = 9
+	}
+	base := t.Format("15:04:05")
+	if p == 0 {
+		return base
+	}
+	frac := fmt.Sprintf("%09d", t.Nanosecond())
+	return base + "." + frac[:p]
+}
+
+func castPreservingZone(v any, typ string) (any, error) {
+	s, ok := v.(string)
+	if !ok {
+		return castValue(v, typ)
+	}
+	tm, ok := parseTimeString(s)
+	if !ok {
+		return castValue(v, typ)
+	}
+	// A timestamp literal with an explicit numeric offset keeps that offset so
+	// TIMEZONE_HOUR/MINUTE and display semantics remain observable.
+	if strings.Contains(s, "+") || strings.Count(s, "-") > 2 {
+		return tm.Format(time.RFC3339Nano), nil
+	}
+	return castValue(v, typ)
+}
+
 func castValue(v any, typ string) (any, error) {
 	t := strings.ToLower(strings.TrimSpace(typ))
 	if v == nil {
@@ -2176,6 +2328,9 @@ func castValue(v any, typ string) (any, error) {
 		if !ok {
 			return nil, errf("cast_error", "cannot cast %v to timestamp", v)
 		}
+		if p, ok := typePrecision(t); ok {
+			return formatTimestampPrecision(tm.UTC(), p), nil
+		}
 		return tm.UTC().Format(time.RFC3339Nano), nil
 	case strings.HasPrefix(t, "date"):
 		tm, ok := toTime(v)
@@ -2187,6 +2342,9 @@ func castValue(v any, typ string) (any, error) {
 		tm, ok := toTime(v)
 		if !ok {
 			return nil, errf("cast_error", "cannot cast %v to time", v)
+		}
+		if p, ok := typePrecision(t); ok {
+			return formatClockPrecision(tm.UTC(), p), nil
 		}
 		return tm.UTC().Format("15:04:05"), nil
 	case strings.HasPrefix(t, "text"), strings.HasPrefix(t, "varchar"), strings.HasPrefix(t, "char"), strings.HasPrefix(t, "string"):

@@ -193,3 +193,18 @@ func TestMatchNumberRestartsPerPartition(t *testing.T) {
 		t.Fatalf("rows = %+v", res.Rows)
 	}
 }
+
+func TestMatchRecognizeEmptyMatches(t *testing.T) {
+	for _, mode := range []string{"SHOW", "OMIT"} {
+		q := `SELECT * FROM mongo.orders MATCH_RECOGNIZE (
+			ORDER BY id MEASURES id AS id ALL ROWS PER MATCH ` + mode + ` EMPTY MATCHES
+			PATTERN (A*) DEFINE A AS total > 0) AS mr`
+		res, err := New(DefaultOptions()).Execute(t.Context(), q, testCatalog())
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if res.RowCount == 0 {
+			t.Fatalf("%s produced no rows", mode)
+		}
+	}
+}

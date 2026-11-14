@@ -185,3 +185,42 @@ func TestTimeSubtractInterval(t *testing.T) {
 		t.Fatalf("time = %+v", res.Rows[0])
 	}
 }
+
+func TestTemporalPrecision(t *testing.T) {
+	res := execParams(t, `SELECT
+		LENGTH(CURRENT_TIMESTAMP(0)) AS ts0,
+		LENGTH(CURRENT_TIMESTAMP(3)) AS ts3,
+		LENGTH(CURRENT_TIME(3)) AS t3,
+		CAST('2024-01-01 12:00:00.123456' AS TIMESTAMP(3)) AS cast_ts,
+		CAST('12:00:00.123456' AS TIME(3)) AS cast_t`, nil)
+	row := res.Rows[0]
+	if row["ts0"] != int64(20) || row["ts3"] != int64(24) || row["t3"] != int64(12) || row["cast_ts"] != "2024-01-01T12:00:00.123Z" || row["cast_t"] != "12:00:00.123" {
+		t.Fatalf("row = %+v", row)
+	}
+}
+
+func TestBetweenSymmetric(t *testing.T) {
+	res := execParams(t, "SELECT 1 BETWEEN SYMMETRIC 2 AND 0 AS s, 1 BETWEEN ASYMMETRIC 0 AND 2 AS a", nil)
+	if res.Rows[0]["s"] != true || res.Rows[0]["a"] != true {
+		t.Fatalf("row = %+v", res.Rows[0])
+	}
+}
+
+func TestIntervalNegationAndTimezoneExtract(t *testing.T) {
+	res := execParams(t, `SELECT -INTERVAL '1' DAY AS i, EXTRACT(TIMEZONE_HOUR FROM TIMESTAMP '2024-01-01 12:00:00+05:30') AS zh`, nil)
+	if res.Rows[0]["i"] != "-1 days" || res.Rows[0]["zh"] != int64(5) {
+		t.Fatalf("row = %+v", res.Rows[0])
+	}
+}
+
+func TestOrderedSetRanks(t *testing.T) {
+	res := execParams(t, `SELECT
+		rank(100) WITHIN GROUP (ORDER BY total) AS r,
+		dense_rank(100) WITHIN GROUP (ORDER BY total) AS d,
+		percent_rank(100) WITHIN GROUP (ORDER BY total) AS p,
+		cume_dist(100) WITHIN GROUP (ORDER BY total) AS c FROM mongo.orders`, nil)
+	row := res.Rows[0]
+	if row["r"] != int64(3) || row["d"] != int64(3) || row["p"] != float64(2)/3 || row["c"] != 0.75 {
+		t.Fatalf("row = %+v", row)
+	}
+}
