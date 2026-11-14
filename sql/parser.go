@@ -2350,6 +2350,9 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		// Function call?
 		if p.peek.IsPunct("(") {
 			name := t.Value
+			if strings.TrimSpace(name) == "" {
+				return nil, p.errf("function name cannot be empty")
+			}
 			p.advance()
 			args, distinct, err := p.parseCallArgsDistinct()
 			if err != nil {

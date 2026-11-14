@@ -710,3 +710,9 @@ func TestJSONObjectKeyKeyword(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEmptyFunctionNameRejected(t *testing.T) {
+	if _, err := Parse("SELECT ``()"); err == nil {
+		t.Fatal("expected empty function name error")
+	}
+}
