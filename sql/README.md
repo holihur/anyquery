@@ -24,18 +24,21 @@ fmt.Println(anysql.FormatSelect(stmt.(*anysql.SelectStmt)))
 
 Supported:
 
-- `SELECT` with joins, subqueries, CTEs (including `WITH RECURSIVE`), set
-  operations, grouping sets and window functions
+- `SELECT` with joins, `LATERAL`, `UNNEST`, `TABLESAMPLE`, subqueries, CTEs,
+  set operations, grouping sets and named/window functions
+- SQL/JSON: `IS JSON`, `JSON_VALUE/QUERY/EXISTS`, constructors, aggregates and
+  `JSON_TABLE`
+- `INTERVAL`, date/time/time-zone arithmetic and `AT TIME ZONE`
+- read-only `FOR SYSTEM_TIME` temporal tables and `MATCH_RECOGNIZE`
 - `SHOW`, `DESCRIBE`, `EXPLAIN`
 - AnyQuery `FROM ... |> WHERE ... |> AGGREGATE ...` pipelines
 - `?` / `$n` bind parameters in expressions
-- AST inspection, `FormatSelect` / `FormatTableRef` / `FormatPipe`
-- Typed `*sql.Error` with line/column positions
+- AST inspection, formatters and typed `*sql.Error` with line/column positions
 
-Not supported by design: DML, DDL, transactions, PIVOT, LATERAL, JSON/array
-operators and the full SQL type system. See
-[docs/sql-completeness.md](../docs/sql-completeness.md) and
-[docs/sql.md](../docs/sql.md).
+Not supported by design: DML, DDL, transactions, `PIVOT`, vendor-only
+`DISTINCT ON`/`QUALIFY`/`TOP`, arbitrary user-defined table functions and the
+full SQL type system. See [docs/sql-completeness.md](../docs/sql-completeness.md)
+and [docs/sql.md](../docs/sql.md).
 
 ## Development
 

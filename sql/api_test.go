@@ -80,6 +80,20 @@ func FuzzParse(f *testing.F) {
 	})
 }
 
+func TestMultipleGroupingConstructs(t *testing.T) {
+	stmt, err := Parse("SELECT region, status, count(*) FROM mongo.orders GROUP BY ROLLUP(region), CUBE(status)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := stmt.(*SelectStmt)
+	if len(s.GroupBy) != 0 || len(s.GroupingSets) != 4 {
+		t.Fatalf("groupBy=%v groupingSets=%v", s.GroupBy, s.GroupingSets)
+	}
+	if _, err := Parse(FormatStatement(stmt)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMixedGroupingSetsNormalized(t *testing.T) {
 	stmt, err := Parse("SELECT region, status, count(*) FROM mongo.orders GROUP BY region, ROLLUP(status)")
 	if err != nil {
@@ -100,7 +114,6 @@ func TestUnsupportedConstructsAreRejected(t *testing.T) {
 		"SELECT ARRAY[1,2] FROM mongo.orders",
 		"SELECT arr[1] FROM mongo.orders",
 		"SELECT * FROM mongo.orders NATURAL CROSS JOIN mongo.customers",
-		"SELECT * FROM mongo.orders GROUP BY ROLLUP(region), CUBE(status)",
 	} {
 		if _, err := Parse(query); err == nil {
 			t.Errorf("%q unexpectedly parsed", query)
@@ -362,6 +375,180 @@ func TestUnsupportedSyntaxIsExplicitlyRejected(t *testing.T) {
 	} {
 		if _, err := Parse(query); err == nil {
 			t.Errorf("unsupported syntax unexpectedly parsed: %q", query)
+		}
+	}
+}
+
+func TestJSONTablePlanAndPassingRoundTrip(t *testing.T) {
+	cases := []string{
+		"SELECT JSON_EXISTS(doc, '$.a' PASSING x AS y) FROM t",
+		"SELECT JSON_QUERY(doc, '$.a' WITHOUT WRAPPER) FROM t",
+		"SELECT JSON_VALUE(doc, '$.a' ERROR ON ERROR) FROM t",
+		"SELECT JSON_VALUE(doc, '$.a' NULL ON EMPTY) FROM t",
+		"SELECT * FROM JSON_TABLE(doc, '$.a' PASSING x AS y COLUMNS (id INT PATH '$.id' NULL ON EMPTY ERROR ON ERROR) PLAN DEFAULT (id) ON ERROR EMPTY) AS jt",
+	}
+	for _, query := range cases {
+		stmt, err := Parse(query)
+		if err != nil {
+			t.Fatalf("%q: %v", query, err)
+		}
+		out := FormatStatement(stmt)
+		if _, err := Parse(out); err != nil {
+			t.Fatalf("%q formatted as %q: %v", query, out, err)
+		}
+	}
+	if _, err := Parse("SELECT * FROM JSON_TABLE(doc, '$.a' COLUMNS (id INT PATH '$.id') AS jt"); err == nil {
+		t.Fatal("expected missing JSON_TABLE closing parenthesis error")
+	}
+}
+
+func TestJSONTableAndWrapperVariants(t *testing.T) {
+	cases := []string{
+		"SELECT JSON_QUERY(doc, '$.a' WITH WRAPPER) FROM t",
+		"SELECT JSON_QUERY(doc, '$.a' WITH CONDITIONAL WRAPPER) FROM t",
+		"SELECT JSON_VALUE(doc, '$.a' DEFAULT 1 ON EMPTY) FROM t",
+		"SELECT * FROM JSON_TABLE(doc, '$.a' PASSING x AS y COLUMNS (id INT PATH '$.id' ON EMPTY DEFAULT 1 ON ERROR NULL) PLAN (id) ON ERROR EMPTY) AS jt",
+	}
+	for _, query := range cases {
+		stmt, err := Parse(query)
+		if err != nil {
+			t.Fatalf("%q: %v", query, err)
+		}
+		formatted := FormatStatement(stmt)
+		if _, err := Parse(formatted); err != nil {
+			t.Fatalf("%q formatted as %q: %v", query, formatted, err)
+		}
+	}
+	for _, query := range []string{
+		"SELECT JSON_VALUE(doc, '$.a' DEFAULT ON EMPTY)",
+		"SELECT * FROM JSON_TABLE(doc, '$.a' PASSING x COLUMNS (id INT PATH '$.id' ON FOO NULL)) AS jt",
+		"SELECT * FROM JSON_TABLE(doc, '$.a' COLUMNS (id INT PATH '$.id' ON EMPTY)) AS jt",
+	} {
+		if _, err := Parse(query); err == nil {
+			t.Errorf("%q unexpectedly parsed", query)
+		}
+	}
+}
+
+func TestFetchPercentRoundTrip(t *testing.T) {
+	stmt, err := Parse("SELECT id FROM t FETCH FIRST 10 PERCENT ROWS ONLY")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stmt.(*SelectStmt).FetchPercent {
+		t.Fatal("expected percent fetch")
+	}
+	out := FormatStatement(stmt)
+	if _, err := Parse(out); err != nil {
+		t.Fatalf("formatted %q: %v", out, err)
+	}
+}
+
+func TestIgnoreNullsRoundTrip(t *testing.T) {
+	for _, q := range []string{
+		"SELECT lag(x) IGNORE NULLS OVER (ORDER BY id) FROM t",
+		"SELECT first_value(x) RESPECT NULLS OVER () FROM t",
+	} {
+		st, err := Parse(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Parse(FormatStatement(st)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestMatchRecognizeAdvancedSyntax(t *testing.T) {
+	query := `SELECT * FROM mongo.orders MATCH_RECOGNIZE (
+		PARTITION BY region ORDER BY id
+		MEASURES RUNNING sum(total) AS running, FINAL total AS final
+		SUBSET U = (A, B)
+		PERMUTE (A, B)
+		ALL ROWS PER MATCH WITH UNMATCHED ROWS
+		PATTERN (A B{1,2})
+		DEFINE A AS status = 'paid', B AS total > 0
+	) AS mr`
+	stmt, err := Parse(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	formatted := FormatStatement(stmt)
+	if _, err := Parse(formatted); err != nil {
+		t.Fatalf("formatted %q: %v", formatted, err)
+	}
+}
+
+func TestNewStandardSyntaxRoundTrip(t *testing.T) {
+	cases := []string{
+		"SELECT '100%' LIKE '100\\\\%' ESCAPE '\\\\' FROM t",
+		"SELECT 'abc' SIMILAR TO 'a_c' FROM t",
+		"SELECT a FROM t UNION JOIN u",
+		"SELECT * FROM t MATCH_RECOGNIZE (MEASURES RUNNING sum(x) AS r, FINAL x AS f SUBSET U = (A, B) PERMUTE (A, B) ALL ROWS PER MATCH WITH UNMATCHED ROWS PATTERN (A B{1,2}) DEFINE A AS x = 1, B AS x = 2) AS m",
+		"SELECT JSON_VALUE(doc, '$.a' DEFAULT 1 ON ERROR) FROM t",
+		"SELECT JSON_VALUE(doc, '$.a' NULL ON ERROR) FROM t",
+	}
+	for _, q := range cases {
+		stmt, err := Parse(q)
+		if err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+		out := FormatStatement(stmt)
+		if _, err := Parse(out); err != nil {
+			t.Fatalf("%q formatted as %q: %v", q, out, err)
+		}
+	}
+}
+
+func TestNewSyntaxEdgeBranches(t *testing.T) {
+	cases := []string{
+		"FROM t |> UNION JOIN u",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A{1}) DEFINE A AS 1 = 1) AS m",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A{1,}) DEFINE A AS 1 = 1) AS m",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A{1,2}?) DEFINE A AS 1 = 1) AS m",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A) DEFINE A AS 1 = 1 WITH UNMATCHED ROWS) AS m",
+		"SELECT sum(x) OVER (ORDER BY ts RANGE BETWEEN CURRENT ROW AND INTERVAL '1 day' FOLLOWING) FROM t",
+	}
+	for _, q := range cases {
+		stmt, err := Parse(q)
+		if err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+		out := FormatStatement(stmt)
+		if _, err := Parse(out); err != nil {
+			t.Fatalf("%q formatted as %q: %v", q, out, err)
+		}
+	}
+	invalid := []string{
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A{) DEFINE A AS 1 = 1) AS m",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A{n}) DEFINE A AS 1 = 1) AS m",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A{1) DEFINE A AS 1 = 1) AS m",
+		"SELECT * FROM t MATCH_RECOGNIZE (SUBSET U = DEFINE A AS 1 = 1) AS m",
+		"SELECT * FROM t MATCH_RECOGNIZE (PERMUTE DEFINE A AS 1 = 1) AS m",
+		"SELECT JSON_EXISTS(doc, '$.a' PASSING) FROM t",
+		"SELECT JSON_VALUE(doc, '$.a' DEFAULT ON ERROR) FROM t",
+		"SELECT JSON_VALUE(doc, '$.a' ON EMPTY FOO) FROM t",
+		"SELECT JSON_VALUE(doc, '$.a' WITH CONDITIONAL FROM t)",
+		"SELECT 'x' SIMILAR 'x' FROM t",
+		"SELECT sum(x) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '1 day' FROM t",
+	}
+	for _, q := range invalid {
+		if _, err := Parse(q); err == nil {
+			t.Errorf("%q unexpectedly parsed", q)
+		}
+	}
+}
+
+func TestRemainingSyntaxBranches(t *testing.T) {
+	for _, q := range []string{
+		"SELECT * FROM t LIMIT 1, 2",
+		"FROM t |> LIMIT 1 OFFSET 2",
+		"TABLE s",
+		"SELECT * FROM t ORDER BY x ASC, y NULLS FIRST",
+		"SELECT JSON_EXISTS(doc, '$.a' PASSING x, y) FROM t",
+	} {
+		if _, err := Parse(q); err != nil {
+			t.Errorf("%q: %v", q, err)
 		}
 	}
 }

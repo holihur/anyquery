@@ -29,6 +29,7 @@ type SelectStmt struct {
 	Offset        *int
 	OffsetExpr    Expr // set instead of Offset when the offset is an expression
 	FetchWithTies bool
+	FetchPercent  bool
 	SetOps        []SetOperation
 	Windows       []NamedWindow
 	Pipes         []PipeStage
@@ -187,8 +188,11 @@ type MatchRecognize struct {
 	PartitionBy []Expr
 	OrderBy     []OrderItem
 	Measures    []MatchMeasure
+	Subsets     []MatchSubset
+	Permute     []string
 	RowsMode    string // one, all
 	AfterSkip   string // past_last, next_row
+	Unmatched   bool
 	Pattern     *MatchPattern
 	Define      []MatchDefine
 	Alias       string
@@ -199,6 +203,12 @@ func (*MatchRecognize) tableNode() { _ = 0 }
 type MatchMeasure struct {
 	Expr  Expr
 	Alias string
+	Mode  string // "", running, final
+}
+
+type MatchSubset struct {
+	Name string
+	Vars []string
 }
 
 type MatchDefine struct {
@@ -217,22 +227,30 @@ type MatchPattern struct {
 
 // JSONTable is a SQL/JSON JSON_TABLE table expression.
 type JSONTable struct {
-	Expr    Expr
-	Path    Expr
-	Columns []JSONTableColumn
-	Alias   string
+	Expr        Expr
+	Path        Expr
+	Passing     []JSONPair
+	Columns     []JSONTableColumn
+	Plan        Expr
+	PlanDefault bool
+	OnError     string
+	Alias       string
 }
 
 func (*JSONTable) tableNode() { _ = 0 }
 
 // JSONTableColumn is one column in JSON_TABLE's COLUMNS clause.
 type JSONTableColumn struct {
-	Name       string
-	Type       string
-	Path       Expr
-	Ordinality bool
-	NestedPath Expr
-	Nested     []JSONTableColumn
+	Name         string
+	Type         string
+	Path         Expr
+	Ordinality   bool
+	NestedPath   Expr
+	Nested       []JSONTableColumn
+	OnEmpty      string
+	OnError      string
+	DefaultEmpty Expr
+	DefaultError Expr
 }
 
 // ValuesStmt is a top-level VALUES statement.
@@ -258,6 +276,7 @@ const (
 	JoinRight JoinType = "right"
 	JoinFull  JoinType = "full"
 	JoinCross JoinType = "cross"
+	JoinUnion JoinType = "union"
 )
 
 // JoinExpr joins two table expressions.
@@ -382,6 +401,7 @@ type CompareExpr struct {
 	Op      string
 	Left    Expr
 	Right   Expr
+	Escape  Expr
 	Negated bool
 }
 
@@ -433,6 +453,7 @@ type FuncCall struct {
 	Args        []Expr
 	Star        bool
 	Distinct    bool
+	IgnoreNulls bool
 	Filter      Expr
 	WithinGroup []OrderItem
 	Window      *WindowSpec
@@ -440,10 +461,13 @@ type FuncCall struct {
 	// SQL/JSON function metadata.
 	JSONPath         Expr
 	JSONPairs        []JSONPair
+	JSONPassing      []JSONPair
 	JSONOrder        []OrderItem
 	JSONReturning    string
 	JSONOnError      string
 	JSONOnEmpty      string
+	JSONDefaultError Expr
+	JSONDefaultEmpty Expr
 	JSONWrapper      string
 	JSONNullBehavior string // null or absent
 	JSONUnique       bool
@@ -465,8 +489,10 @@ type WindowSpec struct {
 	FrameKind        string // "", ROWS, RANGE or GROUPS
 	FrameStart       string
 	FrameStartOffset int
+	FrameStartExpr   Expr
 	FrameEnd         string
 	FrameEndOffset   int
+	FrameEndExpr     Expr
 	FrameExclusion   string // "", CURRENT ROW, GROUP, TIES, NO OTHERS
 }
 
@@ -503,7 +529,9 @@ type IntervalExpr struct {
 func (*IntervalExpr) exprNode() { _ = 0 }
 
 func (i *IntervalExpr) String() string {
-	out := "INTERVAL '" + strings.ReplaceAll(i.Value, "'", "''") + "'"
+	v := strings.ReplaceAll(i.Value, "\\", "\\\\")
+	v = strings.ReplaceAll(v, "'", "''")
+	out := "INTERVAL '" + v + "'"
 	if i.Qualifier != "" {
 		out += " " + i.Qualifier
 	}
@@ -600,7 +628,9 @@ func (l *Literal) String() string {
 		}
 		return "FALSE"
 	case LitString:
-		return "'" + strings.ReplaceAll(fmt.Sprint(l.Value), "'", "''") + "'"
+		v := strings.ReplaceAll(fmt.Sprint(l.Value), "\\", "\\\\")
+		v = strings.ReplaceAll(v, "'", "''")
+		return "'" + v + "'"
 	default:
 		return fmt.Sprint(l.Value)
 	}
@@ -632,7 +662,11 @@ func (c *CompareExpr) String() string {
 	if c.Negated {
 		op = "NOT " + op
 	}
-	return "(" + c.Left.String() + " " + op + " " + c.Right.String() + ")"
+	out := "(" + c.Left.String() + " " + op + " " + c.Right.String()
+	if c.Escape != nil {
+		out += " ESCAPE " + c.Escape.String()
+	}
+	return out + ")"
 }
 
 func (i *InExpr) String() string {
@@ -733,6 +767,9 @@ func (f *FuncCall) String() string {
 		}
 		out = f.Name + "(" + prefix + strings.Join(args, ", ") + ")"
 	}
+	if f.IgnoreNulls {
+		out += " IGNORE NULLS"
+	}
 	if len(f.WithinGroup) > 0 {
 		out += " WITHIN GROUP (ORDER BY " + formatOrder(f.WithinGroup) + ")"
 	}
@@ -763,9 +800,9 @@ func (w *WindowSpec) String() string {
 	if w.FrameKind != "" {
 		frame := w.FrameKind
 		if w.FrameEnd != "" {
-			frame += " BETWEEN " + formatFrameBound(w.FrameStart, w.FrameStartOffset) + " AND " + formatFrameBound(w.FrameEnd, w.FrameEndOffset)
+			frame += " BETWEEN " + formatFrameBoundExpr(w.FrameStart, w.FrameStartOffset, w.FrameStartExpr) + " AND " + formatFrameBoundExpr(w.FrameEnd, w.FrameEndOffset, w.FrameEndExpr)
 		} else {
-			frame += " " + formatFrameBound(w.FrameStart, w.FrameStartOffset)
+			frame += " " + formatFrameBoundExpr(w.FrameStart, w.FrameStartOffset, w.FrameStartExpr)
 		}
 		if w.FrameExclusion != "" {
 			frame += " EXCLUDE " + strings.ToUpper(w.FrameExclusion)
@@ -773,6 +810,13 @@ func (w *WindowSpec) String() string {
 		parts = append(parts, frame)
 	}
 	return strings.Join(parts, " ")
+}
+
+func formatFrameBoundExpr(kind string, offset int, expr Expr) string {
+	if expr != nil {
+		return expr.String() + " " + strings.ToUpper(kind)
+	}
+	return formatFrameBound(kind, offset)
 }
 
 func formatFrameBound(kind string, offset int) string {
@@ -819,6 +863,13 @@ func (e *ExistsExpr) String() string { return "EXISTS(" + FormatSelect(e.Query) 
 
 func (s *SubqueryExpr) String() string { return "(" + FormatSelect(s.Query) + ")" }
 
+func formatJSONPassingName(e Expr) string {
+	if lit, ok := e.(*Literal); ok && lit.Kind == LitString {
+		return FormatIdent(fmt.Sprint(lit.Value))
+	}
+	return e.String()
+}
+
 func formatJSONFunc(f *FuncCall) string {
 	name := strings.ToLower(f.Name)
 	var out string
@@ -859,8 +910,18 @@ func formatJSONFunc(f *FuncCall) string {
 	default:
 		return ""
 	}
+	if len(f.JSONPassing) > 0 {
+		parts := make([]string, len(f.JSONPassing))
+		for i, p := range f.JSONPassing {
+			parts[i] = p.Value.String() + " AS " + formatJSONPassingName(p.Key)
+		}
+		out += " PASSING " + strings.Join(parts, ", ")
+	}
 	if f.JSONReturning != "" {
 		out += " RETURNING " + f.JSONReturning
+	}
+	if f.JSONWrapper != "" {
+		out += " " + f.JSONWrapper + " WRAPPER"
 	}
 	if f.JSONUnique {
 		out += " WITH UNIQUE KEYS"
@@ -869,6 +930,18 @@ func formatJSONFunc(f *FuncCall) string {
 		out += " NULL ON NULL"
 	} else if f.JSONNullBehavior == "absent" {
 		out += " ABSENT ON NULL"
+	}
+	if f.JSONOnEmpty != "" {
+		out += " ON EMPTY " + strings.ToUpper(f.JSONOnEmpty)
+		if f.JSONOnEmpty == "default" && f.JSONDefaultEmpty != nil {
+			out += " " + f.JSONDefaultEmpty.String()
+		}
+	}
+	if f.JSONOnError != "" {
+		out += " ON ERROR " + strings.ToUpper(f.JSONOnError)
+		if f.JSONOnError == "default" && f.JSONDefaultError != nil {
+			out += " " + f.JSONDefaultError.String()
+		}
 	}
 	return out + ")"
 }
@@ -991,11 +1064,19 @@ func FormatSelect(s *SelectStmt) string {
 		sb.WriteString(" ORDER BY ")
 		sb.WriteString(formatOrder(s.OrderBy))
 	}
-	if s.FetchWithTies && (s.Limit != nil || s.LimitExpr != nil) {
+	if (s.FetchWithTies || s.FetchPercent) && (s.Limit != nil || s.LimitExpr != nil) {
 		if s.Offset != nil || s.OffsetExpr != nil {
 			sb.WriteString(" OFFSET " + formatRowCount(s.Offset, s.OffsetExpr))
 		}
-		sb.WriteString(" FETCH FIRST " + formatRowCount(s.Limit, s.LimitExpr) + " ROWS WITH TIES")
+		sb.WriteString(" FETCH FIRST " + formatRowCount(s.Limit, s.LimitExpr))
+		if s.FetchPercent {
+			sb.WriteString(" PERCENT")
+		}
+		if s.FetchWithTies {
+			sb.WriteString(" ROWS WITH TIES")
+		} else {
+			sb.WriteString(" ROWS ONLY")
+		}
 	} else {
 		if s.Limit != nil || s.LimitExpr != nil {
 			sb.WriteString(" LIMIT " + formatRowCount(s.Limit, s.LimitExpr))
@@ -1092,7 +1173,26 @@ func FormatTableExpr(t TableExpr) string {
 	case *MatchRecognize:
 		return formatMatchRecognize(x)
 	case *JSONTable:
-		s := "JSON_TABLE(" + x.Expr.String() + ", " + x.Path.String() + " COLUMNS (" + formatJSONTableColumns(x.Columns) + "))"
+		s := "JSON_TABLE(" + x.Expr.String() + ", " + x.Path.String()
+		if len(x.Passing) > 0 {
+			parts := make([]string, len(x.Passing))
+			for i, p := range x.Passing {
+				parts[i] = p.Value.String() + " AS " + formatJSONPassingName(p.Key)
+			}
+			s += " PASSING " + strings.Join(parts, ", ")
+		}
+		s += " COLUMNS (" + formatJSONTableColumns(x.Columns) + ")"
+		if x.Plan != nil {
+			if x.PlanDefault {
+				s += " PLAN DEFAULT (" + x.Plan.String() + ")"
+			} else {
+				s += " PLAN (" + x.Plan.String() + ")"
+			}
+		}
+		if x.OnError != "" {
+			s += " ON ERROR " + strings.ToUpper(x.OnError)
+		}
+		s += ")"
 		if x.Alias != "" {
 			s += " AS " + FormatIdent(x.Alias)
 		}
@@ -1231,6 +1331,12 @@ func formatJSONTableColumns(cols []JSONTableColumn) string {
 			if c.Path != nil {
 				p += " PATH " + c.Path.String()
 			}
+			if c.OnEmpty != "" {
+				p += " ON EMPTY " + strings.ToUpper(c.OnEmpty)
+			}
+			if c.OnError != "" {
+				p += " ON ERROR " + strings.ToUpper(c.OnError)
+			}
 		}
 		parts = append(parts, p)
 	}
@@ -1262,7 +1368,11 @@ func formatMatchRecognize(m *MatchRecognize) string {
 	if len(m.Measures) > 0 {
 		parts := make([]string, len(m.Measures))
 		for i, x := range m.Measures {
-			parts[i] = x.Expr.String() + " AS " + FormatIdent(x.Alias)
+			prefix := ""
+			if x.Mode != "" {
+				prefix = strings.ToUpper(x.Mode) + " "
+			}
+			parts[i] = prefix + x.Expr.String() + " AS " + FormatIdent(x.Alias)
 		}
 		add("MEASURES " + strings.Join(parts, ", "))
 	}
@@ -1273,6 +1383,27 @@ func formatMatchRecognize(m *MatchRecognize) string {
 	}
 	if m.AfterSkip == "next_row" {
 		add("AFTER MATCH SKIP TO NEXT ROW")
+	}
+	if len(m.Subsets) > 0 {
+		parts := make([]string, len(m.Subsets))
+		for i, subset := range m.Subsets {
+			vars := make([]string, len(subset.Vars))
+			for j, v := range subset.Vars {
+				vars[j] = FormatIdent(v)
+			}
+			parts[i] = FormatIdent(subset.Name) + " = (" + strings.Join(vars, ", ") + ")"
+		}
+		add("SUBSET " + strings.Join(parts, ", "))
+	}
+	if len(m.Permute) > 0 {
+		vars := make([]string, len(m.Permute))
+		for i, v := range m.Permute {
+			vars[i] = FormatIdent(v)
+		}
+		add("PERMUTE (" + strings.Join(vars, ", ") + ")")
+	}
+	if m.Unmatched {
+		add("WITH UNMATCHED ROWS")
 	}
 	if m.Pattern != nil {
 		add("PATTERN (" + formatMatchPattern(m.Pattern) + ")")
@@ -1423,7 +1554,7 @@ func WalkExpr(e Expr, fn func(Expr) bool) bool {
 	case *BinaryExpr:
 		return WalkExpr(x.Left, fn) && WalkExpr(x.Right, fn)
 	case *CompareExpr:
-		return WalkExpr(x.Left, fn) && WalkExpr(x.Right, fn)
+		return WalkExpr(x.Left, fn) && WalkExpr(x.Right, fn) && (x.Escape == nil || WalkExpr(x.Escape, fn))
 	case *InExpr:
 		if !WalkExpr(x.Left, fn) {
 			return false
@@ -1471,6 +1602,11 @@ func WalkExpr(e Expr, fn func(Expr) bool) bool {
 			}
 		}
 		for _, p := range x.JSONPairs {
+			if !WalkExpr(p.Key, fn) || !WalkExpr(p.Value, fn) {
+				return false
+			}
+		}
+		for _, p := range x.JSONPassing {
 			if !WalkExpr(p.Key, fn) || !WalkExpr(p.Value, fn) {
 				return false
 			}

@@ -42,24 +42,24 @@ func evalJSONLookup(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 		return nil, err
 	}
 	if value == nil {
-		return jsonLookupEmpty(f)
+		return jsonLookupEmpty(ctx, f)
 	}
 	pathValue, err := evalExpr(ctx, f.JSONPath)
 	if err != nil {
 		return nil, err
 	}
 	if pathValue == nil {
-		return jsonLookupEmpty(f)
+		return jsonLookupEmpty(ctx, f)
 	}
 	matches, query, err := evalJSONPath(value, fmt.Sprint(pathValue))
 	if err != nil {
 		if query.strict || f.JSONOnError == "error" {
 			return nil, err
 		}
-		return jsonLookupEmpty(f)
+		return jsonLookupEmpty(ctx, f)
 	}
 	if len(matches) == 0 {
-		return jsonLookupEmpty(f)
+		return jsonLookupEmpty(ctx, f)
 	}
 	switch strings.ToLower(f.Name) {
 	case "json_exists":
@@ -73,9 +73,25 @@ func evalJSONLookup(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 			}
 			return nil, nil
 		}
+		if f.JSONReturning != "" {
+			cast, err := castValue(v, f.JSONReturning)
+			if err != nil {
+				if f.JSONOnError == "error" {
+					return nil, err
+				}
+				return nil, nil
+			}
+			v = cast
+		}
 		return v, nil
 	default: // json_query
-		text, err := jsonValueText(matches[0])
+		v := matches[0]
+		if strings.HasPrefix(strings.ToUpper(f.JSONWrapper), "WITH") {
+			if _, ok := v.([]any); !ok {
+				v = []any{v}
+			}
+		}
+		text, err := jsonValueText(v)
 		if err != nil {
 			return nil, err
 		}
@@ -83,9 +99,18 @@ func evalJSONLookup(ctx *evalCtx, f *sql.FuncCall) (any, error) {
 	}
 }
 
-func jsonLookupEmpty(f *sql.FuncCall) (any, error) {
-	if f.JSONOnEmpty == "error" || f.JSONOnError == "error" {
+func jsonLookupEmpty(ctx *evalCtx, f *sql.FuncCall) (any, error) {
+	if f.JSONOnEmpty == "error" {
 		return nil, errf("json_error", "%s found no JSON value", strings.ToUpper(f.Name))
+	}
+	if f.JSONOnEmpty == "default" && f.JSONDefaultEmpty != nil {
+		return evalExpr(ctx, f.JSONDefaultEmpty)
+	}
+	if f.JSONOnError == "error" {
+		return nil, errf("json_error", "%s found no JSON value", strings.ToUpper(f.Name))
+	}
+	if f.JSONOnError == "default" && f.JSONDefaultError != nil {
+		return evalExpr(ctx, f.JSONDefaultError)
 	}
 	return nil, nil
 }
@@ -381,16 +406,32 @@ func expandJSONTableRows(rows []jsonTableRow, cols []sql.JSONTableColumn) ([]map
 				return nil, err
 			}
 			if len(matches) == 0 {
-				rows[i].values[strings.ToLower(col.Name)] = nil
+				v, err := jsonColumnEmpty(col)
+				if err != nil {
+					return nil, err
+				}
+				rows[i].values[strings.ToLower(col.Name)] = v
 				continue
 			}
 			v := matches[0]
 			if col.Type != "" {
-				cast, err := castValue(v, col.Type)
-				if err != nil {
-					return nil, err
+				cast, castErr := castValue(v, col.Type)
+				if castErr != nil {
+					if col.OnError == "default" && col.DefaultError != nil {
+						cast, castErr = evalExpr(&evalCtx{}, col.DefaultError)
+					}
+					if castErr != nil {
+						if col.OnError == "null" {
+							v = nil
+						} else {
+							return nil, castErr
+						}
+					} else {
+						v = cast
+					}
+				} else {
+					v = cast
 				}
-				v = cast
 			}
 			rows[i].values[strings.ToLower(col.Name)] = v
 		}
@@ -400,6 +441,18 @@ func expandJSONTableRows(rows []jsonTableRow, cols []sql.JSONTableColumn) ([]map
 		out = append(out, r.values)
 	}
 	return out, nil
+}
+
+func jsonColumnEmpty(col sql.JSONTableColumn) (any, error) {
+	switch col.OnEmpty {
+	case "error":
+		return nil, errf("json_error", "JSON_TABLE column %s is empty", col.Name)
+	case "default":
+		if col.DefaultEmpty != nil {
+			return evalExpr(&evalCtx{}, col.DefaultEmpty)
+		}
+	}
+	return nil, nil
 }
 
 func copyJSONValues(in map[string]any) map[string]any {

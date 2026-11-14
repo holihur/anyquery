@@ -174,3 +174,20 @@ func TestOffsetWithFetch(t *testing.T) {
 		t.Fatalf("rows = %+v", res.Rows)
 	}
 }
+
+func TestFetchPercent(t *testing.T) {
+	res := execParams(t, "SELECT id FROM mongo.orders ORDER BY id FETCH FIRST 50 PERCENT ROWS ONLY", nil)
+	if res.RowCount != 2 {
+		t.Fatalf("50 percent rows = %+v", res.Rows)
+	}
+	if _, err := New(DefaultOptions()).Execute(t.Context(), "SELECT id FROM mongo.orders FETCH FIRST 10 PERCENT ROWS ONLY", testCatalog()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUnionJoin(t *testing.T) {
+	res := execParams(t, `SELECT c.name, o.id FROM mongo.customers c UNION JOIN mongo.orders o`, nil)
+	if res.RowCount != 6 {
+		t.Fatalf("union join rows = %d %+v", res.RowCount, res.Rows)
+	}
+}

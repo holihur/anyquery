@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/anyquery/anyquery/sql"
 )
@@ -212,6 +213,30 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 			if name == "lead" {
 				target = pos + offset
 			}
+			if f.IgnoreNulls {
+				dir := -1
+				if name == "lead" {
+					dir = 1
+				}
+				target = pos
+				remaining := offset
+				for remaining > 0 {
+					target += dir
+					if target < 0 || target >= n {
+						break
+					}
+					v, err := ec.windowEval(src, idxs[target], f.Args[0])
+					if err != nil {
+						return err
+					}
+					if v != nil {
+						remaining--
+					}
+				}
+				if remaining > 0 {
+					target = -1
+				}
+			}
 			if target >= 0 && target < n {
 				value, err = ec.windowEval(src, idxs[target], f.Args[0])
 			} else if len(f.Args) > 2 {
@@ -227,6 +252,12 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 			case "first_value":
 				for j := start; j <= end && j < n; j++ {
 					if !frameExcluded(f.Window, pos, j, orderKeys) {
+						if f.IgnoreNulls {
+							v, _ := ec.windowEval(src, idxs[j], f.Args[0])
+							if v == nil {
+								continue
+							}
+						}
 						target = j
 						break
 					}
@@ -234,6 +265,12 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 			case "last_value":
 				for j := end; j >= start && j >= 0; j-- {
 					if !frameExcluded(f.Window, pos, j, orderKeys) {
+						if f.IgnoreNulls {
+							v, _ := ec.windowEval(src, idxs[j], f.Args[0])
+							if v == nil {
+								continue
+							}
+						}
 						target = j
 						break
 					}
@@ -253,6 +290,12 @@ func (ec *execCtx) evalWindowPartition(src *windowSource, f *sql.FuncCall, idxs 
 				for j := start; j <= end && j < n; j++ {
 					if frameExcluded(f.Window, pos, j, orderKeys) {
 						continue
+					}
+					if f.IgnoreNulls {
+						v, _ := ec.windowEval(src, idxs[j], f.Args[0])
+						if v == nil {
+							continue
+						}
 					}
 					remaining--
 					if remaining == 0 {
@@ -473,8 +516,8 @@ func windowFrame(w *sql.WindowSpec, pos, n int, orderKeys [][]any) (int, int) {
 		return 0, n - 1
 	}
 	if w.FrameKind == "RANGE" {
-		start := rangeFrameBound(w.FrameStart, w.FrameStartOffset, pos, n, orderKeys, w.OrderBy, true)
-		end := rangeFrameBound(w.FrameEnd, w.FrameEndOffset, pos, n, orderKeys, w.OrderBy, false)
+		start := rangeFrameBound(w.FrameStart, w.FrameStartOffset, w.FrameStartExpr, pos, n, orderKeys, w.OrderBy, true)
+		end := rangeFrameBound(w.FrameEnd, w.FrameEndOffset, w.FrameEndExpr, pos, n, orderKeys, w.OrderBy, false)
 		if start < 0 {
 			start = 0
 		}
@@ -592,7 +635,15 @@ func peerEnd(pos int, orderKeys [][]any) int {
 	return end
 }
 
-func rangeFrameBound(kind string, offset, pos, n int, orderKeys [][]any, order []sql.OrderItem, start bool) int {
+func rangeFrameBound(kind string, offset int, frameExpr sql.Expr, pos, n int, orderKeys [][]any, order []sql.OrderItem, start bool) int {
+	if frameExpr != nil {
+		if intervalExpr, ok := frameExpr.(*sql.IntervalExpr); ok {
+			iv, err := parseInterval(intervalExpr.Value, intervalExpr.Qualifier)
+			if err == nil {
+				return intervalRangeFrame(kind, iv, pos, n, orderKeys, start)
+			}
+		}
+	}
 	switch kind {
 	case "unbounded_preceding":
 		return 0
@@ -656,6 +707,78 @@ func rangeFrameBound(kind string, offset, pos, n int, orderKeys [][]any, order [
 		return 0
 	}
 	return n - 1
+}
+
+func intervalRangeFrame(kind string, iv intervalValue, pos, n int, orderKeys [][]any, start bool) int {
+	if pos < 0 || pos >= n || len(orderKeys) == 0 || len(orderKeys[pos]) == 0 {
+		if start {
+			return 0
+		}
+		return n - 1
+	}
+	base := orderKeys[pos][0]
+	sign := 1
+	if kind == "preceding" {
+		sign = -1
+	}
+	if t, ok := toTime(base); ok {
+		target := addInterval(t, iv)
+		if sign < 0 {
+			target = addInterval(t, iv.neg())
+		}
+		if start {
+			for i := 0; i < n; i++ {
+				if len(orderKeys[i]) == 0 {
+					continue
+				}
+				if vt, ok := toTime(orderKeys[i][0]); ok && !vt.Before(target) {
+					return i
+				}
+			}
+			return n - 1
+		}
+		for i := n - 1; i >= 0; i-- {
+			if len(orderKeys[i]) == 0 {
+				continue
+			}
+			if vt, ok := toTime(orderKeys[i][0]); ok && !vt.After(target) {
+				return i
+			}
+		}
+		return 0
+	}
+	bf, ok := toFloat(base)
+	if !ok {
+		if start {
+			return 0
+		}
+		return n - 1
+	}
+	offset := float64(iv.nanos) / float64(time.Second)
+	if sign < 0 {
+		offset = -offset
+	}
+	target := bf + offset
+	if start {
+		for i := 0; i < n; i++ {
+			if len(orderKeys[i]) == 0 {
+				continue
+			}
+			if v, ok := toFloat(orderKeys[i][0]); ok && v >= target {
+				return i
+			}
+		}
+		return n - 1
+	}
+	for i := n - 1; i >= 0; i-- {
+		if len(orderKeys[i]) == 0 {
+			continue
+		}
+		if v, ok := toFloat(orderKeys[i][0]); ok && v <= target {
+			return i
+		}
+	}
+	return 0
 }
 
 func frameBound(kind string, offset, pos, n int, start bool) int {

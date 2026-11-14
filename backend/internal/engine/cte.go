@@ -49,6 +49,7 @@ func (ec *execCtx) executeRecursiveCTE(cte *sql.CTE) (*dataset, error) {
 	anchor.Offset = nil
 	anchor.OffsetExpr = nil
 	anchor.FetchWithTies = false
+	anchor.FetchPercent = false
 	anchorDS, err := ec.executeSelect(&anchor)
 	if err != nil {
 		return nil, err

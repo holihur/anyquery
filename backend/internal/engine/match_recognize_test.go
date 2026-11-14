@@ -32,8 +32,8 @@ func TestMatchRecognizeAllRowsAndClassifier(t *testing.T) {
 	if res.RowCount != 3 {
 		t.Fatalf("rows = %+v", res.Rows)
 	}
-	if res.Rows[0]["cls"] != "a" || res.Rows[1]["cls"] != "b" || res.Rows[2]["cls"] != "a" {
-		t.Fatalf("classes = %+v", res.Rows)
+	if res.Rows[0]["id"] != int64(1) || res.Rows[0]["cls"] != "a" || res.Rows[1]["id"] != int64(2) || res.Rows[1]["cls"] != "b" || res.Rows[2]["id"] != int64(4) || res.Rows[2]["cls"] != "a" {
+		t.Fatalf("rows = %+v", res.Rows)
 	}
 }
 
@@ -79,5 +79,36 @@ func TestMatchRecognizeMissingDefineFails(t *testing.T) {
 	) AS mr`, testCatalog())
 	if err == nil {
 		t.Fatal("expected missing DEFINE error")
+	}
+}
+
+func TestMatchRecognizePreservesInputColumnsWithoutMeasures(t *testing.T) {
+	res := execParams(t, `SELECT id FROM mongo.orders MATCH_RECOGNIZE (
+		PARTITION BY region ORDER BY id
+		ALL ROWS PER MATCH
+		PATTERN (A B*)
+		DEFINE A AS status = 'paid', B AS total > 0
+	) AS mr ORDER BY id`, nil)
+	if res.RowCount != 3 || res.Rows[0]["id"] != int64(1) || res.Rows[1]["id"] != int64(2) || res.Rows[2]["id"] != int64(4) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestMatchRecognizeUnmatchedRowsAndFinalMeasure(t *testing.T) {
+	res := execParams(t, `SELECT id, total, f FROM mongo.orders MATCH_RECOGNIZE (
+		PARTITION BY region ORDER BY id
+		MEASURES FINAL total AS f
+		ALL ROWS PER MATCH WITH UNMATCHED ROWS
+		PATTERN (A)
+		DEFINE A AS status = 'refunded'
+	) AS mr ORDER BY id`, nil)
+	if res.RowCount != 4 {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	if res.Rows[2]["f"] != float64(200) {
+		t.Fatalf("final measure = %+v", res.Rows[2])
+	}
+	if res.Rows[0]["f"] != nil {
+		t.Fatalf("unmatched measure = %+v", res.Rows[0])
 	}
 }

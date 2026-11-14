@@ -108,3 +108,28 @@ func TestIsJSONUniqueKeys(t *testing.T) {
 		t.Fatalf("row = %+v", row)
 	}
 }
+
+func TestJSONValueReturningAndClauses(t *testing.T) {
+	res := execParams(t, `SELECT
+		JSON_VALUE('{"a":1.9}', '$.a' RETURNING INT) AS r,
+		JSON_VALUE('{}', '$.a' NULL ON EMPTY) AS empty_null,
+		JSON_QUERY('{"a":1}', '$.a' WITH WRAPPER) AS wrapped`, nil)
+	row := res.Rows[0]
+	if row["r"] != int64(1) || row["empty_null"] != nil || row["wrapped"] != `[1]` {
+		t.Fatalf("row = %+v", row)
+	}
+	if _, err := New(DefaultOptions()).Execute(t.Context(), `SELECT JSON_VALUE('{}', '$.a' ERROR ON ERROR)`, testCatalog()); err == nil {
+		t.Fatal("expected ERROR ON ERROR")
+	}
+}
+
+func TestJSONTableColumnOptions(t *testing.T) {
+	res := execParams(t, `SELECT id, name FROM JSON_TABLE(
+		'{"items":[{"id":1},{"id":2,"name":"x"}]}', '$.items[*]' COLUMNS (
+			id INT PATH '$.id',
+			name VARCHAR(10) PATH '$.name' DEFAULT 'missing' ON EMPTY NULL ON ERROR
+		)) AS jt ORDER BY id`, nil)
+	if res.RowCount != 2 || res.Rows[0]["name"] != "missing" || res.Rows[1]["name"] != "x" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}

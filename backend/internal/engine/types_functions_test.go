@@ -100,3 +100,14 @@ func TestCastOverflowAndNullFunctions(t *testing.T) {
 		t.Fatal("expected integer overflow error")
 	}
 }
+
+func TestLikeEscapeAndSimilarTo(t *testing.T) {
+	res := execParams(t, `SELECT
+		'100%' LIKE '100\\%' ESCAPE '\\' AS escaped,
+		'abc' SIMILAR TO 'a_c' AS similar,
+		'abc' NOT SIMILAR TO 'x%' AS not_similar`, nil)
+	row := res.Rows[0]
+	if row["escaped"] != true || row["similar"] != true || row["not_similar"] != true {
+		t.Fatalf("row = %+v", row)
+	}
+}

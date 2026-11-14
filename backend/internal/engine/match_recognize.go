@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/anyquery/anyquery/sql"
@@ -104,6 +105,7 @@ func (ec *execCtx) relationForMatchRecognize(m *sql.MatchRecognize) (*relation, 
 		} else {
 			p.keys = make([][]any, len(p.rows))
 		}
+		matched := make([]bool, len(p.rows))
 		for start := 0; start < len(p.rows); {
 			states, err := matchPattern(m.Pattern, start, p.rows, input, defs, ec)
 			if err != nil {
@@ -119,16 +121,19 @@ func (ec *execCtx) relationForMatchRecognize(m *sql.MatchRecognize) (*relation, 
 			}
 			matchNo++
 			end := state.pos
+			for i := start; i < end; i++ {
+				matched[i] = true
+			}
 			if m.RowsMode == "all" {
 				for i := start; i < end; i++ {
-					row := copyMRRow(p.rows[i].row)
+					row := mrOutputRow(input, p.rows[i].row)
 					if err := ec.addMRMeasures(row, m.Measures, p.rows, start, end, i, state.bindings, matchNo, input); err != nil {
 						return nil, err
 					}
 					ds.rows = append(ds.rows, row)
 				}
 			} else {
-				row := copyMRRow(p.rows[start].row)
+				row := mrOutputRow(input, p.rows[start].row)
 				if err := ec.addMRMeasures(row, m.Measures, p.rows, start, end, start, state.bindings, matchNo, input); err != nil {
 					return nil, err
 				}
@@ -138,6 +143,14 @@ func (ec *execCtx) relationForMatchRecognize(m *sql.MatchRecognize) (*relation, 
 				start++
 			} else {
 				start = end
+			}
+		}
+		if m.Unmatched {
+			for i, r := range p.rows {
+				if matched[i] {
+					continue
+				}
+				ds.rows = append(ds.rows, mrOutputRow(input, r.row))
 			}
 		}
 	}
@@ -156,10 +169,13 @@ func (r *relation) fieldsToColumns() []ResultColumn {
 	return out
 }
 
-func copyMRRow(in map[string]any) map[string]any {
-	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
+// mrOutputRow projects an input row keyed by qualified relation keys into the
+// output column names. MATCH_RECOGNIZE must preserve input columns, not only
+// MEASURES aliases.
+func mrOutputRow(input *relation, in map[string]any) map[string]any {
+	out := make(map[string]any, len(input.fields))
+	for _, f := range input.fields {
+		out[strings.ToLower(f.Name)] = in[f.Key]
 	}
 	return out
 }
@@ -175,6 +191,21 @@ func matchPattern(p *sql.MatchPattern, pos int, rows []mrRow, rel *relation, def
 			min = 1
 		case "?":
 			max = 1
+		default:
+			if strings.HasPrefix(p.Quantifier, "{") && strings.HasSuffix(p.Quantifier, "}") {
+				body := strings.TrimSuffix(strings.TrimPrefix(p.Quantifier, "{"), "}")
+				parts := strings.SplitN(body, ",", 2)
+				if n, err := strconv.Atoi(parts[0]); err == nil {
+					min = n
+				}
+				if len(parts) == 1 {
+					max = min
+				} else if parts[1] != "" {
+					if n, err := strconv.Atoi(parts[1]); err == nil {
+						max = n
+					}
+				}
+			}
 		}
 		return matchQuantified(p, min, max, pos, rows, rel, defs, ec)
 	}
@@ -294,7 +325,11 @@ func matchQuantified(p *sql.MatchPattern, min, max, pos int, rows []mrRow, rel *
 
 func (ec *execCtx) addMRMeasures(row map[string]any, measures []sql.MatchMeasure, rows []mrRow, start, end, current int, bindings map[string][]int, matchNo int, rel *relation) error {
 	for _, measure := range measures {
-		v, err := ec.evalMRMeasure(measure.Expr, rows, start, end, current, bindings, matchNo, rel)
+		at := current
+		if measure.Mode == "final" && end > start {
+			at = end - 1
+		}
+		v, err := ec.evalMRMeasure(measure.Expr, rows, start, end, at, bindings, matchNo, rel)
 		if err != nil {
 			return err
 		}

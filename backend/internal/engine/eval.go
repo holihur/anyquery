@@ -563,11 +563,19 @@ func evalCompare(ctx *evalCtx, c *sql.CompareExpr) (any, error) {
 		return nil, err
 	}
 	op := strings.ToUpper(c.Op)
-	if op == "LIKE" || op == "ILIKE" || op == "NOT LIKE" || op == "NOT ILIKE" {
+	if op == "LIKE" || op == "ILIKE" || op == "NOT LIKE" || op == "NOT ILIKE" || op == "SIMILAR TO" || op == "NOT SIMILAR TO" {
 		if left == nil || right == nil {
 			return nil, nil
 		}
-		pattern, err := likePattern(fmt.Sprint(right), op == "ILIKE" || op == "NOT ILIKE")
+		escape := ""
+		if c.Escape != nil {
+			ev, err := evalExpr(ctx, c.Escape)
+			if err != nil {
+				return nil, err
+			}
+			escape = fmt.Sprint(ev)
+		}
+		pattern, err := likePatternEsc(fmt.Sprint(right), op == "ILIKE" || op == "NOT ILIKE", escape)
 		if err != nil {
 			return nil, err
 		}
@@ -2035,6 +2043,10 @@ func castValue(v any, typ string) (any, error) {
 }
 
 func likePattern(pattern string, insensitive bool) (*regexp.Regexp, error) {
+	return likePatternEsc(pattern, insensitive, "")
+}
+
+func likePatternEsc(pattern string, insensitive bool, escape string) (*regexp.Regexp, error) {
 	var sb strings.Builder
 	if insensitive {
 		sb.WriteString("(?is)")
@@ -2042,7 +2054,15 @@ func likePattern(pattern string, insensitive bool) (*regexp.Regexp, error) {
 		sb.WriteString("(?s)")
 	}
 	sb.WriteString("^")
-	for _, r := range pattern {
+	esc := []rune(escape)
+	for i, r := range pattern {
+		if len(esc) > 0 && r == esc[0] {
+			i++
+			if i < len(pattern) {
+				sb.WriteString(regexp.QuoteMeta(string(pattern[i])))
+			}
+			continue
+		}
 		switch r {
 		case '%':
 			sb.WriteString(".*")

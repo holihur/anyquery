@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/anyquery/anyquery/sql"
@@ -63,6 +64,28 @@ var sql2016ProfileCases = []sql2016ProfileCase{
 	{ID: "AQ-001", Status: "supported", Query: "FROM mongo.orders |> WHERE status = 'paid' |> AGGREGATE region, count(*) AS n GROUP BY region"},
 }
 
+var profileWantRows = map[string]int{
+	"CORE-001": 4, "CORE-002": 4, "CORE-003": 4, "CORE-004": 2, "CORE-005": 4,
+	"CORE-006": 2, "CORE-007": 2, "CORE-008": 3, "CORE-009": 1, "CORE-010": 2,
+	"CORE-011": 2, "CORE-012": 5, "CORE-013": 2, "CORE-014": 2, "CORE-015": 1,
+	"CORE-016": 2, "CORE-017": 2, "CORE-018": 2, "CORE-019": 2,
+	"WIN-001": 4, "WIN-002": 4, "WIN-003": 4, "WIN-004": 4, "WIN-005": 1, "WIN-006": 4,
+	"EXPR-001": 4, "EXPR-002": 4, "EXPR-003": 4, "EXPR-004": 1, "EXPR-005": 1,
+	"EXPR-006": 1, "EXPR-007": 3,
+	"JSON-001": 1, "JSON-002": 1, "JSON-003": 1, "JSON-004": 1, "JSON-005": 1, "JSON-006": 1,
+	"TEMP-001": 4, "RPR-001": 2, "META-001": 2, "AQ-001": 2,
+}
+
+var profileWantFirst = map[string]map[string]any{
+	"CORE-001": {"region": "EU"},
+	"CORE-004": {"id": int64(1), "name": "a"},
+	"WIN-003":  {"s": float64(100)},
+	"EXPR-004": {"t": "a", "o": "aXYef"},
+	"JSON-001": {"ok": true},
+	"JSON-002": {"v": float64(1)},
+	"RPR-001":  {"id": int64(1)},
+}
+
 func TestSQL2016ReadOnlyProfileMatrix(t *testing.T) {
 	seen := map[string]bool{}
 	for _, tc := range sql2016ProfileCases {
@@ -91,15 +114,26 @@ func TestSQL2016ReadOnlyProfileMatrix(t *testing.T) {
 			if res == nil {
 				t.Fatal("nil result")
 			}
+			if want, ok := profileWantRows[tc.ID]; ok && res.RowCount != want {
+				t.Fatalf("row count = %d, want %d: %+v", res.RowCount, want, res.Rows)
+			}
+			if want, ok := profileWantFirst[tc.ID]; ok {
+				for k, v := range want {
+					if fmt.Sprint(res.Rows[0][k]) != fmt.Sprint(v) {
+						t.Fatalf("first row %s = %#v, want %#v (row %+v)", k, res.Rows[0][k], v, res.Rows[0])
+					}
+				}
+			}
 			stmt, err := sql.Parse(tc.Query)
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
-			if sel, ok := stmt.(*sql.SelectStmt); ok {
-				formatted := sql.FormatSelect(sel)
-				if _, err := sql.Parse(formatted); err != nil {
-					t.Fatalf("formatted query does not parse: %v\ninput: %s\noutput: %s", err, tc.Query, formatted)
-				}
+			formatted := sql.FormatStatement(stmt)
+			if formatted == "" {
+				t.Fatalf("no formatter output for %s", tc.ID)
+			}
+			if _, err := sql.Parse(formatted); err != nil {
+				t.Fatalf("formatted query does not parse: %v\ninput: %s\noutput: %s", err, tc.Query, formatted)
 			}
 		})
 	}

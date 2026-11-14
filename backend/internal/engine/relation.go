@@ -644,6 +644,32 @@ func (ec *execCtx) joinRelations(left, right *relation, typ sql.JoinType, on sql
 		}
 	}
 
+	if typ == sql.JoinUnion {
+		for _, lr := range left.rows {
+			row := make(map[string]any, len(combined.fields))
+			for k, v := range lr {
+				row[k] = v
+			}
+			for _, f := range right.fields {
+				if _, ok := row[f.Key]; !ok {
+					row[f.Key] = nil
+				}
+			}
+			combined.rows = append(combined.rows, row)
+		}
+		for _, rr := range right.rows {
+			row := make(map[string]any, len(combined.fields))
+			for _, f := range left.fields {
+				row[f.Key] = nil
+			}
+			for k, v := range rr {
+				row[k] = v
+			}
+			combined.rows = append(combined.rows, row)
+		}
+		return combined, nil
+	}
+
 	leftMatched := make([]bool, len(left.rows))
 	rightMatched := make([]bool, len(right.rows))
 

@@ -25,7 +25,9 @@ AnyQuery is read-only: `INSERT`, `UPDATE`, `DELETE`, DDL and transactions are no
 - `SELECT [ALL|DISTINCT]`, arbitrary expressions, aliases (`AS` optional)
 - `FROM` tables, comma-separated cross joins, derived tables, `LATERAL`, `UNNEST`, `TABLESAMPLE`, CTEs
 - Derived tables support column aliases: `(SELECT ...) AS t(a, b)`
-- `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT/OFFSET`, `FETCH FIRST n ROWS ONLY`, `FETCH FIRST n ROWS WITH TIES`, `LIMIT ALL`
+- `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT/OFFSET`, `FETCH FIRST n [PERCENT] ROWS ONLY`, `FETCH FIRST n ROWS WITH TIES`, `LIMIT ALL`
+- `LIKE ... ESCAPE`, `SIMILAR TO`, `UNION JOIN`
+- window `IGNORE NULLS` / `RESPECT NULLS` and interval `RANGE` bounds
 - `LIMIT`/`OFFSET`/fetch counts accept integer expressions and bind parameters
 - `ORDER BY` supports aliases, select-list ordinals (`ORDER BY 1`) and `NULLS FIRST|LAST` (default: nulls last)
 - `GROUP BY` supports aliases and select-list ordinals

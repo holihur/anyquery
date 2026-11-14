@@ -30,7 +30,7 @@ func TestDirectParserBranches(t *testing.T) {
 		"UNBOUNDED PRECEDING", "UNBOUNDED FOLLOWING", "CURRENT ROW", "1 PRECEDING", "1 FOLLOWING",
 		"UNBOUNDED", "1", "x",
 	} {
-		_, _, _ = parserAt(src).parseFrameBound()
+		_, _, _, _ = parserAt(src).parseFrameBound()
 	}
 
 	for _, src := range []string{"LIMIT 1, 2", "LIMIT 1 OFFSET 2", "LIMIT ALL", "LIMIT", "LIMIT x", "LIMIT 1.5", "LIMIT -1"} {
@@ -150,7 +150,7 @@ func TestDirectParserErrorBranches(t *testing.T) {
 		_, _ = parserAt(src).parseWindowSpec()
 	}
 	for _, src := range []string{"UNBOUNDED", "UNBOUNDED PRECEDING", "UNBOUNDED FOLLOWING", "CURRENT", "CURRENT ROW", "1", "1 PRECEDING", "1 FOLLOWING", "UNBOUNDED FOO"} {
-		_, _, _ = parserAt(src).parseFrameBound()
+		_, _, _, _ = parserAt(src).parseFrameBound()
 	}
 	for _, src := range []string{"(", "()", "(x", "(x,", "(x, y", "(x, y"} {
 		_, _, _ = parserAt(src).parseCallArgsDistinct()
@@ -297,7 +297,7 @@ func TestDirectParserRemainingBranches(t *testing.T) {
 		_, _ = parserAt(src).parseJSONFunction()
 	}
 	for _, src := range []string{"1.5 PRECEDING", "1.5"} {
-		_, _, _ = parserAt(src).parseFrameBound()
+		_, _, _, _ = parserAt(src).parseFrameBound()
 	}
 }
 

@@ -392,6 +392,9 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 		}
 	}
 	if hasLimit && limit >= 0 {
+		if s.FetchPercent {
+			limit = (len(rows)*limit + 99) / 100
+		}
 		if s.FetchWithTies {
 			if len(s.OrderBy) == 0 {
 				return nil, errf("invalid_fetch", "FETCH ... WITH TIES requires ORDER BY")

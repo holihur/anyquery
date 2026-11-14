@@ -689,3 +689,12 @@ WHERE o.status = 'paid' GROUP BY c.name ORDER BY n DESC LIMIT 5`, nil, testCatal
 		t.Fatalf("source statement missing from plan: %+v", plan)
 	}
 }
+
+func TestMultipleGroupingConstructs(t *testing.T) {
+	res := run(t, `SELECT region, status, count(*) AS n
+FROM mongo.orders GROUP BY ROLLUP(region), CUBE(status)
+ORDER BY region NULLS LAST, status NULLS LAST`)
+	if res.RowCount != 8 {
+		t.Fatalf("rows = %d %+v", res.RowCount, res.Rows)
+	}
+}

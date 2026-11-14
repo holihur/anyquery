@@ -101,3 +101,25 @@ func TestWindowExcludeTiesAndFilterDistinct(t *testing.T) {
 		t.Fatalf("filtered distinct = %+v", filtered.Rows[0])
 	}
 }
+
+func TestIgnoreNullsWindow(t *testing.T) {
+	res := execParams(t, `SELECT id, x, lag(x) IGNORE NULLS OVER (ORDER BY id) AS prev,
+		first_value(x) IGNORE NULLS OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS first
+		FROM (VALUES (1, 10), (2, NULL), (3, 30)) AS t(id, x) ORDER BY id`, nil)
+	if res.Rows[1]["prev"] != int64(10) || res.Rows[2]["prev"] != int64(10) || res.Rows[1]["first"] != int64(10) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestRangeIntervalFrame(t *testing.T) {
+	res := execParams(t, `SELECT id, sum(x) OVER (
+		ORDER BY ts RANGE BETWEEN INTERVAL '1 day' PRECEDING AND CURRENT ROW
+	) AS s FROM (VALUES
+		(1, TIMESTAMP '2024-01-01 00:00:00', 10),
+		(2, TIMESTAMP '2024-01-01 12:00:00', 20),
+		(3, TIMESTAMP '2024-01-03 00:00:00', 30)
+	) AS t(id, ts, x) ORDER BY id`, nil)
+	if res.Rows[0]["s"] != int64(10) || res.Rows[1]["s"] != int64(30) || res.Rows[2]["s"] != int64(30) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
