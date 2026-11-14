@@ -37,11 +37,14 @@ func TestMoreASTCoverage(t *testing.T) {
 		&QuantifiedExpr{Left: col, List: []Expr{lit}},
 		&IsExpr{Left: col, Right: lit},
 	} {
-		_ = WalkExpr(e, func(x Expr) bool { return x != col })
+		if WalkExpr(e, func(x Expr) bool { return x != col }) {
+			t.Fatalf("expected walk to stop for %T", e)
+		}
 	}
 	checkParserError(t, func() error { _, err := Tokenize("'a\\q'"); return err }())
-	_ = isNumericToken("1a")
-	_ = isNumericToken("")
+	if isNumericToken("1a") || isNumericToken("") {
+		t.Fatal("numeric token detection failed")
+	}
 	if _, err := parserAt("").parseTypeName(); err == nil {
 		t.Fatal("expected empty type error")
 	}

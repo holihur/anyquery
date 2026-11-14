@@ -13,7 +13,9 @@ func TestMoreASTFormattingBranches(t *testing.T) {
 		t.Fatal("nil temporal")
 	}
 	ws := &WindowSpec{FrameKind: "ROWS", FrameStart: "current_row"}
-	_ = ws.String()
+	if ws.String() == "" {
+		t.Fatal("empty window spec")
+	}
 	for _, f := range []*FuncCall{
 		{Name: "json_value"},
 		{Name: "json_query", Args: []Expr{col}},
@@ -25,18 +27,30 @@ func TestMoreASTFormattingBranches(t *testing.T) {
 		{Name: "json_objectagg", JSONPairs: []JSONPair{{Key: col, Value: lit}}},
 		{Name: "json_objectagg", JSONPairs: []JSONPair{}},
 	} {
-		_ = f.String()
+		if f.String() == "" {
+			t.Fatalf("empty formatter for %s", f.Name)
+		}
 	}
 	if formatRowCount(nil, nil) != "ALL" {
 		t.Fatal("formatRowCount")
 	}
 	// GROUP BY (not grouping sets), empty projections, and a non-lateral join.
 	sel := &SelectStmt{Projections: []SelectItem{{Expr: col}}, From: []TableExpr{&JoinExpr{Left: &TableRef{Source: "s", Table: "a"}, Right: &TableRef{Source: "s", Table: "b"}, Type: JoinCross}}, GroupBy: []Expr{col}}
-	_ = FormatSelect(sel)
-	_ = FormatSelect(&SelectStmt{})
-	_ = FormatShow(&ShowStmt{Target: "tables"})
-	_ = FormatExplain(&ExplainStmt{Stmt: &ShowStmt{Target: "unknown"}})
-	_ = FormatPipe(nil)
+	if FormatSelect(sel) == "" {
+		t.Fatal("empty select format")
+	}
+	if FormatSelect(&SelectStmt{}) == "" {
+		t.Fatal("empty empty-select format")
+	}
+	if FormatShow(&ShowStmt{Target: "tables"}) == "" {
+		t.Fatal("empty show format")
+	}
+	if FormatExplain(&ExplainStmt{Stmt: &ShowStmt{Target: "unknown"}}) == "" {
+		t.Fatal("empty explain format")
+	}
+	if FormatPipe(nil) != "" {
+		t.Fatal("unexpected pipe format")
+	}
 	_ = formatMatchPattern(nil)
 	_ = formatMatchPattern(&MatchPattern{Kind: "var", Var: "A", Quantifier: "+", Lazy: true})
 	_ = formatMatchPattern(&MatchPattern{Kind: "seq", Quantifier: "*", Lazy: true, Children: []*MatchPattern{{Kind: "var", Var: "A"}}})
