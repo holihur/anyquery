@@ -140,3 +140,19 @@ func TestLocalDateTime(t *testing.T) {
 		t.Fatalf("row = %+v", res.Rows[0])
 	}
 }
+
+func TestSimilarDotAndIsJSONNull(t *testing.T) {
+	res := execParams(t, `SELECT 'abc' SIMILAR TO 'a.c' AS sim, NULL IS JSON AS j`, nil)
+	if res.Rows[0]["sim"] != true || res.Rows[0]["j"] != nil {
+		t.Fatalf("row = %+v", res.Rows[0])
+	}
+}
+
+func TestTimeIntervalAndOverlaps(t *testing.T) {
+	res := execParams(t, `SELECT
+		TIME '12:00:00' + INTERVAL '1 hour' AS t,
+		(DATE '2024-01-01', DATE '2024-02-01') OVERLAPS (DATE '2024-01-15', DATE '2024-03-01') AS o`, nil)
+	if res.Rows[0]["t"] != "13:00:00" || res.Rows[0]["o"] != true {
+		t.Fatalf("row = %+v", res.Rows[0])
+	}
+}

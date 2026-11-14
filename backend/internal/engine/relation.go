@@ -110,50 +110,66 @@ func (ec *execCtx) relationForTableFunction(t *sql.TableFunction) (*relation, er
 }
 
 func (ec *execCtx) relationForUnnest(t *sql.TableFunction) (*relation, error) {
-	if len(t.Args) != 1 {
-		return nil, errf("invalid_arguments", "UNNEST expects exactly one argument")
+	if len(t.Args) == 0 {
+		return nil, errf("invalid_arguments", "UNNEST expects at least one argument")
 	}
-	args := make([]any, len(t.Args))
+	arrays := make([][]any, len(t.Args))
+	maxLen := 0
 	for i, expr := range t.Args {
 		v, err := evalExpr(&evalCtx{outer: ec.outerEval, exec: ec}, expr)
 		if err != nil {
 			return nil, err
 		}
-		args[i] = v
+		items, err := unnestItems(v)
+		if err != nil {
+			return nil, err
+		}
+		arrays[i] = items
+		if len(items) > maxLen {
+			maxLen = len(items)
+		}
 	}
-	var items []any
-	switch v := args[0].(type) {
-	case nil:
-		items = nil
-	case []any:
-		items = v
-	case []map[string]any:
-		for _, m := range v {
-			items = append(items, m)
-		}
-	case string:
-		var decoded any
-		if err := json.Unmarshal([]byte(v), &decoded); err != nil {
-			return nil, errf("type_error", "UNNEST expects a JSON array or array value")
-		}
-		if arr, ok := decoded.([]any); ok {
-			items = arr
-		} else {
-			items = []any{decoded}
-		}
-	default:
-		return nil, errf("type_error", "UNNEST expects a JSON array or array value")
-	}
-	cols := t.Columns
+	cols := append([]string(nil), t.Columns...)
 	if len(cols) == 0 {
-		cols = []string{"unnest"}
+		for i := range arrays {
+			if len(arrays) == 1 {
+				cols = append(cols, "unnest")
+			} else {
+				cols = append(cols, fmt.Sprintf("unnest%d", i+1))
+			}
+		}
+		if t.Ordinality {
+			cols = append(cols, "ordinality")
+		}
 	}
-	if len(cols) != 1 {
-		return nil, errf("invalid_arguments", "UNNEST alias must declare exactly one column")
+	want := len(arrays)
+	if t.Ordinality {
+		want++
 	}
-	ds := &dataset{columns: []ResultColumn{{Name: cols[0]}}}
-	for _, item := range items {
-		ds.rows = append(ds.rows, map[string]any{strings.ToLower(cols[0]): item})
+	if len(cols) != want {
+		if t.Ordinality && len(cols) == want-1 {
+			cols = append(cols, "ordinality")
+		} else {
+			return nil, errf("invalid_arguments", "UNNEST alias must declare %d column(s)", want)
+		}
+	}
+	ds := &dataset{columns: make([]ResultColumn, len(cols))}
+	for i, c := range cols {
+		ds.columns[i] = ResultColumn{Name: c}
+	}
+	for row := 0; row < maxLen; row++ {
+		out := make(map[string]any, len(cols))
+		for col := range arrays {
+			if row < len(arrays[col]) {
+				out[strings.ToLower(cols[col])] = arrays[col][row]
+			} else {
+				out[strings.ToLower(cols[col])] = nil
+			}
+		}
+		if t.Ordinality {
+			out[strings.ToLower(cols[len(cols)-1])] = int64(row + 1)
+		}
+		ds.rows = append(ds.rows, out)
 	}
 	ds.columns = inferColumns(ds.rows, ds.columns)
 	alias := t.Alias
@@ -161,6 +177,38 @@ func (ec *execCtx) relationForUnnest(t *sql.TableFunction) (*relation, error) {
 		alias = t.Name
 	}
 	return datasetToRelation(ds, alias, alias), nil
+}
+
+func unnestItems(v any) ([]any, error) {
+	switch x := v.(type) {
+	case nil:
+		return nil, nil
+	case []any:
+		return x, nil
+	case []string:
+		out := make([]any, len(x))
+		for i, s := range x {
+			out[i] = s
+		}
+		return out, nil
+	case []map[string]any:
+		out := make([]any, len(x))
+		for i, m := range x {
+			out[i] = m
+		}
+		return out, nil
+	case string:
+		var decoded any
+		if err := json.Unmarshal([]byte(x), &decoded); err != nil {
+			return nil, errf("type_error", "UNNEST expects a JSON array or array value")
+		}
+		if arr, ok := decoded.([]any); ok {
+			return arr, nil
+		}
+		return []any{decoded}, nil
+	default:
+		return nil, errf("type_error", "UNNEST expects a JSON array or array value")
+	}
 }
 
 func (ec *execCtx) relationForValues(v *sql.ValuesTable) (*relation, error) {

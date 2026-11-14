@@ -586,3 +586,63 @@ func TestCTEValuesFromTableAndLocalTime(t *testing.T) {
 		}
 	}
 }
+
+func TestMoreSQL2016Syntax(t *testing.T) {
+	for _, q := range []string{
+		"SELECT * FROM UNNEST(json_extract('[10,20]', '$')) WITH ORDINALITY AS u(x, ord)",
+		"SELECT count(*) FROM t GROUP BY ()",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A) DEFINE A AS 1 = 1 AFTER MATCH SKIP TO FIRST A) AS m",
+		"SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A) DEFINE A AS 1 = 1 AFTER MATCH SKIP TO LAST A) AS m",
+		"SELECT (DATE '2024-01-01', DATE '2024-02-01') OVERLAPS (DATE '2024-01-15', DATE '2024-03-01')",
+	} {
+		stmt, err := Parse(q)
+		if err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+		if _, err := Parse(FormatStatement(stmt)); err != nil {
+			t.Fatalf("%q roundtrip: %v", q, err)
+		}
+	}
+	for _, q := range []string{"SELECT (DATE '2024-01-01', DATE '2024-02-01')"} {
+		if _, err := Parse(q); err == nil {
+			t.Errorf("%q unexpectedly parsed", q)
+		}
+	}
+}
+
+func TestOverlapsAndConditionalArrayWrapperEdges(t *testing.T) {
+	for _, q := range []string{
+		"SELECT JSON_QUERY('{\"a\":[1,2]}', '$.a[*]' WITH CONDITIONAL ARRAY WRAPPER)",
+		"SELECT JSON_QUERY('{\"a\":[1,2]}', '$.a[*]' WITH UNCONDITIONAL ARRAY WRAPPER)",
+		"SELECT (DATE '2024-01-01', DATE '2024-02-01') OVERLAPS (DATE '2024-01-15', DATE '2024-03-01')",
+	} {
+		if _, err := Parse(q); err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+	}
+	for _, q := range []string{
+		"SELECT (1,",
+		"SELECT (1,2",
+		"SELECT (1,2) FOO",
+		"SELECT (1,2) OVERLAPS",
+		"SELECT (1,2) OVERLAPS (",
+		"SELECT (1,2) OVERLAPS (3",
+		"SELECT (1,2) OVERLAPS (3,",
+		"SELECT (1,2) OVERLAPS (3,4",
+	} {
+		if _, err := Parse(q); err == nil {
+			t.Errorf("%q unexpectedly parsed", q)
+		}
+	}
+}
+
+func TestPatternTrailingQuantifier(t *testing.T) {
+	q := "SELECT * FROM t MATCH_RECOGNIZE (PATTERN (A B)+? DEFINE A AS 1 = 1, B AS 2 = 2) AS m"
+	stmt, err := Parse(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(FormatStatement(stmt)); err != nil {
+		t.Fatal(err)
+	}
+}

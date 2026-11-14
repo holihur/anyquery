@@ -197,7 +197,11 @@ func (p *Parser) parseSelectClauses(s *SelectStmt) error {
 		if err := p.expectKeyword("BY"); err != nil {
 			return err
 		}
-		if s.GroupBy, s.GroupingSets, err = p.parseGroupBy(); err != nil {
+		if p.cur.IsPunct("(") && p.peek.IsPunct(")") {
+			p.advance()
+			p.advance()
+			s.GroupingSets = [][]Expr{{}}
+		} else if s.GroupBy, s.GroupingSets, err = p.parseGroupBy(); err != nil {
 			return err
 		}
 	}
@@ -849,13 +853,28 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 			}
 			if p.cur.IsKeyword("TO") {
 				p.advance()
-				if err := p.expectKeyword("NEXT"); err != nil {
-					return nil, err
+				switch {
+				case p.cur.IsKeyword("NEXT"):
+					p.advance()
+					if err := p.expectKeyword("ROW"); err != nil {
+						return nil, err
+					}
+					m.AfterSkip = "next_row"
+				case p.cur.IsKeyword("FIRST"):
+					p.advance()
+					if p.cur.Kind == TokIdent {
+						p.advance()
+					}
+					m.AfterSkip = "first"
+				case p.cur.IsKeyword("LAST"):
+					p.advance()
+					if p.cur.Kind == TokIdent {
+						p.advance()
+					}
+					m.AfterSkip = "last"
+				default:
+					return nil, p.errf("expected NEXT, FIRST or LAST after MATCH SKIP TO")
 				}
-				if err := p.expectKeyword("ROW"); err != nil {
-					return nil, err
-				}
-				m.AfterSkip = "next_row"
 			} else {
 				if err := p.expectKeyword("PAST"); err != nil {
 					return nil, err
@@ -915,6 +934,14 @@ func (p *Parser) parseMatchRecognize(input TableExpr) (TableExpr, error) {
 			}
 			if err := p.expectPunct(")"); err != nil {
 				return nil, err
+			}
+			if p.cur.IsPunct("*") || p.cur.IsPunct("+") || p.cur.IsPunct("?") {
+				m.Pattern.Quantifier = p.cur.Value
+				p.advance()
+				if p.cur.IsPunct("?") {
+					m.Pattern.Lazy = true
+					p.advance()
+				}
 			}
 		case p.cur.IsKeyword("DEFINE"):
 			p.advance()
@@ -1199,7 +1226,7 @@ func (p *Parser) parseJSONTable() (TableExpr, error) {
 		if err := p.expectKeyword("ERROR"); err != nil {
 			return nil, err
 		}
-		if p.cur.IsKeyword("ERROR") || p.cur.IsKeyword("EMPTY") {
+		if p.cur.IsKeyword("ERROR") || p.cur.IsKeyword("EMPTY") || p.cur.IsKeyword("NULL") {
 			onError = strings.ToLower(p.cur.Value)
 			p.advance()
 		}
@@ -1301,11 +1328,17 @@ func (p *Parser) parseTableFunction() (TableExpr, error) {
 	if err != nil {
 		return nil, err
 	}
+	ordinality := false
+	if p.cur.IsKeyword("WITH") && p.peek.IsKeyword("ORDINALITY") {
+		p.advance()
+		p.advance()
+		ordinality = true
+	}
 	alias, columns, err := p.parseTableAlias(false)
 	if err != nil {
 		return nil, err
 	}
-	return &TableFunction{Name: name, Args: args, Alias: alias, Columns: columns}, nil
+	return &TableFunction{Name: name, Args: args, Alias: alias, Columns: columns, Ordinality: ordinality}, nil
 }
 
 // parseTableAlias parses an optional AS alias and an optional column alias
@@ -2266,6 +2299,38 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
+		if p.cur.IsPunct(",") {
+			p.advance()
+			b, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			if err := p.expectPunct(")"); err != nil {
+				return nil, err
+			}
+			if !p.cur.IsKeyword("OVERLAPS") {
+				return nil, p.errf("expected OVERLAPS after date pair")
+			}
+			p.advance()
+			if err := p.expectPunct("("); err != nil {
+				return nil, err
+			}
+			c, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			if err := p.expectPunct(","); err != nil {
+				return nil, err
+			}
+			d, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			if err := p.expectPunct(")"); err != nil {
+				return nil, err
+			}
+			return &FuncCall{Name: "overlaps", Args: []Expr{e, b, c, d}}, nil
+		}
 		if err := p.expectPunct(")"); err != nil {
 			return nil, err
 		}
@@ -2785,6 +2850,9 @@ func (p *Parser) parseJSONOptions(fn *FuncCall) error {
 			if p.cur.IsKeyword("CONDITIONAL") || p.cur.IsKeyword("UNCONDITIONAL") {
 				fn.JSONWrapper = "WITH " + strings.ToUpper(p.cur.Value)
 				p.advance()
+				if p.cur.IsKeyword("ARRAY") {
+					p.advance()
+				}
 				if err := p.expectKeyword("WRAPPER"); err != nil {
 					return err
 				}

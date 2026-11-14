@@ -84,6 +84,18 @@ func addInterval(t time.Time, iv intervalValue) time.Time {
 	return t.Add(time.Duration(iv.nanos))
 }
 
+func addTimeOnlyInterval(v string, iv intervalValue) (string, bool) {
+	layouts := []string{"15:04:05.999999999", "15:04:05"}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, v); err == nil {
+			t = t.AddDate(0, 0, iv.days)
+			t = t.Add(time.Duration(iv.nanos))
+			return t.Format("15:04:05"), true
+		}
+	}
+	return "", false
+}
+
 func addMonthsClamped(t time.Time, months int) time.Time {
 	if months == 0 {
 		return t

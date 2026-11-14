@@ -155,3 +155,15 @@ func TestMatchRecognizeQualifiedPrev(t *testing.T) {
 		t.Fatalf("rows = %+v", res.Rows)
 	}
 }
+
+func TestMatchRecognizePrevNextQualified(t *testing.T) {
+	res := execParams(t, `SELECT id, p, n FROM (VALUES (1,'a'),(2,'a'),(3,'b')) AS t(id, tag)
+		MATCH_RECOGNIZE (ORDER BY id MEASURES PREV(A.id) AS p, NEXT(A.id) AS n
+		ALL ROWS PER MATCH PATTERN (A+ B) DEFINE A AS tag='a', B AS tag='b') AS mr ORDER BY id`, nil)
+	if res.Rows[0]["p"] != nil || res.Rows[0]["n"] != int64(2) {
+		t.Fatalf("first = %+v", res.Rows[0])
+	}
+	if res.Rows[1]["p"] != int64(1) || res.Rows[2]["p"] != int64(2) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}

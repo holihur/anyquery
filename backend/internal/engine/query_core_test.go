@@ -214,3 +214,21 @@ func TestCTEValuesAndFromTable(t *testing.T) {
 		t.Fatalf("table derived = %+v", res.Rows)
 	}
 }
+
+func TestUnnestOrdinalityAndMultipleArrays(t *testing.T) {
+	res := execParams(t, `SELECT x, ord FROM UNNEST(json_extract('[10,20]', '$')) WITH ORDINALITY AS u(x, ord) ORDER BY ord`, nil)
+	if res.RowCount != 2 || res.Rows[0]["x"] != float64(10) || res.Rows[0]["ord"] != int64(1) {
+		t.Fatalf("ordinality rows = %+v", res.Rows)
+	}
+	multi := execParams(t, `SELECT x, y FROM UNNEST(json_extract('[10,20]', '$'), json_extract('["a","b"]', '$')) AS u(x, y)`, nil)
+	if multi.RowCount != 2 || multi.Rows[1]["x"] != float64(20) || multi.Rows[1]["y"] != "b" {
+		t.Fatalf("multi rows = %+v", multi.Rows)
+	}
+}
+
+func TestEmptyGroupingSet(t *testing.T) {
+	res := execParams(t, "SELECT count(*) AS n FROM mongo.orders GROUP BY ()", nil)
+	if res.RowCount != 1 || res.Rows[0]["n"] != int64(4) {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}

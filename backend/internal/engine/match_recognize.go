@@ -397,7 +397,34 @@ func (ec *execCtx) evalMRMeasure(e sql.Expr, rows []mrRow, start, end, current i
 			at := current - 1
 			if ref, ok := arg.(*sql.ColumnRef); ok && len(ref.Parts) > 1 {
 				if idxs := bindings[strings.ToLower(ref.Parts[0])]; len(idxs) > 0 {
-					at = idxs[len(idxs)-1]
+					at = -1
+					for _, idx := range idxs {
+						if idx < current && idx > at {
+							at = idx
+						}
+					}
+					arg = &sql.ColumnRef{Parts: ref.Parts[1:]}
+				}
+			}
+			if at < start || at >= end {
+				return nil, nil
+			}
+			ctx := &evalCtx{rel: rel, row: rows[at].row, outer: ec.outerEval, exec: ec}
+			return evalExpr(ctx, arg)
+		case "next":
+			if len(f.Args) != 1 {
+				return nil, errf("match_recognize_error", "NEXT expects one argument")
+			}
+			arg := f.Args[0]
+			at := current + 1
+			if ref, ok := arg.(*sql.ColumnRef); ok && len(ref.Parts) > 1 {
+				if idxs := bindings[strings.ToLower(ref.Parts[0])]; len(idxs) > 0 {
+					at = -1
+					for _, idx := range idxs {
+						if idx > current && (at < 0 || idx < at) {
+							at = idx
+						}
+					}
 					arg = &sql.ColumnRef{Parts: ref.Parts[1:]}
 				}
 			}

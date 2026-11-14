@@ -204,3 +204,40 @@ func TestJSONExistsFalseAndWrapperEdges(t *testing.T) {
 		t.Fatalf("false on error = %+v", falseErr.Rows[0])
 	}
 }
+
+func TestJSONPathOperatorsAndRanges(t *testing.T) {
+	res := execParams(t, `SELECT
+		JSON_EXISTS('{"items":[{"id":1}]}', '$.items[*] ? (@.id == 1)') AS member,
+		JSON_EXISTS('{"a":1}', '$.a ? (@ == 1 && @ < 2)') AS and,
+		JSON_EXISTS('{"a":1}', '$.a ? (@ == 1 || @ == 2)') AS or,
+		JSON_EXISTS('{"a":"abc"}', '$.a ? (@ starts with "ab")') AS starts,
+		JSON_EXISTS('[1,2,3]', '$[0 to 1]') AS range,
+		JSON_EXISTS('[1,2,3]', '$[last]') AS last`, nil)
+	row := res.Rows[0]
+	for k, v := range row {
+		if v != true {
+			t.Fatalf("%s = %#v (row %+v)", k, v, row)
+		}
+	}
+}
+
+func TestJSONTablePassingAndOnError(t *testing.T) {
+	res := execParams(t, `SELECT id, has FROM JSON_TABLE(
+		'{"items":[{"id":1,"x":2}]}', '$.items[*]' PASSING 2 AS v
+		COLUMNS (id INT PATH '$.id', has EXISTS PATH '$.x ? (@ == $v)')
+	) AS jt`, nil)
+	if res.Rows[0]["has"] != true {
+		t.Fatalf("column passing = %+v", res.Rows[0])
+	}
+	filtered := execParams(t, `SELECT id FROM JSON_TABLE(
+		'{"items":[{"id":1},{"id":2}]}', '$.items[*] ? (@.id == $v)' PASSING 2 AS v
+		COLUMNS (id INT PATH '$.id')
+	) AS jt`, nil)
+	if filtered.RowCount != 1 || filtered.Rows[0]["id"] != int64(2) {
+		t.Fatalf("root passing = %+v", filtered.Rows)
+	}
+	empty := execParams(t, `SELECT * FROM JSON_TABLE('{"a":1}', 'strict $.b' COLUMNS (x INT PATH '$') ON ERROR EMPTY) AS jt`, nil)
+	if empty.RowCount != 0 {
+		t.Fatalf("on error empty = %+v", empty.Rows)
+	}
+}

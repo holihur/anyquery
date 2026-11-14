@@ -9,9 +9,10 @@ import (
 )
 
 type jsonPathStep struct {
-	kind      string // key, index, wildcard
+	kind      string // key, index, range, wildcard
 	key       string
 	index     int
+	end       int
 	recursive bool
 }
 
@@ -74,11 +75,21 @@ func parseJSONPath(raw string) (jsonPathQuery, error) {
 			case len(body) >= 2 && (body[0] == '\'' || body[0] == '"'):
 				q.steps = append(q.steps, jsonPathStep{kind: "key", key: body[1 : len(body)-1]})
 			default:
-				n, err := strconv.Atoi(body)
-				if err != nil {
-					return q, errf("json_path", "invalid JSON path subscript %q", body)
+				if strings.Contains(strings.ToLower(body), " to ") {
+					parts := strings.SplitN(strings.ToLower(body), " to ", 2)
+					start, err1 := jsonPathIndex(parts[0])
+					end, err2 := jsonPathIndex(parts[1])
+					if err1 != nil || err2 != nil {
+						return q, errf("json_path", "invalid JSON path range %q", body)
+					}
+					q.steps = append(q.steps, jsonPathStep{kind: "range", index: start, end: end})
+				} else {
+					n, err := jsonPathIndex(body)
+					if err != nil {
+						return q, err
+					}
+					q.steps = append(q.steps, jsonPathStep{kind: "index", index: n})
 				}
-				q.steps = append(q.steps, jsonPathStep{kind: "index", index: n})
 			}
 			i += end + 1
 		default:
@@ -128,6 +139,18 @@ func evalJSONPath(v any, raw string) ([]any, jsonPathQuery, error) {
 	return cur, q, nil
 }
 
+func jsonPathIndex(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if strings.EqualFold(s, "last") {
+		return -1, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, errf("json_path", "invalid JSON path index %q", s)
+	}
+	return n, nil
+}
+
 func applyJSONPathStep(node any, step jsonPathStep) []any {
 	if step.recursive {
 		var out []any
@@ -170,6 +193,25 @@ func applyJSONPathStep(node any, step jsonPathStep) []any {
 			}
 			if idx >= 0 && idx < len(a) {
 				return []any{a[idx]}
+			}
+		}
+	case "range":
+		if a, ok := node.([]any); ok {
+			start, end := step.index, step.end
+			if start < 0 {
+				start = len(a) + start
+			}
+			if end < 0 {
+				end = len(a) + end
+			}
+			if start < 0 {
+				start = 0
+			}
+			if end >= len(a) {
+				end = len(a) - 1
+			}
+			if start <= end && start < len(a) {
+				return append([]any(nil), a[start:end+1]...)
 			}
 		}
 	case "wildcard":

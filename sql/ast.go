@@ -165,10 +165,11 @@ func (*LateralTable) tableNode() { _ = 0 }
 
 // TableFunction is a FROM-clause table function such as UNNEST(expr).
 type TableFunction struct {
-	Name    string
-	Args    []Expr
-	Alias   string
-	Columns []string
+	Name       string
+	Args       []Expr
+	Alias      string
+	Columns    []string
+	Ordinality bool
 }
 
 func (*TableFunction) tableNode() { _ = 0 }
@@ -936,21 +937,27 @@ func formatJSONFunc(f *FuncCall) string {
 	if f.JSONOnEmpty != "" {
 		if strings.HasPrefix(f.JSONOnEmpty, "empty_") {
 			out += " EMPTY " + strings.ToUpper(strings.TrimPrefix(f.JSONOnEmpty, "empty_")) + " ON EMPTY"
-		} else {
-			out += " ON EMPTY " + strings.ToUpper(f.JSONOnEmpty)
-			if f.JSONOnEmpty == "default" && f.JSONDefaultEmpty != nil {
+		} else if f.JSONOnEmpty == "default" {
+			out += " DEFAULT"
+			if f.JSONDefaultEmpty != nil {
 				out += " " + f.JSONDefaultEmpty.String()
 			}
+			out += " ON EMPTY"
+		} else {
+			out += " " + strings.ToUpper(f.JSONOnEmpty) + " ON EMPTY"
 		}
 	}
 	if f.JSONOnError != "" {
 		if strings.HasPrefix(f.JSONOnError, "empty_") {
 			out += " EMPTY " + strings.ToUpper(strings.TrimPrefix(f.JSONOnError, "empty_")) + " ON ERROR"
-		} else {
-			out += " ON ERROR " + strings.ToUpper(f.JSONOnError)
-			if f.JSONOnError == "default" && f.JSONDefaultError != nil {
+		} else if f.JSONOnError == "default" {
+			out += " DEFAULT"
+			if f.JSONDefaultError != nil {
 				out += " " + f.JSONDefaultError.String()
 			}
+			out += " ON ERROR"
+		} else {
+			out += " " + strings.ToUpper(f.JSONOnError) + " ON ERROR"
 		}
 	}
 	return out + ")"
@@ -1148,6 +1155,9 @@ func FormatTableExpr(t TableExpr) string {
 			args[i] = arg.String()
 		}
 		s := FormatIdent(x.Name) + "(" + strings.Join(args, ", ") + ")"
+		if x.Ordinality {
+			s += " WITH ORDINALITY"
+		}
 		if x.Alias != "" {
 			s += " AS " + FormatIdent(x.Alias)
 		}
@@ -1347,15 +1357,25 @@ func formatJSONTableColumns(cols []JSONTableColumn) string {
 				p += " PATH " + c.Path.String()
 			}
 			if c.OnEmpty != "" {
-				p += " ON EMPTY " + strings.ToUpper(c.OnEmpty)
-				if c.OnEmpty == "default" && c.DefaultEmpty != nil {
-					p += " " + c.DefaultEmpty.String()
+				if c.OnEmpty == "default" {
+					p += " DEFAULT"
+					if c.DefaultEmpty != nil {
+						p += " " + c.DefaultEmpty.String()
+					}
+					p += " ON EMPTY"
+				} else {
+					p += " " + strings.ToUpper(c.OnEmpty) + " ON EMPTY"
 				}
 			}
 			if c.OnError != "" {
-				p += " ON ERROR " + strings.ToUpper(c.OnError)
-				if c.OnError == "default" && c.DefaultError != nil {
-					p += " " + c.DefaultError.String()
+				if c.OnError == "default" {
+					p += " DEFAULT"
+					if c.DefaultError != nil {
+						p += " " + c.DefaultError.String()
+					}
+					p += " ON ERROR"
+				} else {
+					p += " " + strings.ToUpper(c.OnError) + " ON ERROR"
 				}
 			}
 		}

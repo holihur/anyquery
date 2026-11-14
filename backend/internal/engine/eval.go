@@ -191,6 +191,9 @@ func evalExpr(ctx *evalCtx, e sql.Expr) (any, error) {
 			return nil, err
 		}
 		if x.What == "json" {
+			if v == nil {
+				return nil, nil
+			}
 			result := evalIsJSON(v, x.JSONType, x.JSONUniqueSet && x.JSONUnique)
 			if x.Negated {
 				result = !result
@@ -455,6 +458,22 @@ func evalBinary(ctx *evalCtx, b *sql.BinaryExpr) (any, error) {
 	}
 	if op == "||" {
 		return toString(+0, left) + toString(0, right), nil
+	}
+	if op == "+" {
+		if s, ok := left.(string); ok {
+			if iv, ok := right.(intervalValue); ok {
+				if out, ok := addTimeOnlyInterval(s, iv); ok {
+					return out, nil
+				}
+			}
+		}
+		if s, ok := right.(string); ok {
+			if iv, ok := left.(intervalValue); ok {
+				if out, ok := addTimeOnlyInterval(s, iv); ok {
+					return out, nil
+				}
+			}
+		}
 	}
 	if iv, ok := left.(intervalValue); ok {
 		switch op {
@@ -1183,6 +1202,24 @@ func evalBuiltinFunction(name string, args []any) (any, error) {
 			return "", nil
 		}
 		return m[idx], nil
+	case "overlaps":
+		if len(args) != 4 {
+			return nil, errf("invalid_arguments", "OVERLAPS expects four timestamps")
+		}
+		a, aok := toTime(args[0])
+		b, bok := toTime(args[1])
+		c, cok := toTime(args[2])
+		d, dok := toTime(args[3])
+		if !aok || !bok || !cok || !dok {
+			return nil, errf("type_error", "OVERLAPS expects timestamps")
+		}
+		if a.After(b) {
+			a, b = b, a
+		}
+		if c.After(d) {
+			c, d = d, c
+		}
+		return !a.After(d) && !c.After(b), nil
 	case "if", "iff":
 		if len(args) != 3 {
 			return nil, errf("invalid_arguments", "%s expects 3 arguments", strings.ToUpper(name))
@@ -1980,6 +2017,7 @@ func parseTimeString(s string) (time.Time, bool) {
 		time.RFC3339Nano, time.RFC3339,
 		"2006-01-02 15:04:05.999999999Z07:00", "2006-01-02 15:04:05Z07:00",
 		"2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02",
+		"15:04:05.999999999", "15:04:05",
 	}
 	for _, l := range layouts {
 		if t, err := time.Parse(l, s); err == nil {
@@ -2114,7 +2152,7 @@ func similarPattern(pattern string) (*regexp.Regexp, error) {
 			sb.WriteString(".*")
 		case '_':
 			sb.WriteString(".")
-		case '|', '*', '+', '?', '(', ')', '[', ']', '{', '}':
+		case '.', '|', '*', '+', '?', '(', ')', '[', ']', '{', '}':
 			sb.WriteRune(r)
 		default:
 			sb.WriteString(regexp.QuoteMeta(string(r)))
