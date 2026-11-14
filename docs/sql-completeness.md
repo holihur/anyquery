@@ -75,9 +75,10 @@ CI runs a short smoke for every target and fails on a discovered reproducer.
 These do not reduce the Profile 1.0 row status, but matter for large or
 non-standard workloads:
 
-- execution is materialized and in-memory; no streaming/hash-join disk spill
-- no cost-based join reordering; joins follow written order and choose the
-  smaller inner-join build side
+- execution is materialized and in-memory; hash joins spill their build side to temp files above `JoinSpillRows`, but full source streaming and disk-backed relations are not implemented
+- cost-based greedy reordering applies to non-`SELECT *` inner joins over base
+  table references; other joins keep written order and choose the smaller
+  inner-join build side
 - window frame offsets support integer literals and bind parameters; arbitrary offset expressions are rejected
 - UNNEST expands JSON/array values; additional table functions can be registered with `Engine.RegisterTableFunction`
 - temporal reads require a connector to advertise `Capabilities.SystemTime`

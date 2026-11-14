@@ -263,6 +263,8 @@ AUTH_DEV_MODE=false
 | `QUERY_MAX_SOURCE_ROWS` | `100000` | 每个源表最多拉取行数 |
 | `QUERY_MAX_RESULT_ROWS` | `10000` | 返回给前端的结果行数上限 |
 | `QUERY_MAX_JOIN_ROWS` | `2000000` | JOIN 中间结果行数上限 |
+| `QUERY_JOIN_SPILL_ROWS` | `50000` | 哈希 JOIN 构建侧超过该行数时分片溢写临时文件 |
+| `QUERY_COST_BASED_JOIN` | `true` | 对非 `SELECT *` 的纯 INNER JOIN 基础表树启用基数贪心重排 |
 | `MAX_SAVED_QUERIES` | `500` | 每个 workspace 保存查询上限 |
 | `MAX_HISTORY_RUNS` | `500` | 查询历史单次返回上限 |
 | `COOKIE_SECURE` | 由 https 推导 | 强制 Secure Cookie |

@@ -787,7 +787,19 @@ func (ec *execCtx) joinRelations(left, right *relation, typ sql.JoinType, on sql
 	}
 	if len(joinPairs) > 0 {
 		buildLeft := typ == sql.JoinInner && len(left.rows) < len(right.rows)
-		if err := ec.hashJoin(combined, left, right, typ, on, joinPairs, leftMatched, rightMatched, buildLeft); err != nil {
+		buildCount := len(right.rows)
+		if buildLeft {
+			buildCount = len(left.rows)
+		}
+		if ec.engine.Opts.JoinSpillRows > 0 && buildCount > ec.engine.Opts.JoinSpillRows {
+			if handled, err := ec.spillHashJoin(combined, left, right, typ, on, joinPairs, leftMatched, rightMatched, buildLeft); err != nil {
+				return nil, err
+			} else if handled {
+				// Spilled join populated combined.rows and matched flags.
+			} else if err := ec.hashJoin(combined, left, right, typ, on, joinPairs, leftMatched, rightMatched, buildLeft); err != nil {
+				return nil, err
+			}
+		} else if err := ec.hashJoin(combined, left, right, typ, on, joinPairs, leftMatched, rightMatched, buildLeft); err != nil {
 			return nil, err
 		}
 	} else {

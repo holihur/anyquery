@@ -71,9 +71,21 @@ func (ec *execCtx) executeSelect(s *sql.SelectStmt) (*dataset, error) {
 		rel = &relation{rows: []map[string]any{{}}}
 	} else {
 		var err error
-		rel, err = ec.relationForTableExpr(s.From[0])
-		if err != nil {
-			return nil, err
+		if ec.engine.Opts.CostBasedJoin && len(s.From) == 1 {
+			var ok bool
+			rel, ok, err = ec.costBasedJoinTree(s.From[0], s.Projections)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				rel = nil
+			}
+		}
+		if rel == nil {
+			rel, err = ec.relationForTableExpr(s.From[0])
+			if err != nil {
+				return nil, err
+			}
 		}
 		for _, te := range s.From[1:] {
 			if isLateralTable(te) {

@@ -367,7 +367,7 @@ The engine materializes source rows and executes joins/aggregations in memory. D
 - 2,000,000 intermediate join rows
 - 30 second query timeout
 
-Use filters early. The scan planner performs capability-gated projection, filter and limit pushdown; the engine always re-evaluates filters, so connectors may ignore unsupported pushdown. Hash joins build the smaller side for inner joins. There is no cost-based join reordering yet.
+Use filters early. The scan planner performs capability-gated projection, filter and limit pushdown; the engine always re-evaluates filters, so connectors may ignore unsupported pushdown. Hash joins build the smaller side for inner joins, spill the build side to partitioned temp files above `JoinSpillRows`, and greedily reorder non-`SELECT *` inner joins over base tables by materialized cardinality.
 
 ## Known limitations
 

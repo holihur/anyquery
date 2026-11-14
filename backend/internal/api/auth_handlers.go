@@ -301,7 +301,7 @@ func (s *Server) handleTenantGet(w http.ResponseWriter, r *http.Request) {
 		"tenant": t, "role": currentRole(r),
 		"limits": map[string]any{
 			"maxResultRows": s.cfg.MaxResultRows, "maxSourceRows": s.cfg.MaxSourceRows,
-			"maxJoinRows": s.cfg.MaxJoinRows, "maxHistoryRuns": s.cfg.MaxHistoryRuns,
+			"maxJoinRows": s.cfg.MaxJoinRows, "joinSpillRows": s.cfg.JoinSpillRows, "costBasedJoin": s.cfg.CostBasedJoin, "maxHistoryRuns": s.cfg.MaxHistoryRuns,
 			"queryTimeoutSeconds": int(s.cfg.QueryTimeout.Seconds()),
 			"maxSavedQueries":     s.cfg.MaxSavedQueries,
 		},

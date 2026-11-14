@@ -723,3 +723,26 @@ func TestGroupedHavingOrderAndWindowValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestHashJoinSpill(t *testing.T) {
+	opts := DefaultOptions()
+	opts.JoinSpillRows = 1
+	eng := New(opts)
+	res, err := eng.Execute(t.Context(), `SELECT o.id, c.name FROM mongo.orders o JOIN mongo.customers c ON o.customer_id = c.id ORDER BY o.id`, testCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RowCount != 4 || res.Rows[0]["name"] != "Acme" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}
+
+func TestCostBasedJoinReorder(t *testing.T) {
+	res := run(t, `SELECT o.id, c.name, i.category FROM mongo.orders o
+		JOIN mongo.customers c ON o.customer_id = c.id
+		JOIN shop.public.items i ON c.id = i.customer_id
+		ORDER BY o.id`)
+	if res.RowCount != 3 || res.Rows[0]["name"] != "Acme" || res.Rows[0]["category"] != "software" {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+}

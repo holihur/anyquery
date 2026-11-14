@@ -40,6 +40,7 @@ func New(cfg config.Config, st *store.Store, authSvc *auth.Service) (*Server, er
 			MaxSourceRows: cfg.MaxSourceRows,
 			MaxResultRows: cfg.MaxResultRows,
 			MaxJoinRows:   cfg.MaxJoinRows,
+			JoinSpillRows: cfg.JoinSpillRows,
 			Timeout:       cfg.QueryTimeout,
 		}),
 	}, nil

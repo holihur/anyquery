@@ -47,6 +47,8 @@ type Options struct {
 	MaxSourceRows int
 	MaxResultRows int
 	MaxJoinRows   int
+	JoinSpillRows int
+	CostBasedJoin bool
 	Timeout       time.Duration
 }
 
@@ -56,6 +58,8 @@ func DefaultOptions() Options {
 		MaxSourceRows: 100_000,
 		MaxResultRows: 10_000,
 		MaxJoinRows:   2_000_000,
+		JoinSpillRows: 50_000,
+		CostBasedJoin: true,
 		Timeout:       30 * time.Second,
 	}
 }
