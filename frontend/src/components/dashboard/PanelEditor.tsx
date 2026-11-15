@@ -52,7 +52,7 @@ export function PanelEditor({
     setPreviewing(true)
     setPreviewError(null)
     try {
-      const payload = await api.execute(slug, draft.sql)
+      const payload = await api.execute(slug, draft.sql, undefined, undefined, true)
       if (payload.error) {
         setPreview(null)
         setPreviewError(payload.error.message)

@@ -172,6 +172,7 @@ func (s *Server) handleDataSourceOAuthCallback(w http.ResponseWriter, r *http.Re
 		Action: "datasource.oauth", TargetType: "datasource", TargetID: ds.ID,
 		Metadata: map[string]any{"status": status},
 	})
+	s.invalidateQueryCache(ds.TenantID)
 	s.redirectDataSourceOAuth(w, r, st.TenantSlug, "success", "")
 }
 

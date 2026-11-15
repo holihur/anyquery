@@ -123,6 +123,7 @@ export interface QueryRun {
   status: "success" | "error"
   durationMs: number
   rowCount: number
+  cacheHit?: boolean
   error?: string
   sources: string[]
   createdAt: string

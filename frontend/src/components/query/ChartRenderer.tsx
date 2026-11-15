@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react"
+import { memo, useEffect, useId, useRef, useState } from "react"
 import type { DashboardVisualization, QueryResult, ResultColumn } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -62,7 +62,7 @@ function niceMax(value: number): number {
   return Math.ceil(value / power) * power
 }
 
-export function ChartRenderer({
+function ChartRendererImpl({
   result,
   config,
   className,
@@ -294,6 +294,8 @@ function Legend({ series }: { series: string[] }) {
     </div>
   )
 }
+
+export const ChartRenderer = memo(ChartRendererImpl)
 
 export function VisualizationBuilder({
   columns,

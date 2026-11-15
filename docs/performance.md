@@ -43,3 +43,26 @@ curl -s -H 'Accept-Encoding: gzip' -o /dev/null -w '%{size_download}\n' \
 ```
 
 Use Lighthouse/Chrome DevTools with cache disabled to check the first load, then repeat with cache enabled to verify immutable caching.
+
+## Query result cache
+
+Successful query results are cached in process for `QUERY_CACHE_TTL_SECONDS`
+(default 15 seconds). The cache is tenant-scoped and keyed by the exact SQL text
+plus bind parameters. Identical concurrent queries are coalesced
+(singleflight), so a dashboard with duplicate panels only opens one source
+query on a cache miss.
+
+- `QUERY_CACHE_TTL_SECONDS=0` disables the cache and coalescing.
+- `QUERY_CACHE_MAX_ENTRIES` bounds the LRU (default 200).
+- Creating, editing, deleting, refreshing or re-authorizing a data source
+  invalidates that workspace's cache immediately.
+- Errors are not cached. Query results are immutable snapshots; cache hits are
+  recorded on query runs as `cacheHit: true`.
+- Tenant source-catalog snapshots are held for 5 seconds while caching is
+  enabled, avoiding a MongoDB read per dashboard panel. Data-source mutations
+  invalidate the snapshot immediately.
+- Dashboard panel and editor-preview queries send `skipHistory: true`; their
+  results are cached but they do not write a query-run document per refresh.
+- Results are not invalidated by changes made directly in the source database;
+  tune the TTL for freshness. Non-deterministic expressions such as
+  `CURRENT_TIMESTAMP` share the cache window.

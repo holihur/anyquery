@@ -2,6 +2,9 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +18,12 @@ import (
 	"github.com/anyquery/anyquery/internal/store"
 )
 
+func queryCacheKey(tenantID, sqlText string, params []any) string {
+	raw, _ := json.Marshal(params)
+	sum := sha256.Sum256([]byte(tenantID + "\x00" + sqlText + "\x00" + string(raw)))
+	return tenantID + "\x00" + hex.EncodeToString(sum[:])
+}
+
 // tenantCatalog bridges persisted data sources to the query engine.
 type tenantCatalog struct {
 	server   *Server
@@ -27,7 +36,7 @@ func (c *tenantCatalog) Sources(ctx context.Context) ([]engine.SourceMeta, error
 	if c.metas != nil {
 		return c.metas, nil
 	}
-	list, err := c.server.store.ListDataSources(ctx, c.tenantID)
+	list, err := c.server.listTenantSources(ctx, c.tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +52,7 @@ func (c *tenantCatalog) Open(ctx context.Context, name string) (connector.Connec
 			return conn, nil
 		}
 	}
-	list, err := c.server.store.ListDataSources(ctx, c.tenantID)
+	list, err := c.server.listTenantSources(ctx, c.tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -84,6 +93,7 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		SQL          string `json:"sql"`
 		SavedQueryID string `json:"savedQueryId"`
 		Params       []any  `json:"params"`
+		SkipHistory  bool   `json:"skipHistory"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", err.Error())
@@ -115,12 +125,21 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	cat := &tenantCatalog{server: s, tenantID: t.ID, opened: map[string]connector.Connector{}}
 	defer cat.Close()
 	start := time.Now()
-	res, execErr := s.engine.ExecuteParams(r.Context(), sqlText, body.Params, cat)
+	cacheHit := false
+	var res *engine.Result
+	var execErr error
+	if s.queryCache.Enabled() {
+		res, cacheHit, execErr = s.queryCache.GetOrLoad(r.Context(), queryCacheKey(t.ID, sqlText, body.Params), func() (*engine.Result, error) {
+			return s.engine.ExecuteParams(r.Context(), sqlText, body.Params, cat)
+		})
+	} else {
+		res, execErr = s.engine.ExecuteParams(r.Context(), sqlText, body.Params, cat)
+	}
 	duration := time.Since(start).Milliseconds()
 	run := &model.QueryRun{
 		ID: store.NewID(), TenantID: t.ID, UserID: currentUser(r).ID,
 		SavedQueryID: body.SavedQueryID, SQL: sqlText, Sources: []string{},
-		CreatedAt: store.Now(), DurationMS: duration,
+		CreatedAt: store.Now(), DurationMS: duration, CacheHit: cacheHit,
 	}
 	if execErr == nil {
 		seen := map[string]bool{}
@@ -137,12 +156,21 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		status = statusForQueryError(execErr)
 	} else {
 		run.Status, run.RowCount = "success", res.RowCount
-		if saved != nil {
+		if saved != nil && !body.SkipHistory {
 			now := store.Now()
 			_ = s.store.UpdateSavedQuery(r.Context(), t.ID, saved.ID, map[string]any{"lastRunAt": now})
 		}
 	}
-	_ = s.store.CreateRun(r.Context(), run)
+	if !body.SkipHistory {
+		_ = s.store.CreateRun(r.Context(), run)
+	}
+	if s.queryCache.Enabled() {
+		if cacheHit {
+			w.Header().Set("X-Query-Cache", "hit")
+		} else {
+			w.Header().Set("X-Query-Cache", "miss")
+		}
+	}
 	if execErr != nil {
 		var qe *engine.Error
 		if errors.As(execErr, &qe) {

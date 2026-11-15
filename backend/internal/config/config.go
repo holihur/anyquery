@@ -28,6 +28,8 @@ type Config struct {
 	MaxJoinRows     int
 	JoinSpillRows   int
 	CostBasedJoin   bool
+	QueryCacheTTL   time.Duration
+	QueryCacheMax   int
 	MaxSavedQueries int
 	MaxHistoryRuns  int
 	EncryptionKey   []byte
@@ -63,6 +65,8 @@ func Load() (Config, error) {
 		MaxJoinRows:      envInt("QUERY_MAX_JOIN_ROWS", 2_000_000),
 		JoinSpillRows:    envInt("QUERY_JOIN_SPILL_ROWS", 50_000),
 		CostBasedJoin:    envBool("QUERY_COST_BASED_JOIN", true),
+		QueryCacheTTL:    time.Duration(envInt("QUERY_CACHE_TTL_SECONDS", 15)) * time.Second,
+		QueryCacheMax:    envInt("QUERY_CACHE_MAX_ENTRIES", 200),
 		MaxSavedQueries:  envInt("MAX_SAVED_QUERIES", 500),
 		MaxHistoryRuns:   envInt("MAX_HISTORY_RUNS", 500),
 		OIDCIssuer:       strings.TrimRight(os.Getenv("OIDC_ISSUER"), "/"),
@@ -87,6 +91,9 @@ func Load() (Config, error) {
 	}
 	if c.JoinSpillRows <= 0 {
 		c.JoinSpillRows = 50_000
+	}
+	if c.QueryCacheMax <= 0 {
+		c.QueryCacheMax = 200
 	}
 	if c.MaxSavedQueries <= 0 {
 		c.MaxSavedQueries = 500

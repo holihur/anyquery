@@ -151,6 +151,7 @@ func (s *Server) handleDataSourceCreate(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	s.invalidateQueryCache(t.ID)
 	s.store.Audit(r.Context(), model.AuditLog{TenantID: t.ID, ActorID: u.ID, ActorName: u.Name, Action: "datasource.create", TargetType: "datasource", TargetID: ds.ID, Metadata: map[string]any{"name": ds.Name, "type": ds.Type}, IP: clientIP(r)})
 	writeJSON(w, http.StatusCreated, s.toDTO(*ds))
 }
@@ -214,6 +215,7 @@ func (s *Server) handleDataSourceUpdate(w http.ResponseWriter, r *http.Request) 
 		tables = tbs
 	}
 	_ = s.store.UpdateDataSourceStatus(r.Context(), t.ID, ds.ID, tables, status, lastError)
+	s.invalidateQueryCache(t.ID)
 	u := currentUser(r)
 	s.store.Audit(r.Context(), model.AuditLog{TenantID: t.ID, ActorID: u.ID, ActorName: u.Name, Action: "datasource.update", TargetType: "datasource", TargetID: ds.ID, Metadata: map[string]any{"name": name}, IP: clientIP(r)})
 	updated, _ := s.store.GetDataSource(r.Context(), t.ID, ds.ID)
@@ -236,6 +238,7 @@ func (s *Server) handleDataSourceDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	u := currentUser(r)
+	s.invalidateQueryCache(t.ID)
 	s.store.Audit(r.Context(), model.AuditLog{TenantID: t.ID, ActorID: u.ID, ActorName: u.Name, Action: "datasource.delete", TargetType: "datasource", TargetID: ds.ID, Metadata: map[string]any{"name": ds.Name}, IP: clientIP(r)})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -361,6 +364,7 @@ func (s *Server) handleDataSourceRefresh(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	u := currentUser(r)
+	s.invalidateQueryCache(t.ID)
 	s.store.Audit(r.Context(), model.AuditLog{TenantID: t.ID, ActorID: u.ID, ActorName: u.Name, Action: "datasource.refresh", TargetType: "datasource", TargetID: ds.ID, Metadata: map[string]any{"status": status}, IP: clientIP(r)})
 	updated, _ := s.store.GetDataSource(r.Context(), t.ID, ds.ID)
 	writeJSON(w, http.StatusOK, s.toDTO(*updated))

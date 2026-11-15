@@ -154,12 +154,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ sql, params }),
     }),
-  execute: async (slug: string, sql: string, savedQueryId?: string, params?: unknown[]): Promise<ExecuteResponse> => {
+  execute: async (slug: string, sql: string, savedQueryId?: string, params?: unknown[], skipHistory = false): Promise<ExecuteResponse> => {
     const res = await fetch(`${BASE}/tenants/${slug}/queries/execute`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sql, savedQueryId, params }),
+      body: JSON.stringify({ sql, savedQueryId, params, skipHistory }),
     })
     const text = await res.text()
     const payload = text ? JSON.parse(text) : {}

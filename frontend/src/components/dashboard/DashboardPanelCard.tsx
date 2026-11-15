@@ -28,7 +28,7 @@ export function DashboardPanelCard({
 }) {
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["dashboard-panel", slug, panel.id, panel.sql],
-    queryFn: () => api.execute(slug, panel.sql),
+    queryFn: () => api.execute(slug, panel.sql, undefined, undefined, true),
     retry: false,
     staleTime: 0,
     refetchInterval: refreshInterval > 0 ? refreshInterval : false,

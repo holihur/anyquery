@@ -173,6 +173,7 @@ type QueryRun struct {
 	Status       string    `bson:"status" json:"status"` // success | error
 	DurationMS   int64     `bson:"durationMs" json:"durationMs"`
 	RowCount     int       `bson:"rowCount" json:"rowCount"`
+	CacheHit     bool      `bson:"cacheHit,omitempty" json:"cacheHit,omitempty"`
 	Error        string    `bson:"error,omitempty" json:"error,omitempty"`
 	Sources      []string  `bson:"sources" json:"sources"`
 	CreatedAt    time.Time `bson:"createdAt" json:"createdAt"`

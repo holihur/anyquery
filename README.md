@@ -74,6 +74,7 @@ FROM mongo.orders
 - **创建前测试连接**：任何数据源在保存前都可以直接 Test，错误会即时显示。
 - **MCP**：内置 Streamable HTTP MCP Server（`/mcp`），MCP 工具严格使用 PAT 的权限域，只暴露被允许的工具；支持 catalog、执行、保存查询和执行计划。
 - **查询护栏**：超时、单源行数上限、结果行数上限、JOIN 中间结果上限、截断警示。
+- **查询性能**：租户结果缓存 + 并发请求合并（singleflight）+ 数据源目录快照；dashboard 刷新不写查询历史。
 - **历史与配额**：查询历史默认最近 500 条，保存查询默认 500 条；均可通过环境变量调整。
 - **i18n**：10 种语言（英/简中/西/印地/阿/葡/俄/日/德/法），自动检测、持久化与 RTL 布局。
 - **加载性能**：路由级按需加载、CodeMirror/sql-formatter 延迟加载、静态资源 gzip + immutable 缓存。
@@ -271,6 +272,8 @@ AUTH_DEV_MODE=false
 | `QUERY_MAX_JOIN_ROWS` | `2000000` | JOIN 中间结果行数上限 |
 | `QUERY_JOIN_SPILL_ROWS` | `50000` | 哈希 JOIN 构建侧超过该行数时分片溢写临时文件 |
 | `QUERY_COST_BASED_JOIN` | `true` | 对非 `SELECT *` 的纯 INNER JOIN 基础表树启用基数贪心重排 |
+| `QUERY_CACHE_TTL_SECONDS` | `15` | 查询结果内存缓存 TTL；设为 `0` 关闭 |
+| `QUERY_CACHE_MAX_ENTRIES` | `200` | 查询缓存最大条目数（LRU） |
 | `MAX_SAVED_QUERIES` | `500` | 每个 workspace 保存查询上限 |
 | `MAX_HISTORY_RUNS` | `500` | 查询历史单次返回上限 |
 | `COOKIE_SECURE` | 由 https 推导 | 强制 Secure Cookie |

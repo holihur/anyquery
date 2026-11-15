@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anyquery/anyquery/internal/auth"
@@ -18,15 +19,19 @@ import (
 	"github.com/anyquery/anyquery/internal/cryptox"
 	"github.com/anyquery/anyquery/internal/engine"
 	"github.com/anyquery/anyquery/internal/model"
+	"github.com/anyquery/anyquery/internal/querycache"
 	"github.com/anyquery/anyquery/internal/store"
 )
 
 type Server struct {
-	cfg    config.Config
-	store  *store.Store
-	auth   *auth.Service
-	engine *engine.Engine
-	key    *cryptox.Key
+	cfg        config.Config
+	store      *store.Store
+	auth       *auth.Service
+	engine     *engine.Engine
+	queryCache *querycache.Cache
+	catalogMu  sync.Mutex
+	catalog    map[string]catalogSnapshot
+	key        *cryptox.Key
 }
 
 func New(cfg config.Config, st *store.Store, authSvc *auth.Service) (*Server, error) {
@@ -43,6 +48,8 @@ func New(cfg config.Config, st *store.Store, authSvc *auth.Service) (*Server, er
 			JoinSpillRows: cfg.JoinSpillRows,
 			Timeout:       cfg.QueryTimeout,
 		}),
+		queryCache: querycache.New(cfg.QueryCacheTTL, cfg.QueryCacheMax),
+		catalog:    make(map[string]catalogSnapshot),
 	}, nil
 }
 
@@ -218,6 +225,43 @@ func (s *Server) requireTenant(next http.HandlerFunc) http.HandlerFunc {
 		ctx = context.WithValue(ctx, roleKey, role)
 		next(w, r.WithContext(ctx))
 	}
+}
+
+type catalogSnapshot struct {
+	dataSources []model.DataSource
+	expires     time.Time
+}
+
+const catalogCacheTTL = 5 * time.Second
+
+func (s *Server) listTenantSources(ctx context.Context, tenantID string) ([]model.DataSource, error) {
+	if s.queryCache == nil || !s.queryCache.Enabled() {
+		return s.store.ListDataSources(ctx, tenantID)
+	}
+	now := time.Now()
+	s.catalogMu.Lock()
+	snapshot, ok := s.catalog[tenantID]
+	s.catalogMu.Unlock()
+	if ok && now.Before(snapshot.expires) {
+		return snapshot.dataSources, nil
+	}
+	list, err := s.store.ListDataSources(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	s.catalogMu.Lock()
+	s.catalog[tenantID] = catalogSnapshot{dataSources: list, expires: now.Add(catalogCacheTTL)}
+	s.catalogMu.Unlock()
+	return list, nil
+}
+
+func (s *Server) invalidateQueryCache(tenantID string) {
+	if s.queryCache != nil {
+		s.queryCache.InvalidateTenant(tenantID)
+	}
+	s.catalogMu.Lock()
+	delete(s.catalog, tenantID)
+	s.catalogMu.Unlock()
 }
 
 func currentPrincipal(r *http.Request) *principal {

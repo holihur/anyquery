@@ -602,6 +602,7 @@ export function QueryPage() {
                               <span>{formatDuration(run.durationMs)}</span>
                               <span className="size-0.5 rounded-full bg-current" />
                               <span>{run.status === "success" ? `${formatNumber(run.rowCount)} rows` : run.error || "failed"}</span>
+                              {run.cacheHit && <span className="rounded border bg-muted/50 px-1 text-[9px] text-muted-foreground">cached</span>}
                             </div>
                           </div>
                           <span className="text-[10px] text-primary opacity-0 transition-opacity group-hover:opacity-100">Load</span>
