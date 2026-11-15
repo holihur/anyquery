@@ -245,7 +245,7 @@ export function LoginPage() {
                   title={source.name}
                 />
               ))}
-              <span className="ml-1 text-[10px] text-muted-foreground">104 data sources</span>
+              <span className="ml-1 text-[10px] text-muted-foreground">110 data sources</span>
             </div>
           </div>
         </div>
@@ -319,7 +319,7 @@ export function LoginPage() {
 
         <div className="flex items-center justify-between text-[10px] text-white/25">
           <span>AnyQuery MVP</span>
-          <span>104 connectors · RBAC · Audit</span>
+          <span>110 connectors · RBAC · Audit</span>
         </div>
       </aside>
     </div>

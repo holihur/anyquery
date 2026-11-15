@@ -1,17 +1,17 @@
 # Top 100 数据源目录
 
-AnyQuery 当前注册 **105** 个数据源类型，覆盖 SQL、NoSQL、搜索、时序、REST/SaaS API 与文件。
+AnyQuery 当前注册 **110** 个数据源类型，覆盖 SQL、NoSQL、搜索、时序、REST/SaaS API 与文件。
 
 | 成熟度 | 数量 | 含义 |
 | --- | ---: | --- |
-| `native` | 36 | 独立连接器实现（含 BigQuery REST、Cassandra CQL、MongoDB、Redis、Excel/Access 等） |
-| `compatible` | 37 | 复用现有驱动的兼容类型，例如 Aurora、Cloud SQL、Neon、TiDB、Starburst |
+| `native` | 40 | 独立连接器实现（含 BigQuery REST、Cassandra CQL、MongoDB、Redis、Excel/Access 等） |
+| `compatible` | 38 | 复用现有驱动的兼容类型，例如 Aurora、Cloud SQL、Neon、TiDB、Starburst |
 | `template` | 32 | 基于通用 REST/CSV/JSONL 的配置模板；仍需填写真实 endpoint、认证和 records path |
 
 > `template` 不等于开箱即用。SaaS API 的 OAuth、分页和字段结构差异很大；模板负责省去重复配置，文档会逐步补充每个服务的 endpoint 示例。
 
 
-## SQL / 数据仓库（46）
+## SQL / 数据仓库（47）
 
 | 类型 | 成熟度 | 名称 |
 | --- | --- | --- |
@@ -42,6 +42,7 @@ AnyQuery 当前注册 **105** 个数据源类型，覆盖 SQL、NoSQL、搜索�
 | `sqlserver` | native | Microsoft SQL Server |
 | `mysql` | native | MySQL |
 | `neon` | compatible | Neon |
+| `nhost` | compatible | Nhost |
 | `oracle-adb` | compatible | Oracle Autonomous Database |
 | `oracle` | native | Oracle Database |
 | `percona` | compatible | Percona Server |
@@ -62,12 +63,16 @@ AnyQuery 当前注册 **105** 个数据源类型，覆盖 SQL、NoSQL、搜索�
 | `yugabytedb` | native | YugabyteDB |
 | `yugabyte-cloud` | compatible | YugabyteDB Managed |
 
-## NoSQL（4）
+## NoSQL（8）
 
 | 类型 | 成熟度 | 名称 |
 | --- | --- | --- |
 | `cassandra` | native | Apache Cassandra / ScyllaDB |
 | `memorycache` | native | Memory Cache (Memcached) |
+| `firebase` | native | Firebase |
+| `appwrite` | native | Appwrite |
+| `pocketbase` | native | PocketBase |
+| `parse` | native | Parse Platform / Back4App |
 | `mongodb` | native | MongoDB |
 | `redis` | native | Redis |
 

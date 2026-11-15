@@ -19,14 +19,14 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import {
-  siAirtable, siApachecassandra, siApachesolr, siAsana, siClickup, siCockroachlabs,
-  siClickhouse, siDatabricks, siDatadog, siDiscord, siElasticsearch, siGithub,
+  siAirtable, siApachecassandra, siApachesolr, siAppwrite, siAsana, siClickup, siCockroachlabs,
+  siClickhouse, siDatabricks, siDatadog, siDiscord, siElasticsearch, siFirebase, siGithub,
   siGitlab, siGoogleanalytics, siGooglebigquery, siGooglecloud, siGooglesheets,
   siGraphql, siGreptimedb, siHubspot, siInfluxdb, siIntercom, siJira, siLinear, siMailchimp,
   siMariadb, siMixpanel, siMongodb, siMysql, siNeo4j, siNeon, siNotion,
   siOpensearch, siPagerduty, siPlanetscale, siPostgresql, siPresto, siRedis,
   siSentry, siShopify, siSinglestore, siSnowflake, siStripe, siSupabase,
-  siTelegram, siTimescale, siTrello, siTrino, siVitess, siX, siZendesk,
+  siPocketbase, siTelegram, siTimescale, siTrello, siTrino, siVitess, siX, siZendesk,
   type SimpleIcon,
 } from "simple-icons"
 import { faAws, faGoogle, faMicrosoft, faSalesforce, faSlack, type IconDefinition } from "@fortawesome/free-brands-svg-icons"
@@ -82,10 +82,15 @@ const typeMeta: Record<string, SourceIconMeta> = {
   freshdesk: { icon: Headphones, color: "text-cyan-600 dark:text-cyan-400", bg: "bg-cyan-500/10", label: "Freshdesk" },
   github: { icon: Globe2, color: "text-foreground", bg: "bg-muted", label: "GitHub" },
   openapi: { icon: Globe2, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10", label: "OpenAPI / Swagger" },
+  parse: { icon: Braces, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10", label: "Parse Platform" },
 }
 
 const brandMeta: Record<string, SourceIconMeta> = {
   graphql: { brand: siGraphql, color: "text-pink-600 dark:text-pink-400", bg: "bg-pink-500/10", label: "GraphQL" },
+  firebase: { brand: siFirebase, color: "text-amber-500", bg: "bg-amber-500/10", label: "Firebase" },
+  appwrite: { brand: siAppwrite, color: "text-pink-600 dark:text-pink-400", bg: "bg-pink-500/10", label: "Appwrite" },
+  pocketbase: { brand: siPocketbase, color: "text-foreground", bg: "bg-muted", label: "PocketBase" },
+
   bigquery: { brand: siGooglebigquery, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10", label: "BigQuery" },
   cassandra: { brand: siApachecassandra, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10", label: "Cassandra" },
   postgres: { brand: siPostgresql, color: "text-sky-600 dark:text-sky-400", bg: "bg-sky-500/10", label: "PostgreSQL" },

@@ -1,6 +1,6 @@
 # 数据源支持进度
 
-> 版本：MVP · 2026-11 · 共 **105** 个注册数据源类型（36 native / 37 compatible / 32 template）
+> 版本：MVP · 2026-11 · 共 **110** 个注册数据源类型（40 native / 38 compatible / 32 template）
 >
 > 完整 Top 100 目录见 [data-sources-top100.md](data-sources-top100.md)。
 > SaaS recipe 的分页/认证默认值和验证状态见 [recipes.md](recipes.md)。
@@ -57,6 +57,10 @@
 | 31 | Microsoft Access | File | 🟡 | `mdb-tables` + CSV header | 本地文件 | 行数上限 | 需 mdbtools，单测待补 |
 | 32 | GraphQL | API | 🧪 | 配置 query / 列声明 | Header（Bearer 等） | 客户端行数上限 | Go 单测 + mock endpoint |
 | 33 | Memory Cache (Memcached) | Cache | 🟡 | 固定 `entries` 列 + `metadump` 采样 | 无（text protocol） | key 前缀 + 扫描上限 | Go 单测 + mock memcached |
+| 34 | Firebase | BaaS | 🟡 | Firestore collections / RTDB path | OAuth access token / ID token / DB secret | Firestore pageSize + 客户端上限 | Go 单测 + mock REST |
+| 35 | Appwrite | BaaS | 🟡 | Databases collections | API key / JWT | Appwrite `limit`/`offset` queries | Go 单测 + mock REST |
+| 36 | PocketBase | BaaS | 🟡 | Collections | Admin/user token | page/perPage | Go 单测 + mock REST |
+| 37 | Parse Platform / Back4App | BaaS | 🟡 | Classes / schemas | App ID + REST key / master key / session | limit/skip | Go 单测 + mock REST |
 
 ## 分项说明
 
@@ -219,6 +223,19 @@ GROUP BY c.name, p.category
 - Memcached 没有 `SCAN`，连接器优先使用 `lru_crawler metadump all` 枚举 key，失败时回退到 `stats items` + `stats cachedump`。
 - `key_prefix` 过滤、`scan_limit` 硬上限、`max_value_bytes` 截断；二进制值以 base64 返回并标记 `value_encoding=base64`。
 - 只读查询；不支持 TLS/SASL，生产建议使用内网或仅暴露只读实例。Memcached 的 key 可能无法完整枚举（受 crawler/权限/版本影响），缺失 key 不会伪造数据。
+
+### Firebase / BaaS（34–37）
+
+Firebase、Appwrite、PocketBase 和 Parse（含 Back4App）都是文档型应用后端，连接器把 collection/class 映射成 SQL 表，把文档字段展开成列。
+
+- **Firebase**：支持 **Firestore** 和 **Realtime Database**。Firestore 走 `documents` REST，自动处理 `pageToken`；RTDB 读取配置的 `path`，对象 key 映射为 `_key`。使用 OAuth access token/ID token（Firestore Bearer，RTDB `?auth=`），也支持 emulator endpoint。
+- **Appwrite**：`/v1/databases/{db}/collections/{collection}/documents`；支持 API key 或 JWT，使用 Appwrite 的 `queries[]=limit()/offset()` 分页。
+- **PocketBase**：`/api/collections/{collection}/records`；支持 admin/user Bearer token，使用 `page/perPage` 分页。
+- **Parse Platform / Back4App**：`/classes/{className}`；支持 Application ID、REST API key、master key 和 session token；`objectId`、`createdAt`、`updatedAt`、`ACL` 映射为 `_id`、`_created_at`、`_updated_at`、`_acl`。
+- **Nhost**：复用 PostgreSQL wire 预设，连接 Nhost 的 Postgres 数据库；GraphQL 端点可用 `graphql` 连接器。
+- **Supabase**：已有 `supabase` PostgreSQL 预设；也可用 `rest`/`graphql` 连接 PostgREST/Hasura。
+
+这些连接器只读；分页、限流和权限仍由服务端控制。不同版本的 API 响应字段可能有差异，`🟡` 表示已用 mock REST 测试但尚未用真实项目账号验证。
 
 ## 通用限制
 

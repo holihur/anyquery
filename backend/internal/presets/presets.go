@@ -24,6 +24,7 @@ var sqlPresets = []sqlPreset{
 	{"sqlserver", "cloud-sql-sqlserver", "Google Cloud SQL for SQL Server", "Cloud SQL SQL Server", "sqlserver", "1433"},
 	{"postgres", "neon", "Neon", "Serverless PostgreSQL", "postgres", "5432"},
 	{"postgres", "supabase", "Supabase", "Supabase PostgreSQL", "postgres", "5432"},
+	{"postgres", "nhost", "Nhost", "Nhost PostgreSQL (PostgreSQL wire compatible)", "postgres", "5432"},
 	{"postgres", "alloydb", "Google AlloyDB", "AlloyDB for PostgreSQL", "postgres", "5432"},
 	{"postgres", "greenplum", "Greenplum", "Greenplum / Cloudberry (PostgreSQL wire)", "postgres", "5432"},
 	{"postgres", "rds-postgresql", "Amazon RDS for PostgreSQL", "RDS PostgreSQL", "postgres", "5432"},
