@@ -101,6 +101,12 @@ func (s *Server) Handler() http.Handler {
 	tenant("GET /api/v1/tenants/{tenant}/queries/{id}", s.handleSavedQueryGet)
 	tenant("PATCH /api/v1/tenants/{tenant}/queries/{id}", s.handleSavedQueryUpdate)
 	tenant("DELETE /api/v1/tenants/{tenant}/queries/{id}", s.handleSavedQueryDelete)
+	tenant("GET /api/v1/tenants/{tenant}/dashboards", s.handleDashboardsList)
+	tenant("POST /api/v1/tenants/{tenant}/dashboards", s.handleDashboardCreate)
+	tenant("GET /api/v1/tenants/{tenant}/dashboards/{id}", s.handleDashboardGet)
+	tenant("PATCH /api/v1/tenants/{tenant}/dashboards/{id}", s.handleDashboardUpdate)
+	tenant("DELETE /api/v1/tenants/{tenant}/dashboards/{id}", s.handleDashboardDelete)
+
 	tenant("GET /api/v1/tenants/{tenant}/runs", s.handleRunsList)
 	tenant("GET /api/v1/tenants/{tenant}/audit", s.handleAuditList)
 

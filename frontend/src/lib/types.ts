@@ -209,5 +209,40 @@ export interface Overview {
   tables: number
   members: number
   savedQueries: number
+  dashboards: number
   recentRuns: QueryRun[]
+}
+
+export type ChartType = "table" | "bar" | "line" | "area" | "pie" | "scatter" | "stat"
+
+export interface DashboardVisualization {
+  type: ChartType
+  x?: string
+  y?: string[]
+}
+
+export interface DashboardPanelLayout {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface DashboardPanel {
+  id: string
+  title: string
+  sql: string
+  visualization: DashboardVisualization
+  layout: DashboardPanelLayout
+}
+
+export interface Dashboard {
+  id: string
+  tenantId: string
+  name: string
+  description?: string
+  panels: DashboardPanel[]
+  createdBy: string
+  createdAt: string
+  updatedAt: string
 }

@@ -53,6 +53,7 @@ func (s *Store) Sessions() *mongo.Collection     { return s.db.Collection("sessi
 func (s *Store) OAuthStates() *mongo.Collection  { return s.db.Collection("oauthStates") }
 func (s *Store) DataSources() *mongo.Collection  { return s.db.Collection("datasources") }
 func (s *Store) SavedQueries() *mongo.Collection { return s.db.Collection("savedQueries") }
+func (s *Store) Dashboards() *mongo.Collection   { return s.db.Collection("dashboards") }
 func (s *Store) QueryRuns() *mongo.Collection    { return s.db.Collection("queryRuns") }
 func (s *Store) AuditLogs() *mongo.Collection    { return s.db.Collection("auditLogs") }
 func (s *Store) APIKeys() *mongo.Collection      { return s.db.Collection("apiKeys") }
@@ -89,6 +90,9 @@ func (s *Store) ensureIndexes(ctx context.Context) error {
 			{Keys: bson.D{{Key: "tenantId", Value: 1}, {Key: "name", Value: 1}}, Options: options.Index().SetUnique(true)},
 		}},
 		{"savedQueries", []mongo.IndexModel{
+			{Keys: bson.D{{Key: "tenantId", Value: 1}, {Key: "updatedAt", Value: -1}}},
+		}},
+		{"dashboards", []mongo.IndexModel{
 			{Keys: bson.D{{Key: "tenantId", Value: 1}, {Key: "updatedAt", Value: -1}}},
 		}},
 		{"queryRuns", []mongo.IndexModel{

@@ -345,6 +345,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	queries, _ := s.store.ListSavedQueries(r.Context(), t.ID, currentUser(r).ID, true)
 	runs, _ := s.store.ListRuns(r.Context(), t.ID, 8)
 	members, _ := s.store.ListMemberships(r.Context(), t.ID)
+	dashboards, _ := s.store.CountDashboards(r.Context(), t.ID)
 	ready := 0
 	var tables int
 	for _, d := range ds {
@@ -355,7 +356,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"dataSources": len(ds), "readyDataSources": ready, "tables": tables,
-		"members": len(members), "savedQueries": len(queries), "recentRuns": runs,
+		"members": len(members), "savedQueries": len(queries), "dashboards": dashboards, "recentRuns": runs,
 	})
 }
 

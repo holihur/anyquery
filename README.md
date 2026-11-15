@@ -61,6 +61,7 @@ FROM mongo.orders
 
 - **联邦查询**：跨数据源 JOIN（inner / left / right / full / cross / natural）、CTE、标量/IN/EXISTS 子查询、UNION/INTERSECT/EXCEPT 与窗口函数。
 - **可观测性查询**：OpenTelemetry 连接器统一查询 Tempo、Jaeger、Zipkin 的 trace/span，Loki 日志和 Prometheus 指标。
+- **Dashboard 与可视化**：把查询结果固定为可编辑 panel，支持 table、bar、line、area、pie、scatter、stat；12 列布局、拖拽排序、宽度/高度调整、自动刷新。[使用说明](docs/dashboards.md)
 - **自研 SQL 解析器**：没有依赖过时的第三方 MySQL parser；表达式、函数、语句和 pipe stage 都可以本地扩展。解析器已抽成无第三方依赖的独立 Go module：[`github.com/anyquery/anyquery/sql`](sql/README.md)。
 - **111 种注册数据源类型**：41 个原生连接器、38 个 SQL 兼容预设、32 个 REST/文件模板；完整目录见 [docs/data-sources-top100.md](docs/data-sources-top100.md)。
 - **多租户**：`workspace` 隔离数据源、查询、成员、审计与 API Key；所有资源都带 `tenantId`。
@@ -315,6 +316,11 @@ POST   /api/v1/tenants/{tenant}/queries/execute
 POST   /api/v1/tenants/{tenant}/queries/explain
 GET    /api/v1/tenants/{tenant}/queries
 POST   /api/v1/tenants/{tenant}/queries
+GET    /api/v1/tenants/{tenant}/dashboards
+POST   /api/v1/tenants/{tenant}/dashboards
+GET    /api/v1/tenants/{tenant}/dashboards/{id}
+PATCH  /api/v1/tenants/{tenant}/dashboards/{id}
+DELETE /api/v1/tenants/{tenant}/dashboards/{id}
 GET    /api/v1/tenants/{tenant}/runs
 GET    /api/v1/tenants/{tenant}/audit
 

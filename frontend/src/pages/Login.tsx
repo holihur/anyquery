@@ -311,7 +311,7 @@ export function LoginPage() {
                     title={type}
                   />
                 ))}
-                <span className="ml-1 font-mono text-[9px] text-white/25">+98</span>
+                <span className="ml-1 font-mono text-[9px] text-white/25">+105</span>
               </div>
             </div>
           </div>

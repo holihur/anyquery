@@ -9,6 +9,7 @@ import {
   ChevronsUpDown,
   Database,
   LayoutDashboard,
+  LayoutGrid,
   LogOut,
   Menu,
   Monitor,
@@ -62,6 +63,7 @@ const navGroups = [
       { to: "query", label: "Query studio", icon: SquareTerminal },
       { to: "sources", label: "Data sources", icon: Database },
       { to: "saved", label: "Saved queries", icon: Bookmark },
+      { to: "dashboards", label: "Dashboards", icon: LayoutGrid },
     ],
   },
   {

@@ -12,6 +12,7 @@ import type {
   Overview,
   QueryRun,
   Role,
+  Dashboard,
   SavedQuery,
   Tenant,
   TenantRole,
@@ -167,6 +168,25 @@ export const api = {
     }
     return payload as ExecuteResponse
   },
+
+  dashboards: (slug: string) => request<{ dashboards: Dashboard[] }>(`/tenants/${slug}/dashboards`),
+  dashboard: (slug: string, id: string) => request<Dashboard>(`/tenants/${slug}/dashboards/${id}`),
+  createDashboard: (slug: string, dashboard: { name: string; description?: string; panels?: Dashboard["panels"] }) =>
+    request<Dashboard>(`/tenants/${slug}/dashboards`, {
+      method: "POST",
+      body: JSON.stringify(dashboard),
+    }),
+  updateDashboard: (
+    slug: string,
+    id: string,
+    dashboard: { name: string; description?: string; panels: Dashboard["panels"] },
+  ) =>
+    request<Dashboard>(`/tenants/${slug}/dashboards/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(dashboard),
+    }),
+  deleteDashboard: (slug: string, id: string) =>
+    request<void>(`/tenants/${slug}/dashboards/${id}`, { method: "DELETE" }),
 
   savedQueries: (slug: string) => request<{ queries: SavedQuery[] }>(`/tenants/${slug}/queries`),
   savedQuery: (slug: string, id: string) => request<SavedQuery>(`/tenants/${slug}/queries/${id}`),

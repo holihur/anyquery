@@ -12,6 +12,8 @@ const OverviewPage = lazy(() => import("@/pages/Overview").then((m) => ({ defaul
 const QueryPage = lazy(() => import("@/pages/Query").then((m) => ({ default: m.QueryPage })))
 const DataSourcesPage = lazy(() => import("@/pages/DataSources").then((m) => ({ default: m.DataSourcesPage })))
 const SavedQueriesPage = lazy(() => import("@/pages/SavedQueries").then((m) => ({ default: m.SavedQueriesPage })))
+const DashboardsPage = lazy(() => import("@/pages/Dashboards").then((m) => ({ default: m.DashboardsPage })))
+const DashboardPage = lazy(() => import("@/pages/Dashboard").then((m) => ({ default: m.DashboardPage })))
 const TeamPage = lazy(() => import("@/pages/Team").then((m) => ({ default: m.TeamPage })))
 const ActivityPage = lazy(() => import("@/pages/ActivityPage").then((m) => ({ default: m.ActivityPage })))
 const SettingsPage = lazy(() => import("@/pages/Settings").then((m) => ({ default: m.SettingsPage })))
@@ -65,6 +67,8 @@ export default function App() {
         <Route path="query" element={<QueryPage />} />
         <Route path="sources" element={<DataSourcesPage />} />
         <Route path="saved" element={<SavedQueriesPage />} />
+        <Route path="dashboards" element={<DashboardsPage />} />
+        <Route path="dashboards/:id" element={<DashboardPage />} />
         <Route path="team" element={<TeamPage />} />
         <Route path="activity" element={<ActivityPage />} />
         <Route path="settings" element={<SettingsPage />} />

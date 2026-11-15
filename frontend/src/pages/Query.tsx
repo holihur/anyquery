@@ -5,6 +5,7 @@ import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror"
 import { sql, StandardSQL } from "@codemirror/lang-sql"
 import { keymap } from "@codemirror/view"
 import {
+  BarChart3,
   Bookmark,
   Braces,
   CheckCircle2,
@@ -33,7 +34,7 @@ import { useTenant } from "@/providers/tenant"
 import { useI18n } from "@/i18n"
 import { useTheme } from "@/providers/theme"
 import { cn, downloadCSV, formatDuration, formatNumber, relativeTime, truncate } from "@/lib/utils"
-import type { ExecuteResponse, QueryRun, QueryResult, SavedQuery } from "@/lib/types"
+import type { DashboardVisualization, ExecuteResponse, QueryRun, QueryResult, SavedQuery } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -51,6 +52,7 @@ import { SchemaExplorer, type CatalogSource } from "@/components/query/SchemaExp
 import { ResultsTable } from "@/components/query/ResultsTable"
 import { SaveQueryDialog } from "@/components/query/SaveQueryDialog"
 import { PlanView } from "@/components/query/PlanView"
+import { ChartRenderer, VisualizationBuilder } from "@/components/query/ChartRenderer"
 import { ErrorNotice } from "@/components/shared"
 
 export function QueryPage() {
@@ -61,6 +63,7 @@ export function QueryPage() {
   const queryClient = useQueryClient()
   const [params, setParams] = useSearchParams()
   const savedId = params.get("saved") || ""
+  const sqlParam = params.get("sql") || ""
   const editorRef = useRef<ReactCodeMirrorRef>(null)
   const runRef = useRef<(background?: boolean) => void>(() => {})
   const canEdit = role === "owner" || role === "admin" || role === "member"
@@ -98,6 +101,7 @@ export function QueryPage() {
   const [planLoading, setPlanLoading] = useState(false)
   const [planError, setPlanError] = useState<string | null>(null)
   const [tab, setTab] = useState("results")
+  const [chartConfig, setChartConfig] = useState<DashboardVisualization>({ type: "bar", x: "", y: [] })
   const [historyPage, setHistoryPage] = useState(0)
   const [schemaCollapsed, setSchemaCollapsed] = useState(() => localStorage.getItem("aq-schema-collapsed") === "1")
   const [schemaWidth, setSchemaWidth] = useState(() => {
@@ -162,6 +166,24 @@ export function QueryPage() {
       localStorage.setItem(draftKey, saved.sql)
     }
   }, [saved, savedId, draftKey])
+
+  useEffect(() => {
+    if (!sqlParam) return
+    setSQLText(sqlParam)
+    setCurrentSaved(null)
+    params.delete("sql")
+    setParams(params, { replace: true })
+  }, [sqlParam, params, setParams])
+
+  useEffect(() => {
+    if (!result) return
+    setChartConfig((current) => {
+      if (current.y?.length) return current
+      const numeric = result.columns.filter((c) => c.type === "integer" || c.type === "number").map((c) => c.name)
+      const category = result.columns.find((c) => !numeric.includes(c.name))?.name ?? result.columns[0]?.name ?? ""
+      return { ...current, x: current.x || category, y: numeric.filter((name) => name !== category).slice(0, 3) }
+    })
+  }, [result])
 
   useEffect(() => {
     if (sqlText) localStorage.setItem(draftKey, sqlText)
@@ -516,6 +538,9 @@ export function QueryPage() {
                     {t("Results")}
                     {lastRun && <Badge variant={lastRun.status === "success" ? "success" : "destructive"} className="px-1 py-0 text-[9px]">{lastRun.status === "success" ? formatNumber(lastRun.rowCount) : "!"}</Badge>}
                   </TabsTrigger>
+                  <TabsTrigger value="chart" className="gap-1.5 px-2.5 data-[state=active]:bg-accent/70">
+                    <BarChart3 className="size-3" /> {t("Chart")}
+                  </TabsTrigger>
                   <TabsTrigger value="history" className="gap-1.5 px-2.5 data-[state=active]:bg-accent/70">
                     {t("History")} <span className="text-[9px] text-muted-foreground">{runs.length}</span>
                   </TabsTrigger>
@@ -537,6 +562,18 @@ export function QueryPage() {
 
               <TabsContent value="results" className="mt-0 min-h-0 flex-1 overflow-hidden">
                 <ResultsTable result={result} running={running} error={error} errorCode={errorCode} errorHint={errorHint} />
+              </TabsContent>
+              <TabsContent value="chart" className="mt-0 min-h-0 flex-1 overflow-auto p-4 scrollbar-thin">
+                {result ? (
+                  <div className="space-y-3">
+                    <VisualizationBuilder columns={result.columns} config={chartConfig} onChange={setChartConfig} />
+                    <div className="h-[340px] rounded-lg border bg-card p-3">
+                      <ChartRenderer result={result} config={chartConfig} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid h-full place-items-center text-sm text-muted-foreground">{t("Run a query to visualize the result.")}</div>
+                )}
               </TabsContent>
               <TabsContent value="plan" className="mt-0 min-h-0 flex-1 overflow-hidden">
                 <PlanView plan={plan} loading={planLoading} error={planError} onRefresh={() => void explainPlan()} />

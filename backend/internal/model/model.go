@@ -125,6 +125,45 @@ type SavedQuery struct {
 	LastRunAt   *time.Time `bson:"lastRunAt,omitempty" json:"lastRunAt,omitempty"`
 }
 
+const (
+	MaxDashboardsPerWorkspace = 100
+	MaxPanelsPerDashboard     = 24
+)
+
+// DashboardPanelLayout uses a 12-column responsive grid. X/Y are stored for
+// future free-form dragging; the current UI lays panels out with W/H spans.
+type DashboardPanelLayout struct {
+	X int `bson:"x" json:"x"`
+	Y int `bson:"y" json:"y"`
+	W int `bson:"w" json:"w"`
+	H int `bson:"h" json:"h"`
+}
+
+type DashboardVisualization struct {
+	Type string   `bson:"type" json:"type"` // table, bar, line, area, pie, scatter, stat
+	X    string   `bson:"x,omitempty" json:"x,omitempty"`
+	Y    []string `bson:"y,omitempty" json:"y,omitempty"`
+}
+
+type DashboardPanel struct {
+	ID            string                 `bson:"id" json:"id"`
+	Title         string                 `bson:"title" json:"title"`
+	SQL           string                 `bson:"sql" json:"sql"`
+	Visualization DashboardVisualization `bson:"visualization" json:"visualization"`
+	Layout        DashboardPanelLayout   `bson:"layout" json:"layout"`
+}
+
+type Dashboard struct {
+	ID          string           `bson:"_id" json:"id"`
+	TenantID    string           `bson:"tenantId" json:"tenantId"`
+	Name        string           `bson:"name" json:"name"`
+	Description string           `bson:"description,omitempty" json:"description,omitempty"`
+	Panels      []DashboardPanel `bson:"panels" json:"panels"`
+	CreatedBy   string           `bson:"createdBy" json:"createdBy"`
+	CreatedAt   time.Time        `bson:"createdAt" json:"createdAt"`
+	UpdatedAt   time.Time        `bson:"updatedAt" json:"updatedAt"`
+}
+
 type QueryRun struct {
 	ID           string    `bson:"_id" json:"id"`
 	TenantID     string    `bson:"tenantId" json:"tenantId"`
