@@ -44,6 +44,7 @@ type SourceIconMeta = {
 const typeMeta: Record<string, SourceIconMeta> = {
   mongodb: { icon: Database, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10", label: "MongoDB" },
   redis: { icon: Layers, color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10", label: "Redis" },
+  memorycache: { icon: Layers, color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10", label: "Memory Cache" },
   postgres: { icon: Database, color: "text-sky-600 dark:text-sky-400", bg: "bg-sky-500/10", label: "PostgreSQL" },
   cockroachdb: { icon: Database, color: "text-indigo-600 dark:text-indigo-400", bg: "bg-indigo-500/10", label: "CockroachDB" },
   redshift: { icon: Database, color: "text-rose-600 dark:text-rose-400", bg: "bg-rose-500/10", label: "Redshift" },

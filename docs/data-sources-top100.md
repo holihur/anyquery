@@ -1,10 +1,10 @@
 # Top 100 数据源目录
 
-AnyQuery 当前注册 **104** 个数据源类型，覆盖 SQL、NoSQL、搜索、时序、REST/SaaS API 与文件。
+AnyQuery 当前注册 **105** 个数据源类型，覆盖 SQL、NoSQL、搜索、时序、REST/SaaS API 与文件。
 
 | 成熟度 | 数量 | 含义 |
 | --- | ---: | --- |
-| `native` | 35 | 独立连接器实现（含 BigQuery REST、Cassandra CQL、MongoDB、Redis、Excel/Access 等） |
+| `native` | 36 | 独立连接器实现（含 BigQuery REST、Cassandra CQL、MongoDB、Redis、Excel/Access 等） |
 | `compatible` | 37 | 复用现有驱动的兼容类型，例如 Aurora、Cloud SQL、Neon、TiDB、Starburst |
 | `template` | 32 | 基于通用 REST/CSV/JSONL 的配置模板；仍需填写真实 endpoint、认证和 records path |
 
@@ -62,11 +62,12 @@ AnyQuery 当前注册 **104** 个数据源类型，覆盖 SQL、NoSQL、搜索�
 | `yugabytedb` | native | YugabyteDB |
 | `yugabyte-cloud` | compatible | YugabyteDB Managed |
 
-## NoSQL（3）
+## NoSQL（4）
 
 | 类型 | 成熟度 | 名称 |
 | --- | --- | --- |
 | `cassandra` | native | Apache Cassandra / ScyllaDB |
+| `memorycache` | native | Memory Cache (Memcached) |
 | `mongodb` | native | MongoDB |
 | `redis` | native | Redis |
 

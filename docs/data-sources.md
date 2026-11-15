@@ -1,6 +1,6 @@
 # 数据源支持进度
 
-> 版本：MVP · 2026-11 · 共 **104** 个注册数据源类型（35 native / 37 compatible / 32 template）
+> 版本：MVP · 2026-11 · 共 **105** 个注册数据源类型（36 native / 37 compatible / 32 template）
 >
 > 完整 Top 100 目录见 [data-sources-top100.md](data-sources-top100.md)。
 > SaaS recipe 的分页/认证默认值和验证状态见 [recipes.md](recipes.md)。
@@ -56,6 +56,7 @@
 | 30 | Microsoft Excel | File | 🧪 | 首个 worksheet 表头 | 本地文件 | 行数上限 | Go 单测（.xlsx） |
 | 31 | Microsoft Access | File | 🟡 | `mdb-tables` + CSV header | 本地文件 | 行数上限 | 需 mdbtools，单测待补 |
 | 32 | GraphQL | API | 🧪 | 配置 query / 列声明 | Header（Bearer 等） | 客户端行数上限 | Go 单测 + mock endpoint |
+| 33 | Memory Cache (Memcached) | Cache | 🟡 | 固定 `entries` 列 + `metadump` 采样 | 无（text protocol） | key 前缀 + 扫描上限 | Go 单测 + mock memcached |
 
 ## 分项说明
 
@@ -210,6 +211,14 @@ GROUP BY c.name, p.category
 | JOIN 中间结果上限 | ✅（默认 2,000,000 行） |
 | 跨源谓词下推 | ⚪ Roadmap |
 | 跨源并发扫描 | ⚪ Roadmap |
+
+### Memory Cache（33）
+
+- 目标是 **Memcached text protocol**；也接受 `memcached://host:port` / `tcp://host:port` 形式的地址。
+- 暴露一张 `entries` 表：`key`、`value`、`value_type`、`value_encoding`、`flags`、`size`、`expires_at`、`last_access`、`cas`。
+- Memcached 没有 `SCAN`，连接器优先使用 `lru_crawler metadump all` 枚举 key，失败时回退到 `stats items` + `stats cachedump`。
+- `key_prefix` 过滤、`scan_limit` 硬上限、`max_value_bytes` 截断；二进制值以 base64 返回并标记 `value_encoding=base64`。
+- 只读查询；不支持 TLS/SASL，生产建议使用内网或仅暴露只读实例。Memcached 的 key 可能无法完整枚举（受 crawler/权限/版本影响），缺失 key 不会伪造数据。
 
 ## 通用限制
 

@@ -13,6 +13,7 @@ import (
 	_ "github.com/anyquery/anyquery/internal/graphql"
 	_ "github.com/anyquery/anyquery/internal/httpjson"
 	_ "github.com/anyquery/anyquery/internal/influxdb"
+	_ "github.com/anyquery/anyquery/internal/memorycache"
 	_ "github.com/anyquery/anyquery/internal/mongodb"
 	_ "github.com/anyquery/anyquery/internal/openapi"
 	"github.com/anyquery/anyquery/internal/presets"
