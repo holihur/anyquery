@@ -1,6 +1,6 @@
 # 数据源支持进度
 
-> 版本：MVP · 2026-11 · 共 **110** 个注册数据源类型（40 native / 38 compatible / 32 template）
+> 版本：MVP · 2026-11 · 共 **111** 个注册数据源类型（41 native / 38 compatible / 32 template）
 >
 > 完整 Top 100 目录见 [data-sources-top100.md](data-sources-top100.md)。
 > SaaS recipe 的分页/认证默认值和验证状态见 [recipes.md](recipes.md)。
@@ -61,6 +61,7 @@
 | 35 | Appwrite | BaaS | 🟡 | Databases collections | API key / JWT | Appwrite `limit`/`offset` queries | Go 单测 + mock REST |
 | 36 | PocketBase | BaaS | 🟡 | Collections | Admin/user token | page/perPage | Go 单测 + mock REST |
 | 37 | Parse Platform / Back4App | BaaS | 🟡 | Classes / schemas | App ID + REST key / master key / session | limit/skip | Go 单测 + mock REST |
+| 38 | OpenTelemetry | Observability | 🟡 | Tempo traces/spans; Jaeger/Zipkin spans; Loki logs; Prometheus metrics | Bearer/Basic/headers/tenant | provider-specific limit; Tempo span fan-out | Go 单测 + mock provider APIs |
 
 ## 分项说明
 
@@ -235,7 +236,27 @@ Firebase、Appwrite、PocketBase 和 Parse（含 Back4App）都是文档型应�
 - **Nhost**：复用 PostgreSQL wire 预设，连接 Nhost 的 Postgres 数据库；GraphQL 端点可用 `graphql` 连接器。
 - **Supabase**：已有 `supabase` PostgreSQL 预设；也可用 `rest`/`graphql` 连接 PostgREST/Hasura。
 
+支持安全的谓词和字段下推：Firestore 使用 structured query + `select`，Appwrite 使用 `queries[]=equal/select`，PocketBase 使用 `filter` + `fields`，Parse 使用 `where` + `keys`。不支持或可能改变语义的条件会被忽略，由引擎重新计算。系统列 `_id`、`_created_at` 等会映射回各服务的原生字段名。
+
 这些连接器只读；分页、限流和权限仍由服务端控制。不同版本的 API 响应字段可能有差异，`🟡` 表示已用 mock REST 测试但尚未用真实项目账号验证。
+
+### OpenTelemetry / Observability（38）
+
+一个连接器覆盖五类常见 OTel 查询后端，通过 `provider` 选择：
+
+| provider | 表 | 查询 API |
+| --- | --- | --- |
+| `tempo` | `traces`、`spans` | Tempo `/api/search` + `/api/traces/{id}`（OTLP JSON 展开） |
+| `jaeger` | `spans`、`services` | Jaeger `/api/traces`、`/api/services` |
+| `zipkin` | `spans`、`services` | Zipkin `/api/v2/traces`、`/api/v2/services` |
+| `loki` | `logs` | Loki `/loki/api/v1/query_range`（LogQL） |
+| `prometheus` | `metrics` | Prometheus `/api/v1/query_range`（PromQL） |
+
+统一字段包括 trace/span ID、parent span、service、kind、起止时间、duration、status、attributes、resource、events/links；Loki 提供 `timestamp/labels/line/level/fields`，Prometheus 提供 `timestamp/metric/labels/value`。支持 Bearer、Basic、自定义 headers 和 `X-Scope-OrgID` 多租户头。
+
+配置项 `query` 分别对应 TraceQL/LogQL/PromQL；Jaeger/Zipkin 可用 `service` 固定服务，留空则会发现服务并逐个查询。Tempo `spans` 需要对搜索结果逐 trace 拉取详情，`max_traces` 控制 fan-out 上限。
+
+> OTLP 是写入协议，不是查询协议；该连接器查询各后端自己的 HTTP 查询 API。
 
 ## 通用限制
 

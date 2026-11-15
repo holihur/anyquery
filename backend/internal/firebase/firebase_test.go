@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -198,6 +199,79 @@ func TestRealtimeDatabaseFetch(t *testing.T) {
 	}
 	if _, err := c.Fetch(context.Background(), connector.FetchRequest{Table: "wrong", Limit: 1}); err == nil {
 		t.Fatal("expected unknown table error")
+	}
+}
+
+func TestFirestorePushdown(t *testing.T) {
+	var query map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, ":listCollectionIds"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"collectionIds": []string{"users"}})
+		case strings.HasSuffix(r.URL.Path, ":runQuery"):
+			var body struct {
+				StructuredQuery map[string]any `json:"structuredQuery"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			query = body.StructuredQuery
+			_ = json.NewEncoder(w).Encode([]any{map[string]any{"document": map[string]any{
+				"name":   "projects/p/databases/(default)/documents/users/u1",
+				"fields": map[string]any{"name": map[string]any{"stringValue": "Ada"}},
+			}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := openFirebase(t, map[string]string{"service": "firestore", "project_id": "p", "endpoint": srv.URL + "/v1/projects/p/databases/(default)/documents"})
+	_, err := c.Fetch(context.Background(), connector.FetchRequest{
+		Table: "users", Limit: 5,
+		Columns: []string{"name", "_id"},
+		Predicates: []connector.Predicate{
+			{Column: "age", Op: "gte", Value: 18},
+			{Column: "name", Op: "eq", Value: "Ada"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	where, _ := query["where"].(map[string]any)
+	composite, _ := where["compositeFilter"].(map[string]any)
+	filters, _ := composite["filters"].([]any)
+	if len(filters) != 2 || composite["op"] != "AND" {
+		t.Fatalf("where = %#v", where)
+	}
+	sel, _ := query["select"].(map[string]any)
+	fields, _ := sel["fields"].([]any)
+	if len(fields) != 1 || fields[0].(map[string]any)["fieldPath"] != "name" {
+		t.Fatalf("select = %#v", sel)
+	}
+	if _, ok := query["limit"]; !ok {
+		t.Fatalf("limit missing: %#v", query)
+	}
+}
+
+func TestRealtimePushdown(t *testing.T) {
+	var got url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/users.json" && r.URL.Query().Get("shallow") == "true" {
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		got = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(map[string]any{"u1": map[string]any{"name": "Ada"}})
+	}))
+	defer srv.Close()
+	c := openFirebase(t, map[string]string{"service": "realtime", "database_url": srv.URL, "path": "users"})
+	_, err := c.Fetch(context.Background(), connector.FetchRequest{
+		Table: "data", Limit: 1,
+		Predicates: []connector.Predicate{{Column: "name", Op: "eq", Value: "Ada"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Get("orderBy") != `"name"` || got.Get("equalTo") != `"Ada"` || got.Get("limitToFirst") != "1" {
+		t.Fatalf("query = %v", got)
 	}
 }
 

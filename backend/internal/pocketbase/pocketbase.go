@@ -77,7 +77,7 @@ func (c *Conn) Ping(ctx context.Context) error {
 }
 
 func (c *Conn) Capabilities() connector.Capabilities {
-	return connector.Capabilities{LimitPushdown: true}
+	return connector.Capabilities{FilterPushdown: true, ProjectionPushdown: true, LimitPushdown: true}
 }
 
 func (c *Conn) Close() error { return nil }
@@ -93,7 +93,7 @@ func (c *Conn) Introspect(ctx context.Context) ([]connector.Table, error) {
 	}
 	var tables []connector.Table
 	for _, collection := range collections {
-		rows, cols, _, err := c.fetch(ctx, collection, 1)
+		rows, cols, _, err := c.fetch(ctx, collection, connector.FetchRequest{Table: collection, Limit: 1})
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +111,7 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 	if limit <= 0 {
 		limit = c.pageSize
 	}
-	rows, cols, truncated, err := c.fetch(ctx, req.Table, limit)
+	rows, cols, truncated, err := c.fetch(ctx, req.Table, connector.FetchRequest{Table: req.Table, Columns: req.Columns, Predicates: req.Predicates, Limit: limit})
 	if err != nil {
 		return nil, err
 	}
@@ -143,10 +143,13 @@ func (c *Conn) listCollections(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-func (c *Conn) fetch(ctx context.Context, collection string, limit int) ([]map[string]any, []connector.Column, bool, error) {
+func (c *Conn) fetch(ctx context.Context, collection string, req connector.FetchRequest) ([]map[string]any, []connector.Column, bool, error) {
 	if strings.TrimSpace(collection) == "" {
 		return nil, nil, false, fmt.Errorf("PocketBase collection is required")
 	}
+	limit := req.Limit
+	filter := pocketBaseFilter(req.Predicates)
+	fields := pocketBaseFields(req.Columns)
 	var rows []map[string]any
 	seen := map[string]string{}
 	page := 1
@@ -159,6 +162,12 @@ func (c *Conn) fetch(ctx context.Context, collection string, limit int) ([]map[s
 		q := url.Values{}
 		q.Set("page", strconv.Itoa(page))
 		q.Set("perPage", strconv.Itoa(perPage))
+		if filter != "" {
+			q.Set("filter", filter)
+		}
+		if fields != "" {
+			q.Set("fields", fields)
+		}
 		u := c.base + "/api/collections/" + url.PathEscape(collection) + "/records?" + q.Encode()
 		var resp struct {
 			Page       int              `json:"page"`
@@ -214,6 +223,78 @@ func (c *Conn) fetch(ctx context.Context, collection string, limit int) ([]map[s
 	}
 	truncated := total > len(rows) || (total == 0 && len(rows) >= limit)
 	return rows, columnsFor(rows, seen), truncated, nil
+}
+
+func pocketBaseFields(columns []string) string {
+	if len(columns) == 0 {
+		return ""
+	}
+	seen := map[string]bool{}
+	var names []string
+	add := func(name string) {
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	for _, column := range columns {
+		add(pocketBaseColumn(column))
+	}
+	return strings.Join(names, ",")
+}
+
+func pocketBaseFilter(predicates []connector.Predicate) string {
+	op := map[string]string{"eq": "=", "ne": "!=", "lt": "<", "lte": "<=", "gt": ">", "gte": ">="}
+	var parts []string
+	for _, p := range predicates {
+		operator, ok := op[p.Op]
+		if !ok || p.Column == "" {
+			continue
+		}
+		value, ok := pocketBaseValue(p.Value)
+		if !ok {
+			continue
+		}
+		parts = append(parts, pocketBaseColumn(p.Column)+operator+value)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " && ")
+}
+
+func pocketBaseColumn(column string) string {
+	switch strings.ToLower(column) {
+	case "_id":
+		return "id"
+	case "_created_at":
+		return "created"
+	case "_updated_at":
+		return "updated"
+	case "_collection_id":
+		return "collectionId"
+	case "_collection_name":
+		return "collectionName"
+	default:
+		return column
+	}
+}
+
+func pocketBaseValue(v any) (string, bool) {
+	switch x := v.(type) {
+	case string:
+		return strconv.Quote(x), true
+	case bool:
+		if x {
+			return "true", true
+		}
+		return "false", true
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return fmt.Sprint(x), true
+	default:
+		return "", false
+	}
 }
 
 func (c *Conn) getJSON(ctx context.Context, u string, out any) error {

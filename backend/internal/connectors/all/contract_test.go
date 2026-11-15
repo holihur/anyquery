@@ -18,7 +18,7 @@ func TestConnectorSpecContract(t *testing.T) {
 		connector.CategorySQL: true, connector.CategoryTimeSeries: true,
 		connector.CategoryNoSQL: true, connector.CategorySearch: true,
 		connector.CategoryAPI: true, connector.CategoryFile: true,
-		connector.CategoryOther: true,
+		connector.CategoryObservability: true, connector.CategoryOther: true,
 	}
 	for _, spec := range specs {
 		if strings.TrimSpace(spec.Type) == "" || strings.TrimSpace(spec.Name) == "" {

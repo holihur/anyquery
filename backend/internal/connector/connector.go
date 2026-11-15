@@ -21,14 +21,15 @@ import (
 type Category string
 
 const (
-	CategorySQL        Category = "sql"
-	CategoryTimeSeries Category = "timeseries"
-	CategoryNoSQL      Category = "nosql"
-	CategorySearch     Category = "search"
-	CategoryAPI        Category = "api"
-	CategoryFile       Category = "file"
-	CategoryOther      Category = "other"
-	CategoryAll                 = ""
+	CategorySQL           Category = "sql"
+	CategoryTimeSeries    Category = "timeseries"
+	CategoryNoSQL         Category = "nosql"
+	CategorySearch        Category = "search"
+	CategoryAPI           Category = "api"
+	CategoryFile          Category = "file"
+	CategoryObservability Category = "observability"
+	CategoryOther         Category = "other"
+	CategoryAll                    = ""
 )
 
 // FieldKind controls the form input rendered by the frontend.

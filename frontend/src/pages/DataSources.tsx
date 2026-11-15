@@ -69,6 +69,7 @@ const categories = [
   { id: "timeseries", label: "Time series" },
   { id: "nosql", label: "NoSQL" },
   { id: "search", label: "Search" },
+  { id: "observability", label: "Observability" },
   { id: "api", label: "APIs" },
   { id: "file", label: "Files" },
 ]

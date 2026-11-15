@@ -94,7 +94,7 @@ func (c *Conn) Ping(ctx context.Context) error {
 }
 
 func (c *Conn) Capabilities() connector.Capabilities {
-	return connector.Capabilities{LimitPushdown: true}
+	return connector.Capabilities{FilterPushdown: true, ProjectionPushdown: true, LimitPushdown: true}
 }
 
 func (c *Conn) Close() error { return nil }
@@ -110,7 +110,7 @@ func (c *Conn) Introspect(ctx context.Context) ([]connector.Table, error) {
 	}
 	var tables []connector.Table
 	for _, collection := range collections {
-		rows, cols, _, err := c.fetch(ctx, collection, 1)
+		rows, cols, _, err := c.fetch(ctx, collection, connector.FetchRequest{Table: collection, Limit: 1})
 		if err != nil {
 			return nil, err
 		}
@@ -128,7 +128,7 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 	if limit <= 0 {
 		limit = c.pageSize
 	}
-	rows, cols, truncated, err := c.fetch(ctx, req.Table, limit)
+	rows, cols, truncated, err := c.fetch(ctx, req.Table, connector.FetchRequest{Table: req.Table, Columns: req.Columns, Predicates: req.Predicates, Limit: limit})
 	if err != nil {
 		return nil, err
 	}
@@ -158,10 +158,11 @@ func (c *Conn) listCollections(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
-func (c *Conn) fetch(ctx context.Context, collection string, limit int) ([]map[string]any, []connector.Column, bool, error) {
+func (c *Conn) fetch(ctx context.Context, collection string, req connector.FetchRequest) ([]map[string]any, []connector.Column, bool, error) {
 	if strings.TrimSpace(collection) == "" {
 		return nil, nil, false, fmt.Errorf("Appwrite collection is required")
 	}
+	limit := req.Limit
 	var rows []map[string]any
 	seen := map[string]string{}
 	offset := 0
@@ -172,6 +173,14 @@ func (c *Conn) fetch(ctx context.Context, collection string, limit int) ([]map[s
 			pageSize = limit - len(rows)
 		}
 		q := url.Values{}
+		if selectQuery := appwriteSelect(req.Columns); selectQuery != "" {
+			q.Add("queries[]", selectQuery)
+		}
+		for _, predicate := range req.Predicates {
+			if query, ok := appwritePredicate(predicate); ok {
+				q.Add("queries[]", query)
+			}
+		}
 		q.Add("queries[]", fmt.Sprintf("limit(%d)", pageSize))
 		q.Add("queries[]", fmt.Sprintf("offset(%d)", offset))
 		u := c.base + "/databases/" + url.PathEscape(c.database) + "/collections/" + url.PathEscape(collection) + "/documents?" + q.Encode()
@@ -219,6 +228,55 @@ func (c *Conn) fetch(ctx context.Context, collection string, limit int) ([]map[s
 	}
 	truncated := (total >= 0 && total > len(rows)) || (total < 0 && len(rows) >= limit)
 	return rows, columnsFor(rows, seen), truncated, nil
+}
+
+func appwriteSelect(columns []string) string {
+	if len(columns) == 0 {
+		return ""
+	}
+	seen := map[string]bool{}
+	var names []string
+	add := func(name string) {
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		names = append(names, strconv.Quote(name))
+	}
+	for _, column := range columns {
+		add(appwriteColumn(column))
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	return "select([" + strings.Join(names, ",") + "])"
+}
+
+func appwritePredicate(p connector.Predicate) (string, bool) {
+	op := map[string]string{"eq": "equal", "ne": "notEqual", "lt": "lessThan", "lte": "lessThanEqual", "gt": "greaterThan", "gte": "greaterThanEqual"}[p.Op]
+	if op == "" || p.Column == "" {
+		return "", false
+	}
+	value, err := json.Marshal(p.Value)
+	if err != nil {
+		return "", false
+	}
+	return op + "(" + strconv.Quote(appwriteColumn(p.Column)) + "," + string(value) + ")", true
+}
+
+func appwriteColumn(column string) string {
+	switch strings.ToLower(column) {
+	case "_id":
+		return "$id"
+	case "_created_at":
+		return "$createdAt"
+	case "_updated_at":
+		return "$updatedAt"
+	case "_permissions":
+		return "$permissions"
+	default:
+		return column
+	}
 }
 
 func (c *Conn) getJSON(ctx context.Context, u string, out any) error {

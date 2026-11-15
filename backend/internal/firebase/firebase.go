@@ -143,14 +143,17 @@ func (c *Conn) Ping(ctx context.Context) error {
 }
 
 func (c *Conn) Capabilities() connector.Capabilities {
-	return connector.Capabilities{LimitPushdown: true}
+	if c.service == serviceFirestore {
+		return connector.Capabilities{FilterPushdown: true, ProjectionPushdown: true, LimitPushdown: true}
+	}
+	return connector.Capabilities{FilterPushdown: true, LimitPushdown: true}
 }
 
 func (c *Conn) Close() error { return nil }
 
 func (c *Conn) Introspect(ctx context.Context) ([]connector.Table, error) {
 	if c.service == serviceRealtime {
-		rows, cols, _, err := c.fetchRealtime(ctx, 1)
+		rows, cols, _, err := c.fetchRealtime(ctx, connector.FetchRequest{Table: c.table, Limit: 1})
 		if err != nil {
 			return nil, err
 		}
@@ -170,7 +173,7 @@ func (c *Conn) Introspect(ctx context.Context) ([]connector.Table, error) {
 	}
 	var tables []connector.Table
 	for _, collection := range collections {
-		rows, cols, _, err := c.fetchFirestore(ctx, collection, 1)
+		rows, cols, _, err := c.fetchFirestore(ctx, collection, connector.FetchRequest{Table: collection, Limit: 1})
 		if err != nil {
 			return nil, err
 		}
@@ -192,13 +195,13 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 		if req.Table != c.table {
 			return nil, fmt.Errorf("unknown table %q", req.Table)
 		}
-		rows, cols, truncated, err := c.fetchRealtime(ctx, limit)
+		rows, cols, truncated, err := c.fetchRealtime(ctx, connector.FetchRequest{Table: req.Table, Columns: req.Columns, Predicates: req.Predicates, Limit: limit})
 		if err != nil {
 			return nil, err
 		}
 		return &connector.FetchResult{Columns: cols, Rows: rows, Truncated: truncated}, nil
 	}
-	rows, cols, truncated, err := c.fetchFirestore(ctx, req.Table, limit)
+	rows, cols, truncated, err := c.fetchFirestore(ctx, req.Table, connector.FetchRequest{Table: req.Table, Columns: req.Columns, Predicates: req.Predicates, Limit: limit})
 	if err != nil {
 		return nil, err
 	}
@@ -224,9 +227,13 @@ func (c *Conn) listCollectionIDs(ctx context.Context) ([]string, error) {
 	return out.CollectionIDs, nil
 }
 
-func (c *Conn) fetchFirestore(ctx context.Context, collection string, limit int) ([]map[string]any, []connector.Column, bool, error) {
+func (c *Conn) fetchFirestore(ctx context.Context, collection string, req connector.FetchRequest) ([]map[string]any, []connector.Column, bool, error) {
 	if strings.TrimSpace(collection) == "" {
 		return nil, nil, false, fmt.Errorf("Firestore collection is required")
+	}
+	limit := req.Limit
+	if supportedFirestoreFilters(req.Predicates) {
+		return c.fetchFirestoreQuery(ctx, collection, req)
 	}
 	var rows []map[string]any
 	seen := map[string]string{}
@@ -243,6 +250,9 @@ func (c *Conn) fetchFirestore(ctx context.Context, collection string, limit int)
 		if token != "" {
 			q.Set("pageToken", token)
 		}
+		for _, field := range firestoreFieldMask(req.Columns) {
+			q.Add("mask.fieldPaths", field)
+		}
 		u := c.base + "/" + url.PathEscape(collection) + "?" + q.Encode()
 		body, _, err := c.get(ctx, u)
 		if err != nil {
@@ -256,14 +266,7 @@ func (c *Conn) fetchFirestore(ctx context.Context, collection string, limit int)
 			return nil, nil, false, fmt.Errorf("decode Firestore response: %w", err)
 		}
 		for _, doc := range resp.Documents {
-			row := map[string]any{
-				"_id":          docID(doc.Name),
-				"_create_time": parseTime(doc.CreateTime),
-				"_update_time": parseTime(doc.UpdateTime),
-			}
-			for k, v := range doc.Fields {
-				row[k] = decodeValue(v)
-			}
+			row := firestoreRow(doc)
 			addRowTypes(seen, row)
 			rows = append(rows, row)
 			if len(rows) >= limit {
@@ -361,10 +364,180 @@ func decodeValue(raw json.RawMessage) any {
 	return nil
 }
 
-func (c *Conn) fetchRealtime(ctx context.Context, limit int) ([]map[string]any, []connector.Column, bool, error) {
-	u := c.base + "/" + c.path + ".json"
+func (c *Conn) fetchFirestoreQuery(ctx context.Context, collection string, req connector.FetchRequest) ([]map[string]any, []connector.Column, bool, error) {
+	limit := req.Limit
+	var filters []any
+	for _, predicate := range req.Predicates {
+		if filter, ok := firestoreFilter(predicate); ok {
+			filters = append(filters, filter)
+		}
+	}
+	if len(filters) == 0 {
+		return c.fetchFirestore(ctx, collection, connector.FetchRequest{Table: collection, Columns: req.Columns, Limit: limit})
+	}
+	where := any(filters[0])
+	if len(filters) > 1 {
+		where = map[string]any{"compositeFilter": map[string]any{"op": "AND", "filters": filters}}
+	}
+	query := map[string]any{
+		"from":  []any{map[string]any{"collectionId": collection}},
+		"where": where,
+		"limit": limit,
+	}
+	if fields := firestoreSelect(req.Columns); len(fields) > 0 {
+		query["select"] = map[string]any{"fields": fields}
+	}
+	body, _, err := c.post(ctx, c.base+":runQuery", map[string]any{"structuredQuery": query})
+	if err != nil {
+		return nil, nil, false, err
+	}
+	var results []struct {
+		Document *firestoreDocument `json:"document"`
+	}
+	if err := json.Unmarshal(body, &results); err != nil {
+		return nil, nil, false, fmt.Errorf("decode Firestore query response: %w", err)
+	}
+	var rows []map[string]any
+	seen := map[string]string{}
+	for _, result := range results {
+		if result.Document == nil {
+			continue
+		}
+		row := firestoreRow(*result.Document)
+		addRowTypes(seen, row)
+		rows = append(rows, row)
+	}
+	return rows, columnsFor(rows, seen, baseFirestoreColumns()), len(rows) >= limit, nil
+}
+
+func firestoreFilter(p connector.Predicate) (map[string]any, bool) {
+	op := map[string]string{"eq": "EQUAL", "ne": "NOT_EQUAL", "lt": "LESS_THAN", "lte": "LESS_THAN_OR_EQUAL", "gt": "GREATER_THAN", "gte": "GREATER_THAN_OR_EQUAL"}[p.Op]
+	if op == "" || p.Column == "" || firestoreSystemColumn(p.Column) {
+		return nil, false
+	}
+	value, ok := firestoreValue(p.Value)
+	if !ok {
+		return nil, false
+	}
+	return map[string]any{"fieldFilter": map[string]any{
+		"field": map[string]any{"fieldPath": p.Column},
+		"op":    op,
+		"value": value,
+	}}, true
+}
+
+func supportedFirestoreFilters(predicates []connector.Predicate) bool {
+	for _, p := range predicates {
+		if _, ok := firestoreFilter(p); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func firestoreSystemColumn(column string) bool {
+	switch strings.ToLower(column) {
+	case "_id", "_create_time", "_update_time":
+		return true
+	default:
+		return false
+	}
+}
+
+func firestoreValue(v any) (map[string]any, bool) {
+	switch x := v.(type) {
+	case string:
+		return map[string]any{"stringValue": x}, true
+	case bool:
+		return map[string]any{"booleanValue": x}, true
+	case int:
+		return map[string]any{"integerValue": strconv.FormatInt(int64(x), 10)}, true
+	case int8:
+		return map[string]any{"integerValue": strconv.FormatInt(int64(x), 10)}, true
+	case int16:
+		return map[string]any{"integerValue": strconv.FormatInt(int64(x), 10)}, true
+	case int32:
+		return map[string]any{"integerValue": strconv.FormatInt(int64(x), 10)}, true
+	case int64:
+		return map[string]any{"integerValue": strconv.FormatInt(x, 10)}, true
+	case float32:
+		return map[string]any{"doubleValue": float64(x)}, true
+	case float64:
+		return map[string]any{"doubleValue": x}, true
+	case time.Time:
+		return map[string]any{"timestampValue": x.UTC().Format(time.RFC3339Nano)}, true
+	default:
+		return nil, false
+	}
+}
+
+func firestoreFieldMask(columns []string) []string {
+	if len(columns) == 0 {
+		return nil
+	}
+	var fields []string
+	for _, column := range columns {
+		if strings.HasPrefix(column, "_") {
+			continue
+		}
+		fields = append(fields, column)
+	}
+	return fields
+}
+
+func firestoreSelect(columns []string) []any {
+	fields := firestoreFieldMask(columns)
+	out := make([]any, 0, len(fields))
+	for _, field := range fields {
+		out = append(out, map[string]any{"fieldPath": field})
+	}
+	return out
+}
+
+func firestoreRow(doc firestoreDocument) map[string]any {
+	row := map[string]any{
+		"_id":          docID(doc.Name),
+		"_create_time": parseTime(doc.CreateTime),
+		"_update_time": parseTime(doc.UpdateTime),
+	}
+	for k, v := range doc.Fields {
+		row[k] = decodeValue(v)
+	}
+	return row
+}
+
+func firestoreJSONValue(v any) (string, bool) {
+	switch v.(type) {
+	case string, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return "", false
+		}
+		return string(data), true
+	default:
+		return "", false
+	}
+}
+
+func (c *Conn) fetchRealtime(ctx context.Context, req connector.FetchRequest) ([]map[string]any, []connector.Column, bool, error) {
+	limit := req.Limit
+	q := url.Values{}
 	if c.token != "" {
-		u += "?auth=" + url.QueryEscape(c.token)
+		q.Set("auth", c.token)
+	}
+	if limit > 0 {
+		q.Set("limitToFirst", strconv.Itoa(limit))
+	}
+	if len(req.Predicates) == 1 && req.Predicates[0].Op == "eq" && req.Predicates[0].Column != "" && !strings.EqualFold(req.Predicates[0].Column, "_key") {
+		value, ok := firestoreJSONValue(req.Predicates[0].Value)
+		if ok {
+			q.Set("orderBy", strconv.Quote(req.Predicates[0].Column))
+			q.Set("equalTo", value)
+		}
+	}
+	u := c.base + "/" + c.path + ".json"
+	if encoded := q.Encode(); encoded != "" {
+		u += "?" + encoded
 	}
 	body, _, err := c.get(ctx, u)
 	if err != nil {
@@ -436,20 +609,24 @@ func (c *Conn) get(ctx context.Context, u string) ([]byte, int, error) {
 	return c.do(req)
 }
 
-func (c *Conn) postJSON(ctx context.Context, u string, body map[string]any, out any) error {
+func (c *Conn) post(ctx context.Context, u string, body map[string]any) ([]byte, int, error) {
 	data, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(string(data)))
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
-	raw, _, err := c.do(req)
+	return c.do(req)
+}
+
+func (c *Conn) postJSON(ctx context.Context, u string, body map[string]any, out any) error {
+	raw, _, err := c.post(ctx, u, body)
 	if err != nil {
 		return err
 	}

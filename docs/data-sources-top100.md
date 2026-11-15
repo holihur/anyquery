@@ -1,10 +1,10 @@
 # Top 100 数据源目录
 
-AnyQuery 当前注册 **110** 个数据源类型，覆盖 SQL、NoSQL、搜索、时序、REST/SaaS API 与文件。
+AnyQuery 当前注册 **111** 个数据源类型，覆盖 SQL、NoSQL、搜索、可观测性、时序、REST/SaaS API 与文件。
 
 | 成熟度 | 数量 | 含义 |
 | --- | ---: | --- |
-| `native` | 40 | 独立连接器实现（含 BigQuery REST、Cassandra CQL、MongoDB、Redis、Excel/Access 等） |
+| `native` | 41 | 独立连接器实现（含 BigQuery REST、Cassandra CQL、MongoDB、Redis、Excel/Access 等） |
 | `compatible` | 38 | 复用现有驱动的兼容类型，例如 Aurora、Cloud SQL、Neon、TiDB、Starburst |
 | `template` | 32 | 基于通用 REST/CSV/JSONL 的配置模板；仍需填写真实 endpoint、认证和 records path |
 
@@ -83,6 +83,12 @@ AnyQuery 当前注册 **110** 个数据源类型，覆盖 SQL、NoSQL、搜索�
 | `sls` | native | Alibaba Cloud SLS |
 | `elasticsearch` | native | Elasticsearch |
 | `opensearch` | native | OpenSearch |
+
+## Observability（1）
+
+| 类型 | 成熟度 | 名称 |
+| --- | --- | --- |
+| `otel` | native | OpenTelemetry（Tempo / Jaeger / Zipkin / Loki / Prometheus） |
 
 ## 时序 / 日志（11）
 

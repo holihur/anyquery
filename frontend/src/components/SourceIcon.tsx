@@ -24,7 +24,7 @@ import {
   siGitlab, siGoogleanalytics, siGooglebigquery, siGooglecloud, siGooglesheets,
   siGraphql, siGreptimedb, siHubspot, siInfluxdb, siIntercom, siJira, siLinear, siMailchimp,
   siMariadb, siMixpanel, siMongodb, siMysql, siNeo4j, siNeon, siNotion,
-  siOpensearch, siPagerduty, siPlanetscale, siPostgresql, siPresto, siRedis,
+  siOpensearch, siOpentelemetry, siPagerduty, siPlanetscale, siPostgresql, siPresto, siRedis,
   siSentry, siShopify, siSinglestore, siSnowflake, siStripe, siSupabase,
   siPocketbase, siTelegram, siTimescale, siTrello, siTrino, siVitess, siX, siZendesk,
   type SimpleIcon,
@@ -83,6 +83,7 @@ const typeMeta: Record<string, SourceIconMeta> = {
   github: { icon: Globe2, color: "text-foreground", bg: "bg-muted", label: "GitHub" },
   openapi: { icon: Globe2, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10", label: "OpenAPI / Swagger" },
   parse: { icon: Braces, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10", label: "Parse Platform" },
+  otel: { brand: siOpentelemetry, color: "text-cyan-600 dark:text-cyan-400", bg: "bg-cyan-500/10", label: "OpenTelemetry" },
 }
 
 const brandMeta: Record<string, SourceIconMeta> = {

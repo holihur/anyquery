@@ -91,7 +91,7 @@ func (c *Conn) Ping(ctx context.Context) error {
 }
 
 func (c *Conn) Capabilities() connector.Capabilities {
-	return connector.Capabilities{LimitPushdown: true}
+	return connector.Capabilities{FilterPushdown: true, ProjectionPushdown: true, LimitPushdown: true}
 }
 
 func (c *Conn) Close() error { return nil }
@@ -107,7 +107,7 @@ func (c *Conn) Introspect(ctx context.Context) ([]connector.Table, error) {
 	}
 	var tables []connector.Table
 	for _, class := range classes {
-		rows, cols, _, err := c.fetch(ctx, class, 1)
+		rows, cols, _, err := c.fetch(ctx, class, connector.FetchRequest{Table: class, Limit: 1})
 		if err != nil {
 			return nil, err
 		}
@@ -125,7 +125,7 @@ func (c *Conn) Fetch(ctx context.Context, req connector.FetchRequest) (*connecto
 	if limit <= 0 {
 		limit = c.pageSize
 	}
-	rows, cols, truncated, err := c.fetch(ctx, req.Table, limit)
+	rows, cols, truncated, err := c.fetch(ctx, req.Table, connector.FetchRequest{Table: req.Table, Columns: req.Columns, Predicates: req.Predicates, Limit: limit})
 	if err != nil {
 		return nil, err
 	}
@@ -157,10 +157,13 @@ func (c *Conn) listClasses(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-func (c *Conn) fetch(ctx context.Context, class string, limit int) ([]map[string]any, []connector.Column, bool, error) {
+func (c *Conn) fetch(ctx context.Context, class string, req connector.FetchRequest) ([]map[string]any, []connector.Column, bool, error) {
 	if strings.TrimSpace(class) == "" {
 		return nil, nil, false, fmt.Errorf("Parse class is required")
 	}
+	limit := req.Limit
+	where := parseWhere(req.Predicates)
+	keys := parseKeys(req.Columns)
 	var rows []map[string]any
 	seen := map[string]string{}
 	skip := 0
@@ -174,6 +177,12 @@ func (c *Conn) fetch(ctx context.Context, class string, limit int) ([]map[string
 		q.Set("limit", strconv.Itoa(pageSize))
 		q.Set("skip", strconv.Itoa(skip))
 		q.Set("count", "1")
+		if where != "" {
+			q.Set("where", where)
+		}
+		if keys != "" {
+			q.Set("keys", keys)
+		}
 		u := c.base + "/classes/" + url.PathEscape(class) + "?" + q.Encode()
 		var resp struct {
 			Results []map[string]any `json:"results"`
@@ -222,6 +231,78 @@ func (c *Conn) fetch(ctx context.Context, class string, limit int) ([]map[string
 	}
 	truncated := total > len(rows) || (total < 0 && len(rows) >= limit)
 	return rows, columnsFor(seen), truncated, nil
+}
+
+func parseWhere(predicates []connector.Predicate) string {
+	op := map[string]string{"eq": "$eq", "ne": "$ne", "lt": "$lt", "lte": "$lte", "gt": "$gt", "gte": "$gte"}
+	var conditions []map[string]any
+	for _, p := range predicates {
+		operator, ok := op[p.Op]
+		if !ok || p.Column == "" {
+			continue
+		}
+		if _, ok := parseScalar(p.Value); !ok {
+			continue
+		}
+		conditions = append(conditions, map[string]any{parseColumn(p.Column): map[string]any{operator: p.Value}})
+	}
+	var where any
+	switch len(conditions) {
+	case 0:
+		return ""
+	case 1:
+		where = conditions[0]
+	default:
+		where = map[string]any{"$and": conditions}
+	}
+	data, err := json.Marshal(where)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func parseColumn(column string) string {
+	switch strings.ToLower(column) {
+	case "_id":
+		return "objectId"
+	case "_created_at":
+		return "createdAt"
+	case "_updated_at":
+		return "updatedAt"
+	case "_acl":
+		return "ACL"
+	default:
+		return column
+	}
+}
+
+func parseScalar(v any) (any, bool) {
+	switch x := v.(type) {
+	case string, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return x, true
+	default:
+		return nil, false
+	}
+}
+
+func parseKeys(columns []string) string {
+	if len(columns) == 0 {
+		return ""
+	}
+	seen := map[string]bool{}
+	var names []string
+	add := func(name string) {
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	for _, column := range columns {
+		add(parseColumn(column))
+	}
+	return strings.Join(names, ",")
 }
 
 func (c *Conn) getJSON(ctx context.Context, u string, out any) error {

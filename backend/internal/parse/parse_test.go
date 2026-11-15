@@ -83,6 +83,38 @@ func TestParseFetchPaginationAndTypes(t *testing.T) {
 	}
 }
 
+func TestParsePushdown(t *testing.T) {
+	var where, keys string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+			return
+		}
+		where = r.URL.Query().Get("where")
+		keys = r.URL.Query().Get("keys")
+		_ = json.NewEncoder(w).Encode(map[string]any{"count": 1, "results": []any{map[string]any{"objectId": "p1", "name": "Ada"}}})
+	}))
+	defer srv.Close()
+	c := openParse(t, map[string]string{"endpoint": srv.URL, "app_id": "app", "classes": "Post"})
+	_, err := c.Fetch(context.Background(), connector.FetchRequest{
+		Table: "Post", Limit: 5,
+		Columns: []string{"name", "_id"},
+		Predicates: []connector.Predicate{
+			{Column: "age", Op: "gte", Value: 18},
+			{Column: "name", Op: "eq", Value: "Ada"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if where != `{"$and":[{"age":{"$gte":18}},{"name":{"$eq":"Ada"}}]}` {
+		t.Fatalf("where = %q", where)
+	}
+	if keys != "name,objectId" {
+		t.Fatalf("keys = %q", keys)
+	}
+}
+
 func TestParseIntrospectSchemas(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

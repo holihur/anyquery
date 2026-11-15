@@ -18,6 +18,7 @@ import (
 	_ "github.com/anyquery/anyquery/internal/memorycache"
 	_ "github.com/anyquery/anyquery/internal/mongodb"
 	_ "github.com/anyquery/anyquery/internal/openapi"
+	_ "github.com/anyquery/anyquery/internal/otel"
 	_ "github.com/anyquery/anyquery/internal/parse"
 	_ "github.com/anyquery/anyquery/internal/pocketbase"
 	"github.com/anyquery/anyquery/internal/presets"

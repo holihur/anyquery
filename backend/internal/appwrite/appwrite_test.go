@@ -90,6 +90,40 @@ func TestAppwriteFetchPagination(t *testing.T) {
 	}
 }
 
+func TestAppwritePushdown(t *testing.T) {
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/health/version" {
+			_, _ = w.Write([]byte(`{"version":"1.6.0"}`))
+			return
+		}
+		queries = append(queries, r.URL.Query()["queries[]"]...)
+		_ = json.NewEncoder(w).Encode(map[string]any{"total": 1, "documents": []any{map[string]any{"$id": "u1", "name": "Ada"}}})
+	}))
+	defer srv.Close()
+	c := openAppwrite(t, map[string]string{"endpoint": srv.URL + "/v1", "project_id": "project", "database_id": "db"})
+	res, err := c.Fetch(context.Background(), connector.FetchRequest{
+		Table: "users", Limit: 5,
+		Columns: []string{"name", "_id"},
+		Predicates: []connector.Predicate{
+			{Column: "age", Op: "gte", Value: 18},
+			{Column: "name", Op: "eq", Value: "Ada"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Rows) != 1 {
+		t.Fatalf("rows = %+v", res.Rows)
+	}
+	joined := strings.Join(queries, "|")
+	for _, want := range []string{`select(["name","$id"])`, `greaterThanEqual("age",18)`, `equal("name","Ada")`} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("queries = %v, missing %q", queries, want)
+		}
+	}
+}
+
 func TestAppwriteIntrospectAndListCollections(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

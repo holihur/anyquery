@@ -79,6 +79,38 @@ func TestPocketBaseFetchPagination(t *testing.T) {
 	}
 }
 
+func TestPocketBasePushdown(t *testing.T) {
+	var filter, fields string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/health" {
+			_, _ = w.Write([]byte(`{"code":200}`))
+			return
+		}
+		filter = r.URL.Query().Get("filter")
+		fields = r.URL.Query().Get("fields")
+		_ = json.NewEncoder(w).Encode(map[string]any{"page": 1, "perPage": 5, "totalItems": 1, "totalPages": 1, "items": []any{map[string]any{"id": "p1", "name": "Ada"}}})
+	}))
+	defer srv.Close()
+	c := openPocketBase(t, map[string]string{"endpoint": srv.URL})
+	_, err := c.Fetch(context.Background(), connector.FetchRequest{
+		Table: "posts", Limit: 5,
+		Columns: []string{"name", "_id"},
+		Predicates: []connector.Predicate{
+			{Column: "age", Op: "gte", Value: 18},
+			{Column: "name", Op: "eq", Value: "Ada"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filter != `age>=18 && name="Ada"` {
+		t.Fatalf("filter = %q", filter)
+	}
+	if fields != "name,id" {
+		t.Fatalf("fields = %q", fields)
+	}
+}
+
 func TestPocketBaseIntrospectAndListCollections(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
