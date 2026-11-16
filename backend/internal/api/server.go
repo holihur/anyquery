@@ -48,7 +48,7 @@ func New(cfg config.Config, st *store.Store, authSvc *auth.Service) (*Server, er
 			JoinSpillRows: cfg.JoinSpillRows,
 			Timeout:       cfg.QueryTimeout,
 		}),
-		queryCache: querycache.New(cfg.QueryCacheTTL, cfg.QueryCacheMax),
+		queryCache: querycache.NewSized(cfg.QueryCacheTTL, cfg.QueryCacheMax, int64(cfg.QueryCacheMaxMB)<<20),
 		catalog:    make(map[string]catalogSnapshot),
 	}, nil
 }

@@ -274,6 +274,7 @@ AUTH_DEV_MODE=false
 | `QUERY_COST_BASED_JOIN` | `true` | 对非 `SELECT *` 的纯 INNER JOIN 基础表树启用基数贪心重排 |
 | `QUERY_CACHE_TTL_SECONDS` | `15` | 查询结果内存缓存 TTL；设为 `0` 关闭 |
 | `QUERY_CACHE_MAX_ENTRIES` | `200` | 查询缓存最大条目数（LRU） |
+| `QUERY_CACHE_MAX_MB` | `64` | 查询缓存估算结果大小上限；超过的结果不缓存 |
 | `MAX_SAVED_QUERIES` | `500` | 每个 workspace 保存查询上限 |
 | `MAX_HISTORY_RUNS` | `500` | 查询历史单次返回上限 |
 | `COOKIE_SECURE` | 由 https 推导 | 强制 Secure Cookie |

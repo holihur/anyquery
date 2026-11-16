@@ -54,6 +54,8 @@ query on a cache miss.
 
 - `QUERY_CACHE_TTL_SECONDS=0` disables the cache and coalescing.
 - `QUERY_CACHE_MAX_ENTRIES` bounds the LRU (default 200).
+- `QUERY_CACHE_MAX_MB` bounds the approximate retained row size (default 64). A
+  single oversized result is not cached.
 - Creating, editing, deleting, refreshing or re-authorizing a data source
   invalidates that workspace's cache immediately.
 - Errors are not cached. Query results are immutable snapshots; cache hits are

@@ -30,6 +30,7 @@ type Config struct {
 	CostBasedJoin   bool
 	QueryCacheTTL   time.Duration
 	QueryCacheMax   int
+	QueryCacheMaxMB int
 	MaxSavedQueries int
 	MaxHistoryRuns  int
 	EncryptionKey   []byte
@@ -67,6 +68,7 @@ func Load() (Config, error) {
 		CostBasedJoin:    envBool("QUERY_COST_BASED_JOIN", true),
 		QueryCacheTTL:    time.Duration(envInt("QUERY_CACHE_TTL_SECONDS", 15)) * time.Second,
 		QueryCacheMax:    envInt("QUERY_CACHE_MAX_ENTRIES", 200),
+		QueryCacheMaxMB:  envInt("QUERY_CACHE_MAX_MB", 64),
 		MaxSavedQueries:  envInt("MAX_SAVED_QUERIES", 500),
 		MaxHistoryRuns:   envInt("MAX_HISTORY_RUNS", 500),
 		OIDCIssuer:       strings.TrimRight(os.Getenv("OIDC_ISSUER"), "/"),
@@ -94,6 +96,9 @@ func Load() (Config, error) {
 	}
 	if c.QueryCacheMax <= 0 {
 		c.QueryCacheMax = 200
+	}
+	if c.QueryCacheMaxMB <= 0 {
+		c.QueryCacheMaxMB = 64
 	}
 	if c.MaxSavedQueries <= 0 {
 		c.MaxSavedQueries = 500

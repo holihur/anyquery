@@ -17,6 +17,7 @@ type entry struct {
 	key    string
 	value  *engine.Result
 	expiry time.Time
+	size   int64
 }
 
 type call struct {
@@ -32,18 +33,27 @@ type Cache struct {
 	mu       sync.Mutex
 	ttl      time.Duration
 	max      int
+	maxBytes int64
+	bytes    int64
 	items    map[string]*list.Element
 	lru      *list.List
 	inflight map[string]*call
 }
 
 func New(ttl time.Duration, max int) *Cache {
+	return NewSized(ttl, max, 64<<20)
+}
+
+// NewSized creates a cache with both an entry limit and a rough byte budget.
+// maxBytes <= 0 means no byte budget.
+func NewSized(ttl time.Duration, max int, maxBytes int64) *Cache {
 	if max <= 0 {
 		max = 200
 	}
 	return &Cache{
 		ttl:      ttl,
 		max:      max,
+		maxBytes: maxBytes,
 		items:    make(map[string]*list.Element),
 		lru:      list.New(),
 		inflight: make(map[string]*call),
@@ -120,16 +130,23 @@ func (c *Cache) getLocked(key string) (*engine.Result, bool) {
 }
 
 func (c *Cache) putLocked(key string, result *engine.Result) {
-	if element, ok := c.items[key]; ok {
-		item := element.Value.(*entry)
-		item.value = result
-		item.expiry = time.Now().Add(c.ttl)
-		c.lru.MoveToFront(element)
+	size := estimateResult(result)
+	if c.maxBytes > 0 && size > c.maxBytes {
 		return
 	}
-	element := c.lru.PushFront(&entry{key: key, value: result, expiry: time.Now().Add(c.ttl)})
-	c.items[key] = element
-	for c.lru.Len() > c.max {
+	if element, ok := c.items[key]; ok {
+		item := element.Value.(*entry)
+		c.bytes += size - item.size
+		item.value = result
+		item.size = size
+		item.expiry = time.Now().Add(c.ttl)
+		c.lru.MoveToFront(element)
+	} else {
+		element := c.lru.PushFront(&entry{key: key, value: result, expiry: time.Now().Add(c.ttl), size: size})
+		c.items[key] = element
+		c.bytes += size
+	}
+	for c.lru.Len() > c.max || (c.maxBytes > 0 && c.bytes > c.maxBytes) {
 		c.removeLocked(c.lru.Back())
 	}
 }
@@ -140,6 +157,10 @@ func (c *Cache) removeLocked(element *list.Element) {
 	}
 	item := element.Value.(*entry)
 	delete(c.items, item.key)
+	c.bytes -= item.size
+	if c.bytes < 0 {
+		c.bytes = 0
+	}
 	c.lru.Remove(element)
 }
 
@@ -161,6 +182,60 @@ func (c *Cache) InvalidateTenant(tenantID string) {
 		if strings.HasPrefix(key, prefix) {
 			pending.invalidated = true
 		}
+	}
+}
+
+// Bytes returns the approximate retained result size.
+func (c *Cache) Bytes() int64 {
+	if c == nil {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bytes
+}
+
+func estimateResult(result *engine.Result) int64 {
+	if result == nil {
+		return 0
+	}
+	size := int64(128)
+	for _, col := range result.Columns {
+		size += int64(len(col.Name) + len(col.Type) + 32)
+	}
+	for _, row := range result.Rows {
+		size += 96
+		for key, value := range row {
+			size += int64(len(key)) + estimateValue(value)
+		}
+	}
+	return size
+}
+
+func estimateValue(value any) int64 {
+	switch v := value.(type) {
+	case nil:
+		return 8
+	case string:
+		return int64(len(v))
+	case []byte:
+		return int64(len(v))
+	case time.Time:
+		return 24
+	case map[string]any:
+		size := int64(32)
+		for key, item := range v {
+			size += int64(len(key)) + estimateValue(item)
+		}
+		return size
+	case []any:
+		size := int64(24)
+		for _, item := range v {
+			size += estimateValue(item)
+		}
+		return size
+	default:
+		return 16
 	}
 }
 

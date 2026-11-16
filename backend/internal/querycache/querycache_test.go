@@ -135,3 +135,23 @@ func TestInvalidateDoesNotStoreInflightResult(t *testing.T) {
 		t.Fatal("inflight result was stored after invalidation")
 	}
 }
+
+func TestCacheByteBudget(t *testing.T) {
+	c := NewSized(time.Minute, 10, 512)
+	c.GetOrLoad(context.Background(), "small", func() (*engine.Result, error) {
+		return &engine.Result{Rows: []map[string]any{{"x": "y"}}}, nil
+	})
+	c.GetOrLoad(context.Background(), "large", func() (*engine.Result, error) {
+		rows := make([]map[string]any, 20)
+		for i := range rows {
+			rows[i] = map[string]any{"x": string(make([]byte, 100))}
+		}
+		return &engine.Result{Rows: rows}, nil
+	})
+	if c.Len() != 1 || c.Bytes() == 0 {
+		t.Fatalf("len=%d bytes=%d", c.Len(), c.Bytes())
+	}
+	if _, ok := c.Get("large"); ok {
+		t.Fatal("oversized result should not be cached")
+	}
+}
