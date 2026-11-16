@@ -1,8 +1,13 @@
 package api
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/anyquery/anyquery/internal/engine"
+	"github.com/anyquery/anyquery/internal/querycache"
 )
 
 func TestQueryCacheKeyIsTenantScopedAndStable(t *testing.T) {
@@ -21,5 +26,20 @@ func TestQueryCacheKeyIsTenantScopedAndStable(t *testing.T) {
 	}
 	if base == queryCacheKey("tenant-a", "SELECT 1", []any{1, "y"}) {
 		t.Fatal("cache key ignores params")
+	}
+}
+
+func TestExecuteCachedLocalHit(t *testing.T) {
+	s := &Server{
+		engine:     engine.New(engine.DefaultOptions()),
+		queryCache: querycache.New(time.Minute, 10),
+	}
+	first, hit, err := s.executeCached(context.Background(), "t", "SELECT 1", nil, nil)
+	if err != nil || hit || first == nil {
+		t.Fatalf("first=%+v hit=%v err=%v", first, hit, err)
+	}
+	second, hit, err := s.executeCached(context.Background(), "t", "SELECT 1", nil, nil)
+	if err != nil || !hit || second == nil {
+		t.Fatalf("second=%+v hit=%v err=%v", second, hit, err)
 	}
 }

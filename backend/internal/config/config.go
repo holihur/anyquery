@@ -13,29 +13,33 @@ import (
 
 // Config is the server configuration, loaded from environment variables.
 type Config struct {
-	Addr            string
-	BaseURL         string
-	WebDir          string
-	MongoURI        string
-	MongoDatabase   string
-	DevAuth         bool
-	PasswordAuth    bool
-	DemoPassword    string
-	SessionTTL      time.Duration
-	QueryTimeout    time.Duration
-	MaxSourceRows   int
-	MaxResultRows   int
-	MaxJoinRows     int
-	JoinSpillRows   int
-	CostBasedJoin   bool
-	QueryCacheTTL   time.Duration
-	QueryCacheMax   int
-	QueryCacheMaxMB int
-	MaxSavedQueries int
-	MaxHistoryRuns  int
-	EncryptionKey   []byte
-	AllowedOrigins  []string
-	CookieSecure    bool
+	Addr                  string
+	BaseURL               string
+	WebDir                string
+	MongoURI              string
+	MongoDatabase         string
+	DevAuth               bool
+	PasswordAuth          bool
+	DemoPassword          string
+	SessionTTL            time.Duration
+	QueryTimeout          time.Duration
+	MaxSourceRows         int
+	MaxResultRows         int
+	MaxJoinRows           int
+	JoinSpillRows         int
+	CostBasedJoin         bool
+	QueryCacheTTL         time.Duration
+	QueryCacheMax         int
+	QueryCacheMaxMB       int
+	QueryCacheRedisURL    string
+	QueryCacheRedisPrefix string
+	ConnectorPoolSize     int
+	ConnectorPoolIdle     time.Duration
+	MaxSavedQueries       int
+	MaxHistoryRuns        int
+	EncryptionKey         []byte
+	AllowedOrigins        []string
+	CookieSecure          bool
 
 	OIDCIssuer       string
 	OIDCClientID     string
@@ -51,31 +55,35 @@ func (c Config) OIDCEnabled() bool {
 // Load reads configuration from the environment.
 func Load() (Config, error) {
 	c := Config{
-		Addr:             env("PORT", "8080"),
-		BaseURL:          strings.TrimRight(env("APP_BASE_URL", "http://localhost:8080"), "/"),
-		WebDir:           os.Getenv("WEB_DIR"),
-		MongoURI:         env("MONGODB_URI", "mongodb://localhost:27017"),
-		MongoDatabase:    env("MONGODB_DB", "anyquery"),
-		DevAuth:          envBool("AUTH_DEV_MODE", true),
-		PasswordAuth:     envBool("AUTH_PASSWORD_MODE", true),
-		DemoPassword:     env("DEMO_ADMIN_PASSWORD", "anyquery-demo"),
-		SessionTTL:       time.Duration(envInt("SESSION_TTL_HOURS", 168)) * time.Hour,
-		QueryTimeout:     time.Duration(envInt("QUERY_TIMEOUT_SECONDS", 30)) * time.Second,
-		MaxSourceRows:    envInt("QUERY_MAX_SOURCE_ROWS", 100000),
-		MaxResultRows:    envInt("QUERY_MAX_RESULT_ROWS", 10000),
-		MaxJoinRows:      envInt("QUERY_MAX_JOIN_ROWS", 2_000_000),
-		JoinSpillRows:    envInt("QUERY_JOIN_SPILL_ROWS", 50_000),
-		CostBasedJoin:    envBool("QUERY_COST_BASED_JOIN", true),
-		QueryCacheTTL:    time.Duration(envInt("QUERY_CACHE_TTL_SECONDS", 15)) * time.Second,
-		QueryCacheMax:    envInt("QUERY_CACHE_MAX_ENTRIES", 200),
-		QueryCacheMaxMB:  envInt("QUERY_CACHE_MAX_MB", 64),
-		MaxSavedQueries:  envInt("MAX_SAVED_QUERIES", 500),
-		MaxHistoryRuns:   envInt("MAX_HISTORY_RUNS", 500),
-		OIDCIssuer:       strings.TrimRight(os.Getenv("OIDC_ISSUER"), "/"),
-		OIDCClientID:     os.Getenv("OIDC_CLIENT_ID"),
-		OIDCClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
-		OIDCRedirectURL:  os.Getenv("OIDC_REDIRECT_URL"),
-		OIDCScopes:       splitCSV(env("OIDC_SCOPES", "openid,profile,email")),
+		Addr:                  env("PORT", "8080"),
+		BaseURL:               strings.TrimRight(env("APP_BASE_URL", "http://localhost:8080"), "/"),
+		WebDir:                os.Getenv("WEB_DIR"),
+		MongoURI:              env("MONGODB_URI", "mongodb://localhost:27017"),
+		MongoDatabase:         env("MONGODB_DB", "anyquery"),
+		DevAuth:               envBool("AUTH_DEV_MODE", true),
+		PasswordAuth:          envBool("AUTH_PASSWORD_MODE", true),
+		DemoPassword:          env("DEMO_ADMIN_PASSWORD", "anyquery-demo"),
+		SessionTTL:            time.Duration(envInt("SESSION_TTL_HOURS", 168)) * time.Hour,
+		QueryTimeout:          time.Duration(envInt("QUERY_TIMEOUT_SECONDS", 30)) * time.Second,
+		MaxSourceRows:         envInt("QUERY_MAX_SOURCE_ROWS", 100000),
+		MaxResultRows:         envInt("QUERY_MAX_RESULT_ROWS", 10000),
+		MaxJoinRows:           envInt("QUERY_MAX_JOIN_ROWS", 2_000_000),
+		JoinSpillRows:         envInt("QUERY_JOIN_SPILL_ROWS", 50_000),
+		CostBasedJoin:         envBool("QUERY_COST_BASED_JOIN", true),
+		QueryCacheTTL:         time.Duration(envInt("QUERY_CACHE_TTL_SECONDS", 15)) * time.Second,
+		QueryCacheMax:         envInt("QUERY_CACHE_MAX_ENTRIES", 200),
+		QueryCacheMaxMB:       envInt("QUERY_CACHE_MAX_MB", 64),
+		QueryCacheRedisURL:    strings.TrimSpace(os.Getenv("QUERY_CACHE_REDIS_URL")),
+		QueryCacheRedisPrefix: env("QUERY_CACHE_REDIS_PREFIX", "anyquery:q:"),
+		ConnectorPoolSize:     envInt("CONNECTOR_POOL_SIZE", 4),
+		ConnectorPoolIdle:     time.Duration(envInt("CONNECTOR_POOL_IDLE_SECONDS", 300)) * time.Second,
+		MaxSavedQueries:       envInt("MAX_SAVED_QUERIES", 500),
+		MaxHistoryRuns:        envInt("MAX_HISTORY_RUNS", 500),
+		OIDCIssuer:            strings.TrimRight(os.Getenv("OIDC_ISSUER"), "/"),
+		OIDCClientID:          os.Getenv("OIDC_CLIENT_ID"),
+		OIDCClientSecret:      os.Getenv("OIDC_CLIENT_SECRET"),
+		OIDCRedirectURL:       os.Getenv("OIDC_REDIRECT_URL"),
+		OIDCScopes:            splitCSV(env("OIDC_SCOPES", "openid,profile,email")),
 	}
 	if c.WebDir == "" {
 		for _, candidate := range []string{"frontend/dist", "../frontend/dist", "web", "../web"} {
@@ -99,6 +107,12 @@ func Load() (Config, error) {
 	}
 	if c.QueryCacheMaxMB <= 0 {
 		c.QueryCacheMaxMB = 64
+	}
+	if c.ConnectorPoolSize <= 0 {
+		c.ConnectorPoolSize = 4
+	}
+	if c.ConnectorPoolIdle <= 0 {
+		c.ConnectorPoolIdle = 5 * time.Minute
 	}
 	if c.MaxSavedQueries <= 0 {
 		c.MaxSavedQueries = 500

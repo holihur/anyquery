@@ -16,6 +16,7 @@ const DashboardsPage = lazy(() => import("@/pages/Dashboards").then((m) => ({ de
 const DashboardPage = lazy(() => import("@/pages/Dashboard").then((m) => ({ default: m.DashboardPage })))
 const TeamPage = lazy(() => import("@/pages/Team").then((m) => ({ default: m.TeamPage })))
 const ActivityPage = lazy(() => import("@/pages/ActivityPage").then((m) => ({ default: m.ActivityPage })))
+const PerformancePage = lazy(() => import("@/pages/Performance").then((m) => ({ default: m.PerformancePage })))
 const SettingsPage = lazy(() => import("@/pages/Settings").then((m) => ({ default: m.SettingsPage })))
 const NotFoundPage = lazy(() => import("@/pages/NotFound").then((m) => ({ default: m.NotFoundPage })))
 
@@ -71,6 +72,7 @@ export default function App() {
         <Route path="dashboards/:id" element={<DashboardPage />} />
         <Route path="team" element={<TeamPage />} />
         <Route path="activity" element={<ActivityPage />} />
+        <Route path="performance" element={<PerformancePage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />

@@ -10,6 +10,7 @@ import type {
   Invite,
   Member,
   Overview,
+  PerformanceSnapshot,
   QueryRun,
   Role,
   Dashboard,
@@ -98,6 +99,10 @@ export const api = {
   updateTenant: (slug: string, name: string) =>
     request<Tenant>(`/tenants/${slug}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   overview: (slug: string) => request<Overview>(`/tenants/${slug}/overview`),
+  metrics: (slug: string) =>
+    request<{ metrics: PerformanceSnapshot; cache: { enabled: boolean; entries: number; bytes: number; mode?: string; idleConnectors?: number }; scope: string }>(
+      `/tenants/${slug}/metrics`,
+    ),
 
   members: (slug: string) =>
     request<{ members: Member[]; invites?: Invite[]; role: Role }>(`/tenants/${slug}/members`),

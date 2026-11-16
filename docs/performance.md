@@ -56,6 +56,17 @@ query on a cache miss.
 - `QUERY_CACHE_MAX_ENTRIES` bounds the LRU (default 200).
 - `QUERY_CACHE_MAX_MB` bounds the approximate retained row size (default 64). A
   single oversized result is not cached.
+- Set `QUERY_CACHE_REDIS_URL` to enable a shared L2 cache. Keys are scoped by a
+  per-tenant Redis generation counter; invalidation increments the generation,
+  so all instances stop reading stale entries without requiring pub/sub.
+  The local LRU remains the L1 cache.
+- `GET /api/v1/tenants/{tenant}/metrics` exposes query count, cache hit rate,
+  p50/p95, scanned rows, local cache bytes and idle pooled connectors to admins.
+- Connectors are pooled after use (`CONNECTOR_POOL_SIZE` per source, idle TTL
+  `CONNECTOR_POOL_IDLE_SECONDS`). Leases are exclusive, so non-concurrency-safe
+  connectors are never used by two queries at once.
+- `GET /dashboards/{id}/run/stream` provides the same panel execution as SSE
+  (`panel` events, then `done`) for progressive dashboards.
 - Creating, editing, deleting, refreshing or re-authorizing a data source
   invalidates that workspace's cache immediately.
 - Errors are not cached. Query results are immutable snapshots; cache hits are

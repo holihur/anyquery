@@ -16,28 +16,40 @@ import (
 
 	"github.com/anyquery/anyquery/internal/auth"
 	"github.com/anyquery/anyquery/internal/config"
+	"github.com/anyquery/anyquery/internal/connectorpool"
 	"github.com/anyquery/anyquery/internal/cryptox"
 	"github.com/anyquery/anyquery/internal/engine"
+	"github.com/anyquery/anyquery/internal/metrics"
 	"github.com/anyquery/anyquery/internal/model"
 	"github.com/anyquery/anyquery/internal/querycache"
 	"github.com/anyquery/anyquery/internal/store"
 )
 
 type Server struct {
-	cfg        config.Config
-	store      *store.Store
-	auth       *auth.Service
-	engine     *engine.Engine
-	queryCache *querycache.Cache
-	catalogMu  sync.Mutex
-	catalog    map[string]catalogSnapshot
-	key        *cryptox.Key
+	cfg           config.Config
+	store         *store.Store
+	auth          *auth.Service
+	engine        *engine.Engine
+	queryCache    *querycache.Cache
+	sharedCache   *querycache.Redis
+	connectorPool *connectorpool.Pool
+	metrics       *metrics.Registry
+	catalogMu     sync.Mutex
+	catalog       map[string]catalogSnapshot
+	key           *cryptox.Key
 }
 
 func New(cfg config.Config, st *store.Store, authSvc *auth.Service) (*Server, error) {
 	key, err := cryptox.NewKey(cfg.EncryptionKey)
 	if err != nil {
 		return nil, err
+	}
+	var shared *querycache.Redis
+	if cfg.QueryCacheRedisURL != "" && cfg.QueryCacheTTL > 0 {
+		shared, err = querycache.NewRedis(cfg.QueryCacheRedisURL, cfg.QueryCacheRedisPrefix, cfg.QueryCacheTTL, int64(cfg.QueryCacheMaxMB)<<20)
+		if err != nil {
+			return nil, fmt.Errorf("redis query cache: %w", err)
+		}
 	}
 	return &Server{
 		cfg: cfg, store: st, auth: authSvc, key: key,
@@ -48,8 +60,11 @@ func New(cfg config.Config, st *store.Store, authSvc *auth.Service) (*Server, er
 			JoinSpillRows: cfg.JoinSpillRows,
 			Timeout:       cfg.QueryTimeout,
 		}),
-		queryCache: querycache.NewSized(cfg.QueryCacheTTL, cfg.QueryCacheMax, int64(cfg.QueryCacheMaxMB)<<20),
-		catalog:    make(map[string]catalogSnapshot),
+		queryCache:    querycache.NewSized(cfg.QueryCacheTTL, cfg.QueryCacheMax, int64(cfg.QueryCacheMaxMB)<<20),
+		sharedCache:   shared,
+		connectorPool: connectorpool.New(cfg.ConnectorPoolSize, cfg.ConnectorPoolIdle),
+		metrics:       metrics.New(),
+		catalog:       make(map[string]catalogSnapshot),
 	}, nil
 }
 
@@ -81,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 	tenant("GET /api/v1/tenants/{tenant}", s.handleTenantGet)
 	tenant("PATCH /api/v1/tenants/{tenant}", s.handleTenantUpdate)
 	tenant("GET /api/v1/tenants/{tenant}/overview", s.handleOverview)
+	tenant("GET /api/v1/tenants/{tenant}/metrics", s.handleMetrics)
 
 	tenant("GET /api/v1/tenants/{tenant}/members", s.handleMembersList)
 	tenant("PATCH /api/v1/tenants/{tenant}/members/{userID}", s.handleMemberUpdate)
@@ -112,6 +128,7 @@ func (s *Server) Handler() http.Handler {
 	tenant("POST /api/v1/tenants/{tenant}/dashboards", s.handleDashboardCreate)
 	tenant("GET /api/v1/tenants/{tenant}/dashboards/{id}", s.handleDashboardGet)
 	tenant("POST /api/v1/tenants/{tenant}/dashboards/{id}/run", s.handleDashboardRun)
+	tenant("GET /api/v1/tenants/{tenant}/dashboards/{id}/run/stream", s.handleDashboardRunStream)
 	tenant("PATCH /api/v1/tenants/{tenant}/dashboards/{id}", s.handleDashboardUpdate)
 	tenant("DELETE /api/v1/tenants/{tenant}/dashboards/{id}", s.handleDashboardDelete)
 
@@ -228,6 +245,15 @@ func (s *Server) requireTenant(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func (s *Server) Close() {
+	if s.connectorPool != nil {
+		s.connectorPool.CloseIdle()
+	}
+	if s.sharedCache != nil {
+		_ = s.sharedCache.Close()
+	}
+}
+
 type catalogSnapshot struct {
 	dataSources []model.DataSource
 	expires     time.Time
@@ -259,6 +285,12 @@ func (s *Server) listTenantSources(ctx context.Context, tenantID string) ([]mode
 func (s *Server) invalidateQueryCache(tenantID string) {
 	if s.queryCache != nil {
 		s.queryCache.InvalidateTenant(tenantID)
+	}
+	if s.sharedCache != nil {
+		_ = s.sharedCache.InvalidateTenant(context.Background(), tenantID)
+	}
+	if s.connectorPool != nil {
+		s.connectorPool.InvalidateTenant(tenantID)
 	}
 	s.catalogMu.Lock()
 	delete(s.catalog, tenantID)

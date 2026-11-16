@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import {
   Activity,
+  Gauge,
   Globe2,
   Bookmark,
   ChevronDown,
@@ -71,6 +72,7 @@ const navGroups = [
     items: [
       { to: "team", label: "Team", icon: Users },
       { to: "activity", label: "Activity", icon: Activity },
+      { to: "performance", label: "Performance", icon: Gauge },
     ],
   },
   {

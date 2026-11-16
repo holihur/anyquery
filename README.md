@@ -61,7 +61,8 @@ FROM mongo.orders
 
 - **联邦查询**：跨数据源 JOIN（inner / left / right / full / cross / natural）、CTE、标量/IN/EXISTS 子查询、UNION/INTERSECT/EXCEPT 与窗口函数。
 - **可观测性查询**：OpenTelemetry 连接器统一查询 Tempo、Jaeger、Zipkin 的 trace/span，Loki 日志和 Prometheus 指标。
-- **Dashboard 与可视化**：把查询结果固定为可编辑 panel，支持 table、bar、line、area、pie、scatter、stat；12 列布局、拖拽排序、宽度/高度调整、自动刷新。[使用说明](docs/dashboards.md)
+- **Dashboard 与可视化**：把查询结果固定为可编辑 panel，支持 table、bar、line、area、pie、scatter、stat；12 列布局、拖拽排序、宽度/高度调整、自动刷新、批量/SSE 执行。[使用说明](docs/dashboards.md)
+- **性能页**：管理员可查看查询量、缓存命中率、P50/P95、扫描行数、缓存占用和连接池状态。
 - **自研 SQL 解析器**：没有依赖过时的第三方 MySQL parser；表达式、函数、语句和 pipe stage 都可以本地扩展。解析器已抽成无第三方依赖的独立 Go module：[`github.com/anyquery/anyquery/sql`](sql/README.md)。
 - **111 种注册数据源类型**：41 个原生连接器、38 个 SQL 兼容预设、32 个 REST/文件模板；完整目录见 [docs/data-sources-top100.md](docs/data-sources-top100.md)。
 - **多租户**：`workspace` 隔离数据源、查询、成员、审计与 API Key；所有资源都带 `tenantId`。
@@ -275,6 +276,10 @@ AUTH_DEV_MODE=false
 | `QUERY_CACHE_TTL_SECONDS` | `15` | 查询结果内存缓存 TTL；设为 `0` 关闭 |
 | `QUERY_CACHE_MAX_ENTRIES` | `200` | 查询缓存最大条目数（LRU） |
 | `QUERY_CACHE_MAX_MB` | `64` | 查询缓存估算结果大小上限；超过的结果不缓存 |
+| `QUERY_CACHE_REDIS_URL` | — | 可选 Redis 共享缓存，例如 `redis://localhost:6379/0` |
+| `QUERY_CACHE_REDIS_PREFIX` | `anyquery:q:` | Redis 缓存 key 前缀 |
+| `CONNECTOR_POOL_SIZE` | `4` | 每个数据源保留的空闲连接数 |
+| `CONNECTOR_POOL_IDLE_SECONDS` | `300` | 空闲连接回收时间 |
 | `MAX_SAVED_QUERIES` | `500` | 每个 workspace 保存查询上限 |
 | `MAX_HISTORY_RUNS` | `500` | 查询历史单次返回上限 |
 | `COOKIE_SECURE` | 由 https 推导 | 强制 Secure Cookie |
@@ -324,6 +329,7 @@ GET    /api/v1/tenants/{tenant}/dashboards
 POST   /api/v1/tenants/{tenant}/dashboards
 GET    /api/v1/tenants/{tenant}/dashboards/{id}
 POST   /api/v1/tenants/{tenant}/dashboards/{id}/run
+GET    /api/v1/tenants/{tenant}/dashboards/{id}/run/stream
 PATCH  /api/v1/tenants/{tenant}/dashboards/{id}
 DELETE /api/v1/tenants/{tenant}/dashboards/{id}
 GET    /api/v1/tenants/{tenant}/runs

@@ -64,7 +64,9 @@ func (c *tenantCatalog) Open(ctx context.Context, name string) (connector.Connec
 		if err != nil {
 			return nil, fmt.Errorf("decrypt credentials: %w", err)
 		}
-		conn, err := connector.Open(ctx, ds.Type, cfg)
+		conn, err := c.server.connectorPool.Acquire(ctx, c.tenantID, ds.ID, func(ctx context.Context) (connector.Connector, error) {
+			return connector.Open(ctx, ds.Type, cfg)
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -78,6 +80,35 @@ func (c *tenantCatalog) Close() {
 	for _, conn := range c.opened {
 		_ = conn.Close()
 	}
+}
+
+// executeCached applies L1 local cache plus an optional generation-scoped
+// Redis L2. Invalidation increments the tenant generation, so other processes
+// stop reading old entries without a pub/sub dependency.
+func (s *Server) executeCached(ctx context.Context, tenantID, sqlText string, params []any, cat engine.Catalog) (*engine.Result, bool, error) {
+	if s.queryCache == nil || !s.queryCache.Enabled() {
+		result, err := s.engine.ExecuteParams(ctx, sqlText, params, cat)
+		return result, false, err
+	}
+	base := queryCacheKey(tenantID, sqlText, params)
+	localKey := base
+	remoteKey := ""
+	if s.sharedCache != nil && s.sharedCache.Enabled() {
+		if generation, err := s.sharedCache.Generation(ctx, tenantID); err == nil {
+			remoteKey = s.sharedCache.Key(tenantID, generation, base)
+			if result, ok, err := s.sharedCache.GetKey(ctx, remoteKey); err == nil && ok {
+				return result, true, nil
+			}
+			localKey = fmt.Sprintf("%s\x00g%d", base, generation)
+		}
+	}
+	result, hit, err := s.queryCache.GetOrLoad(ctx, localKey, func() (*engine.Result, error) {
+		return s.engine.ExecuteParams(ctx, sqlText, params, cat)
+	})
+	if err == nil && result != nil && !hit && remoteKey != "" {
+		_ = s.sharedCache.SetKey(ctx, remoteKey, result)
+	}
+	return result, hit, err
 }
 
 func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
@@ -125,17 +156,14 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	cat := &tenantCatalog{server: s, tenantID: t.ID, opened: map[string]connector.Connector{}}
 	defer cat.Close()
 	start := time.Now()
-	cacheHit := false
-	var res *engine.Result
-	var execErr error
-	if s.queryCache.Enabled() {
-		res, cacheHit, execErr = s.queryCache.GetOrLoad(r.Context(), queryCacheKey(t.ID, sqlText, body.Params), func() (*engine.Result, error) {
-			return s.engine.ExecuteParams(r.Context(), sqlText, body.Params, cat)
-		})
-	} else {
-		res, execErr = s.engine.ExecuteParams(r.Context(), sqlText, body.Params, cat)
+	res, cacheHit, execErr := s.executeCached(r.Context(), t.ID, sqlText, body.Params, cat)
+	elapsed := time.Since(start)
+	duration := elapsed.Milliseconds()
+	scanned := 0
+	if res != nil {
+		scanned = res.Stats.Scanned
 	}
-	duration := time.Since(start).Milliseconds()
+	s.metrics.Observe(t.ID, elapsed, scanned, cacheHit, execErr != nil)
 	run := &model.QueryRun{
 		ID: store.NewID(), TenantID: t.ID, UserID: currentUser(r).ID,
 		SavedQueryID: body.SavedQueryID, SQL: sqlText, Sources: []string{},

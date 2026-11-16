@@ -260,3 +260,16 @@ export interface DashboardRunResponse {
   dashboardId: string
   panels: DashboardPanelRun[]
 }
+
+export interface PerformanceSnapshot {
+  total: number
+  success: number
+  errors: number
+  cacheHits: number
+  cacheMisses: number
+  cacheHitPct: number
+  scannedRows: number
+  p50Ms: number
+  p95Ms: number
+  uptimeSec: number
+}

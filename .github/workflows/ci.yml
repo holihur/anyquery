@@ -134,6 +134,8 @@ jobs:
       AUTH_DEV_MODE: "true"
       QUERY_TIMEOUT_SECONDS: "30"
       MAX_SAVED_QUERIES: "10"
+      QUERY_CACHE_REDIS_URL: redis://127.0.0.1:6379/0
+      QUERY_CACHE_REDIS_PREFIX: "anyquery:ci:"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -639,6 +641,9 @@ jobs:
           status, second = call("POST", f"/tenants/acme/dashboards/{did}/run")
           assert status == 200, (status, second)
           assert all(p.get("cacheHit") for p in second["panels"]), second
+          status, perf = call("GET", "/tenants/acme/metrics")
+          assert status == 200, (status, perf)
+          assert perf["metrics"]["total"] > 0 and perf["cache"]["enabled"], perf
           status, _ = call("DELETE", f"/tenants/acme/dashboards/{did}")
           assert status == 204, status
           print("dashboard batch + cache verified")

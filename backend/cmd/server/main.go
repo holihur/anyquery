@@ -38,6 +38,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("api: %v", err)
 	}
+	defer srv.Close()
 	httpSrv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           srv.Handler(),

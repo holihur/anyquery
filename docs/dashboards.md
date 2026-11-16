@@ -69,7 +69,9 @@ The PATCH endpoint replaces the dashboard metadata and the complete panel
 array. The UI persists panel add/edit/delete/reorder changes immediately.
 
 `POST /dashboards/{id}/run` executes every panel in one request with a
-six-panel server-side concurrency limit. It returns one result/error per panel,
+six-panel server-side concurrency limit. `GET /dashboards/{id}/run/stream`
+exposes the same execution as server-sent events (`panel` events followed by a
+`done` event) for progressive rendering. It returns one result/error per panel,
 uses the tenant query cache and singleflight, and never writes dashboard
 refreshes to query history. The UI uses this endpoint for the grid and manual
 refresh.
