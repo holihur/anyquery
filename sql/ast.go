@@ -593,12 +593,59 @@ func quoteIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
+var reservedIdentifiers = map[string]bool{
+	"ABSENT": true, "AFTER": true, "AGGREGATE": true, "ALL": true, "AND": true,
+	"ANY": true, "ARRAY": true, "AS": true, "ASC": true, "ASYMMETRIC": true,
+	"AT": true, "BETWEEN": true, "BOTH": true, "BY": true, "CASE": true,
+	"CAST": true, "COLUMNS": true, "CONDITIONAL": true, "CROSS": true,
+	"CUBE": true, "CURRENT": true, "CURRENT_DATE": true, "CURRENT_TIME": true,
+	"CURRENT_TIMESTAMP": true, "DATABASES": true, "DATE": true, "DATETIME": true,
+	"DAY": true, "DEFAULT": true, "DEFINE": true, "DESC": true, "DESCRIBE": true,
+	"DISTINCT": true, "ELSE": true, "EMPTY": true, "END": true, "ERROR": true,
+	"ESCAPE": true, "EXCEPT": true, "EXCLUDE": true, "EXISTS": true, "EXPLAIN": true,
+	"EXTRACT": true, "FALSE": true, "FETCH": true, "FILTER": true, "FINAL": true,
+	"FIRST": true, "FOLLOWING": true, "FOR": true, "FORMAT": true, "FROM": true,
+	"FULL": true, "GROUP": true, "GROUPING": true, "GROUPS": true, "HAVING": true,
+	"HOUR": true, "IGNORE": true, "ILIKE": true, "IN": true, "INNER": true,
+	"INTERSECT": true, "INTERVAL": true, "IS": true, "JOIN": true, "JSON": true,
+	"JSON_TABLE": true, "KEEP": true, "KEY": true, "KEYS": true, "LAST": true,
+	"LATERAL": true, "LEADING": true, "LEFT": true, "LIKE": true, "LIMIT": true,
+	"LOCAL": true, "LOCALTIME": true, "LOCALTIMESTAMP": true, "MATCH": true,
+	"MATCHES": true, "MATCH_RECOGNIZE": true, "MEASURES": true, "MINUTE": true,
+	"MONTH": true, "NATURAL": true, "NESTED": true, "NEXT": true, "NO": true,
+	"NOT": true, "NOW": true, "NULL": true, "NULLS": true, "OBJECT": true,
+	"OFFSET": true, "OMIT": true, "ON": true, "ONE": true, "ONLY": true,
+	"ORDER": true, "ORDINALITY": true, "OTHERS": true, "OUTER": true, "OVER": true,
+	"OVERLAPS": true, "OVERLAY": true, "PARTITION": true, "PASSING": true,
+	"PAST": true, "PATH": true, "PATTERN": true, "PER": true, "PERCENT": true,
+	"PERMUTE": true, "PLACING": true, "PLAN": true, "POSITION": true,
+	"PRECEDING": true, "PRECISION": true, "QUOTES": true, "RANGE": true,
+	"RECURSIVE": true, "REGEXP": true, "REPEATABLE": true, "RESPECT": true,
+	"RETURNING": true, "RIGHT": true, "ROLLUP": true, "ROW": true, "ROWS": true,
+	"RUNNING": true, "SCALAR": true, "SECOND": true, "SELECT": true, "SETS": true,
+	"SHOW": true, "SIMILAR": true, "SKIP": true, "SOME": true, "SOURCES": true,
+	"SUBSET": true, "SUBSTR": true, "SUBSTRING": true, "SYMMETRIC": true,
+	"SYSTEM_TIME": true, "TABLE": true, "TABLES": true, "TABLESAMPLE": true,
+	"THEN": true, "TIES": true, "TIME": true, "TIMESTAMP": true,
+	"TIMESTAMPTZ": true, "TO": true, "TRAILING": true, "TRIM": true,
+	"TRUE": true, "TRY_CAST": true, "UNBOUNDED": true, "UNCONDITIONAL": true,
+	"UNION": true, "UNIQUE": true, "UNKNOWN": true, "UNMATCHED": true,
+	"USING": true, "VALUE": true, "VALUES": true, "VARCHAR": true,
+	"VARYING": true, "WHEN": true, "WHERE": true, "WINDOW": true,
+	"WITH": true, "WITHIN": true, "WITHOUT": true, "WRAPPER": true,
+	"YEAR": true, "ZONE": true, "OR": true,
+}
+
 // FormatIdent quotes an identifier when needed. It accepts the same
 // identifier character set as the lexer (Unicode letters, digits, underscore
-// and dollar), but an identifier may not start with a digit.
+// and dollar), but an identifier may not start with a digit. Reserved words
+// must be quoted so format -> parse round-trips remain valid.
 func FormatIdent(s string) string {
 	if s == "" {
 		return `""`
+	}
+	if reservedIdentifiers[strings.ToUpper(s)] {
+		return quoteIdent(s)
 	}
 	for i, r := range s {
 		ok := r == '_' || r == '$' || unicode.IsLetter(r)
