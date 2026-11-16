@@ -568,9 +568,11 @@ jobs:
                                            headers={"Content-Type": "application/json"})
               try:
                   res = opener.open(req)
-                  return res.status, json.load(res)
+                  raw = res.read()
+                  return res.status, json.loads(raw) if raw else {}
               except urllib.error.HTTPError as exc:
-                  return exc.code, json.load(exc)
+                  raw = exc.read()
+                  return exc.code, json.loads(raw) if raw else {}
 
           status, _ = call("POST", "/auth/dev-login", {"email": "admin@anyquery.dev"})
           assert status == 200, status
@@ -611,9 +613,11 @@ jobs:
                                            headers={"Content-Type": "application/json"})
               try:
                   res = opener.open(req)
-                  return res.status, json.load(res)
+                  raw = res.read()
+                  return res.status, json.loads(raw) if raw else {}
               except urllib.error.HTTPError as exc:
-                  return exc.code, json.load(exc)
+                  raw = exc.read()
+                  return exc.code, json.loads(raw) if raw else {}
 
           status, _ = call("POST", "/auth/dev-login", {"email": "admin@anyquery.dev"})
           assert status == 200, status
