@@ -111,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	tenant("GET /api/v1/tenants/{tenant}/dashboards", s.handleDashboardsList)
 	tenant("POST /api/v1/tenants/{tenant}/dashboards", s.handleDashboardCreate)
 	tenant("GET /api/v1/tenants/{tenant}/dashboards/{id}", s.handleDashboardGet)
+	tenant("POST /api/v1/tenants/{tenant}/dashboards/{id}/run", s.handleDashboardRun)
 	tenant("PATCH /api/v1/tenants/{tenant}/dashboards/{id}", s.handleDashboardUpdate)
 	tenant("DELETE /api/v1/tenants/{tenant}/dashboards/{id}", s.handleDashboardDelete)
 

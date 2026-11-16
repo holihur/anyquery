@@ -323,6 +323,7 @@ POST   /api/v1/tenants/{tenant}/queries
 GET    /api/v1/tenants/{tenant}/dashboards
 POST   /api/v1/tenants/{tenant}/dashboards
 GET    /api/v1/tenants/{tenant}/dashboards/{id}
+POST   /api/v1/tenants/{tenant}/dashboards/{id}/run
 PATCH  /api/v1/tenants/{tenant}/dashboards/{id}
 DELETE /api/v1/tenants/{tenant}/dashboards/{id}
 GET    /api/v1/tenants/{tenant}/runs

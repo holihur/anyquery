@@ -1,7 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
 import { ExternalLink, GripVertical, Loader2, Pencil, RefreshCw, TriangleAlert, Trash2 } from "lucide-react"
 import { Link } from "react-router-dom"
-import { api } from "@/lib/api"
 import { cn, formatDuration, formatNumber, truncate } from "@/lib/utils"
 import type { DashboardPanel, QueryResult } from "@/lib/types"
 import { ChartRenderer, ChartTypeLabel } from "@/components/query/ChartRenderer"
@@ -11,7 +9,12 @@ export function DashboardPanelCard({
   slug,
   panel,
   editMode,
-  refreshInterval,
+  result,
+  error,
+  loading,
+  refreshing,
+  cacheHit,
+  onRefresh,
   onEdit,
   onDelete,
   onDragStart,
@@ -20,21 +23,17 @@ export function DashboardPanelCard({
   slug: string
   panel: DashboardPanel
   editMode: boolean
-  refreshInterval: number
+  result?: QueryResult
+  error?: string | null
+  loading: boolean
+  refreshing: boolean
+  cacheHit?: boolean
+  onRefresh: () => void
   onEdit: () => void
   onDelete: () => void
   onDragStart: () => void
   onDrop: () => void
 }) {
-  const { data, isLoading, isFetching, error, refetch } = useQuery({
-    queryKey: ["dashboard-panel", slug, panel.id, panel.sql],
-    queryFn: () => api.execute(slug, panel.sql, undefined, undefined, true),
-    retry: false,
-    staleTime: 0,
-    refetchInterval: refreshInterval > 0 ? refreshInterval : false,
-  })
-  const result: QueryResult | undefined = data?.result
-  const queryError = data?.error?.message || (error instanceof Error ? error.message : null)
 
   return (
     <article
@@ -65,8 +64,8 @@ export function DashboardPanelCard({
         </div>
         <span className="hidden shrink-0 rounded border bg-muted/40 px-1.5 py-0.5 text-[9px] text-muted-foreground sm:inline">{ChartTypeLabel(panel.visualization.type)}</span>
         <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-          <Button variant="ghost" size="icon-xs" onClick={() => void refetch()} title="Refresh panel">
-            {isFetching ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+          <Button variant="ghost" size="icon-xs" onClick={onRefresh} title="Refresh dashboard">
+            {refreshing ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
           </Button>
           {editMode && (
             <>
@@ -78,12 +77,12 @@ export function DashboardPanelCard({
       </header>
 
       <div className="min-h-0 flex-1 p-2.5">
-        {isLoading ? (
+        {loading ? (
           <div className="grid h-full place-items-center"><Loader2 className="size-4 animate-spin text-muted-foreground" /></div>
-        ) : queryError ? (
+        ) : error ? (
           <div className="flex h-full flex-col justify-center rounded-md bg-destructive/5 px-3 text-[11px] text-destructive">
             <div className="flex items-center gap-1.5 font-medium"><TriangleAlert className="size-3.5" /> Panel query failed</div>
-            <div className="mt-1 line-clamp-3 text-destructive/75">{queryError}</div>
+            <div className="mt-1 line-clamp-3 text-destructive/75">{error}</div>
           </div>
         ) : result ? (
           <ChartRenderer result={result} config={panel.visualization} />
@@ -98,6 +97,7 @@ export function DashboardPanelCard({
             <span>{formatNumber(result.rowCount)} rows</span>
             <span className="size-0.5 rounded-full bg-current" />
             <span>{formatDuration(result.stats.durationMs)}</span>
+            {cacheHit && <span className="rounded border bg-muted/50 px-1 text-[8.5px]">cached</span>}
             {result.warnings?.length ? <span className="ml-auto text-warning">truncated</span> : null}
           </>
         ) : <span className="truncate">{truncate(panel.sql.replace(/\s+/g, " "), 90)}</span>}

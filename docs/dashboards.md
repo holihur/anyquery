@@ -60,9 +60,16 @@ bounded queries (`LIMIT`, filters or rollups).
 GET    /api/v1/tenants/{tenant}/dashboards
 POST   /api/v1/tenants/{tenant}/dashboards
 GET    /api/v1/tenants/{tenant}/dashboards/{id}
+POST   /api/v1/tenants/{tenant}/dashboards/{id}/run
 PATCH  /api/v1/tenants/{tenant}/dashboards/{id}
 DELETE /api/v1/tenants/{tenant}/dashboards/{id}
 ```
 
 The PATCH endpoint replaces the dashboard metadata and the complete panel
 array. The UI persists panel add/edit/delete/reorder changes immediately.
+
+`POST /dashboards/{id}/run` executes every panel in one request with a
+six-panel server-side concurrency limit. It returns one result/error per panel,
+uses the tenant query cache and singleflight, and never writes dashboard
+refreshes to query history. The UI uses this endpoint for the grid and manual
+refresh.

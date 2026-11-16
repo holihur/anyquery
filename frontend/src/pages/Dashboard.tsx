@@ -89,6 +89,35 @@ export function DashboardPage() {
     setSettingsDescription(data.description ?? "")
   }, [data])
 
+  const panelsKey = dashboard?.panels.map((panel) => `${panel.id}\x00${panel.sql}`).join("\x01") ?? ""
+  const run = useQuery({
+    queryKey: ["dashboard-run", tenant.slug, id, panelsKey],
+    queryFn: async () => {
+      try {
+        return await api.runDashboard(tenant.slug, id)
+      } catch (err) {
+        // Rolling upgrades: an older backend may not have the batch endpoint.
+        if (!(err instanceof ApiError) || err.status !== 404 || !dashboard) throw err
+        const panels = await Promise.all(dashboard.panels.map(async (panel) => {
+          const payload = await api.execute(tenant.slug, panel.sql)
+          return {
+            id: panel.id,
+            result: payload.result,
+            error: payload.error,
+            durationMs: payload.run?.durationMs ?? 0,
+            cacheHit: payload.run?.cacheHit,
+          }
+        }))
+        return { dashboardId: id, panels }
+      }
+    },
+    enabled: Boolean(id && dashboard && dashboard.panels.length > 0),
+    retry: false,
+    staleTime: 0,
+    refetchInterval: refreshMs > 0 ? refreshMs : false,
+  })
+  const panelRuns = new Map((run.data?.panels ?? []).map((panel) => [panel.id, panel]))
+
   const saveMutation = useMutation({
     mutationFn: (next: Dashboard) =>
       api.updateDashboard(tenant.slug, next.id, { name: next.name, description: next.description, panels: next.panels }),
@@ -186,8 +215,8 @@ export function DashboardPage() {
                 <SelectTrigger size="sm" className="h-8 w-[104px] text-[11px]"><RefreshCw className="size-3.5" /><SelectValue /></SelectTrigger>
                 <SelectContent>{REFRESH_OPTIONS.map((option) => <SelectItem key={option.value} value={String(option.value)}>{option.label}</SelectItem>)}</SelectContent>
               </Select>
-              <Button variant="outline" size="sm" onClick={() => void queryClient.invalidateQueries({ queryKey: ["dashboard-panel", tenant.slug] })}>
-                <RefreshCw className="size-3.5" /> Refresh
+              <Button variant="outline" size="sm" onClick={() => void run.refetch()} disabled={run.isFetching}>
+                <RefreshCw className={run.isFetching ? "size-3.5 animate-spin" : "size-3.5"} /> Refresh
               </Button>
               {canEdit && (
                 <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
@@ -237,7 +266,12 @@ export function DashboardPage() {
                   slug={tenant.slug}
                   panel={panel}
                   editMode={editMode}
-                  refreshInterval={refreshMs}
+                  result={panelRuns.get(panel.id)?.result}
+                  error={panelRuns.get(panel.id)?.error?.message || (run.error instanceof Error ? run.error.message : null)}
+                  loading={run.isLoading && !run.data}
+                  refreshing={run.isFetching}
+                  cacheHit={panelRuns.get(panel.id)?.cacheHit}
+                  onRefresh={() => void run.refetch()}
                   onEdit={() => openEditPanel(panel)}
                   onDelete={() => setDeletingPanel(panel)}
                   onDragStart={() => setDragged(panel.id)}

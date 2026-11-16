@@ -593,6 +593,53 @@ jobs:
           print("saved query limit verified:", info["usage"], info["limits"])
           PY
 
+      - name: Dashboard batch execution
+        run: |
+          python3 - <<'PY'
+          import http.cookiejar
+          import json
+          import urllib.error
+          import urllib.request
+
+          base = "http://localhost:8080/api/v1"
+          jar = http.cookiejar.CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+          def call(method, path, payload=None):
+              data = json.dumps(payload).encode() if payload is not None else None
+              req = urllib.request.Request(base + path, data=data, method=method,
+                                           headers={"Content-Type": "application/json"})
+              try:
+                  res = opener.open(req)
+                  return res.status, json.load(res)
+              except urllib.error.HTTPError as exc:
+                  return exc.code, json.load(exc)
+
+          status, _ = call("POST", "/auth/dev-login", {"email": "admin@anyquery.dev"})
+          assert status == 200, status
+          sql = "SELECT region, count(*) AS orders FROM mongo.orders GROUP BY region"
+          status, dashboard = call("POST", "/tenants/acme/dashboards", {
+              "name": "ci-batch-dashboard",
+              "description": "batch/cache smoke",
+              "panels": [
+                  {"id": "p1", "title": "one", "sql": sql, "visualization": {"type": "bar", "x": "region", "y": ["orders"]}, "layout": {"x": 0, "y": 0, "w": 6, "h": 4}},
+                  {"id": "p2", "title": "two", "sql": sql, "visualization": {"type": "table"}, "layout": {"x": 6, "y": 0, "w": 6, "h": 4}},
+              ],
+          })
+          assert status == 201, (status, dashboard)
+          did = dashboard["id"]
+          status, first = call("POST", f"/tenants/acme/dashboards/{did}/run")
+          assert status == 200, (status, first)
+          assert len(first["panels"]) == 2, first
+          assert all(p.get("result", {}).get("rowCount", 0) > 0 for p in first["panels"]), first
+          status, second = call("POST", f"/tenants/acme/dashboards/{did}/run")
+          assert status == 200, (status, second)
+          assert all(p.get("cacheHit") for p in second["panels"]), second
+          status, _ = call("DELETE", f"/tenants/acme/dashboards/{did}")
+          assert status == 204, status
+          print("dashboard batch + cache verified")
+          PY
+
       - name: server log
         if: failure()
         run: cat /tmp/anyquery-server.log || true

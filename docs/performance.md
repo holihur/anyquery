@@ -63,8 +63,10 @@ query on a cache miss.
 - Tenant source-catalog snapshots are held for 5 seconds while caching is
   enabled, avoiding a MongoDB read per dashboard panel. Data-source mutations
   invalidate the snapshot immediately.
-- Dashboard panel and editor-preview queries send `skipHistory: true`; their
-  results are cached but they do not write a query-run document per refresh.
+- Dashboard panels run through one batch endpoint with bounded server-side
+  concurrency (6), instead of one HTTP request per panel.
+- Dashboard refreshes use the batch endpoint, which does not write query-run
+  documents. The UI falls back to per-panel execution against older backends.
 - Results are not invalidated by changes made directly in the source database;
   tune the TTL for freshness. Non-deterministic expressions such as
   `CURRENT_TIMESTAMP` share the cache window.

@@ -13,6 +13,7 @@ import type {
   QueryRun,
   Role,
   Dashboard,
+  DashboardRunResponse,
   SavedQuery,
   Tenant,
   TenantRole,
@@ -159,7 +160,7 @@ export const api = {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sql, savedQueryId, params, skipHistory }),
+      body: JSON.stringify({ sql, savedQueryId, params, ...(skipHistory ? { skipHistory: true } : {}) }),
     })
     const text = await res.text()
     const payload = text ? JSON.parse(text) : {}
@@ -187,6 +188,8 @@ export const api = {
     }),
   deleteDashboard: (slug: string, id: string) =>
     request<void>(`/tenants/${slug}/dashboards/${id}`, { method: "DELETE" }),
+  runDashboard: (slug: string, id: string) =>
+    request<DashboardRunResponse>(`/tenants/${slug}/dashboards/${id}/run`, { method: "POST" }),
 
   savedQueries: (slug: string) => request<{ queries: SavedQuery[] }>(`/tenants/${slug}/queries`),
   savedQuery: (slug: string, id: string) => request<SavedQuery>(`/tenants/${slug}/queries/${id}`),

@@ -247,3 +247,16 @@ export interface Dashboard {
   createdAt: string
   updatedAt: string
 }
+
+export interface DashboardPanelRun {
+  id: string
+  result?: QueryResult
+  error?: { code: string; message: string; hint?: string }
+  durationMs: number
+  cacheHit?: boolean
+}
+
+export interface DashboardRunResponse {
+  dashboardId: string
+  panels: DashboardPanelRun[]
+}
