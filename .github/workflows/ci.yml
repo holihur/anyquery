@@ -644,6 +644,8 @@ jobs:
           status, perf = call("GET", "/tenants/acme/metrics")
           assert status == 200, (status, perf)
           assert perf["metrics"]["total"] > 0 and perf["cache"]["enabled"], perf
+          stream = opener.open(base + f"/tenants/acme/dashboards/{did}/run/stream").read().decode()
+          assert "event: panel" in stream and "event: done" in stream, stream
           status, _ = call("DELETE", f"/tenants/acme/dashboards/{did}")
           assert status == 204, status
           print("dashboard batch + cache verified")

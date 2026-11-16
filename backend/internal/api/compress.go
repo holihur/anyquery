@@ -37,7 +37,8 @@ func (w *gzipResponseWriter) Flush() {
 
 func (s *Server) compress(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if skipCompression(r.URL.Path) {
+		// SSE must be flushed immediately and is already a streaming protocol.
+		if skipCompression(r.URL.Path) || strings.HasSuffix(r.URL.Path, "/run/stream") {
 			next.ServeHTTP(w, r)
 			return
 		}

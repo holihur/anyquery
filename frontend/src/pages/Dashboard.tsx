@@ -128,6 +128,10 @@ export function DashboardPage() {
         if (!old?.dashboards) return old
         return { dashboards: old.dashboards.map((item) => (item.id === updated.id ? updated : item)) }
       })
+      // A panel edit changes local state before the PATCH completes. Reference
+      // the persisted dashboard once more so the run key observes the new
+      // panel list instead of racing the empty/old document.
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-run", tenant.slug, id] })
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not save dashboard"),
   })
